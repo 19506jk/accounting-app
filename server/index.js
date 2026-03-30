@@ -4,12 +4,14 @@ const express = require('express');
 const helmet  = require('helmet');
 const cors    = require('cors');
 
-const authRoutes     = require('./routes/auth');
-const userRoutes     = require('./routes/users');
-const fundRoutes     = require('./routes/funds');
-const accountRoutes  = require('./routes/accounts');
-const contactRoutes  = require('./routes/contacts');
-const settingRoutes  = require('./routes/settings');
+const authRoutes            = require('./routes/auth');
+const userRoutes            = require('./routes/users');
+const fundRoutes            = require('./routes/funds');
+const accountRoutes         = require('./routes/accounts');
+const contactRoutes         = require('./routes/contacts');
+const settingRoutes         = require('./routes/settings');
+const transactionRoutes     = require('./routes/transactions');
+const reconciliationRoutes  = require('./routes/reconciliation');
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -28,12 +30,14 @@ app.get('/api/health', (_req, res) => {
 });
 
 // ── Routes ───────────────────────────────────────────────────────────────────
-app.use('/api/auth',     authRoutes);
-app.use('/api/users',    userRoutes);
-app.use('/api/funds',    fundRoutes);
-app.use('/api/accounts', accountRoutes);
-app.use('/api/contacts', contactRoutes);
-app.use('/api/settings', settingRoutes);
+app.use('/api/auth',            authRoutes);
+app.use('/api/users',           userRoutes);
+app.use('/api/funds',           fundRoutes);
+app.use('/api/accounts',        accountRoutes);
+app.use('/api/contacts',        contactRoutes);
+app.use('/api/settings',        settingRoutes);
+app.use('/api/transactions',    transactionRoutes);
+app.use('/api/reconciliations', reconciliationRoutes);
 
 // ── 404 handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {
