@@ -43,40 +43,23 @@ async function calcBalance(reconciliationId, openingBalance, accountType) {
  * Build the summary counts for a reconciliation.
  */
 async function calcSummary(reconciliationId) {
-  const items = await db('rec_items as ri')
+  const stats = await db('rec_items as ri')
     .join('journal_entries as je', 'je.id', 'ri.journal_entry_id')
     .where('ri.reconciliation_id', reconciliationId)
     .select(
-      'ri.is_cleared',
-      db.raw('COALESCE(SUM(je.debit),  0) AS total_debits'),
-      db.raw('COALESCE(SUM(je.credit), 0) AS total_credits'),
-      db.raw('COUNT(ri.id) AS item_count'),
+      db.raw('COUNT(*) as total_items'),
+      db.raw('COUNT(*) FILTER (WHERE ri.is_cleared = true) as cleared_items'),
+      db.raw('COALESCE(SUM(je.debit)  FILTER (WHERE ri.is_cleared = true), 0) as cleared_debits'),
+      db.raw('COALESCE(SUM(je.credit) FILTER (WHERE ri.is_cleared = true), 0) as cleared_credits')
     )
-    .groupBy('ri.is_cleared');
-
-  let totalItems      = 0;
-  let clearedItems    = 0;
-  let unclearedItems  = 0;
-  let clearedDebits   = dec(0);
-  let clearedCredits  = dec(0);
-
-  for (const row of items) {
-    totalItems += parseInt(row.item_count, 10);
-    if (row.is_cleared) {
-      clearedItems   = parseInt(row.item_count, 10);
-      clearedDebits  = dec(row.total_debits);
-      clearedCredits = dec(row.total_credits);
-    } else {
-      unclearedItems = parseInt(row.item_count, 10);
-    }
-  }
+    .first();
 
   return {
-    total_items:     totalItems,
-    cleared_items:   clearedItems,
-    uncleared_items: unclearedItems,
-    cleared_debits:  parseFloat(clearedDebits.toFixed(2)),
-    cleared_credits: parseFloat(clearedCredits.toFixed(2)),
+    total_items:     parseInt(stats.total_items, 10),
+    cleared_items:   parseInt(stats.cleared_items, 10),
+    uncleared_items: parseInt(stats.total_items) - parseInt(stats.cleared_items),
+    cleared_debits:  parseFloat(dec(stats.cleared_debits).toFixed(2)),
+    cleared_credits: parseFloat(dec(stats.cleared_credits).toFixed(2)),
   };
 }
 
@@ -85,17 +68,17 @@ async function calcSummary(reconciliationId) {
  * and insert them as rec_items (skipping any already present).
  */
 async function loadItems(trx, reconciliationId, accountId, statementDate) {
-  const entries = await (trx || db)('journal_entries as je')
-    .join('transactions as t', 't.id', 'je.transaction_id')
-    .where('je.account_id',    accountId)
-    .where('je.is_reconciled', false)
-    .where('t.date', '<=', statementDate)
-    .whereNotExists(
-      db('rec_items')
-        .where('rec_items.reconciliation_id', reconciliationId)
-        .whereRaw('rec_items.journal_entry_id = je.id')
-    )
-    .select('je.id');
+const entries = await (trx || db)('journal_entries as je')
+  .join('transactions as t', 't.id', 'je.transaction_id')
+  .leftJoin('rec_items as ri', function() {
+    this.on('ri.journal_entry_id', '=', 'je.id')
+        .andOn('ri.reconciliation_id', '=', db.raw('?', [reconciliationId]));
+  })
+  .where('je.account_id', accountId)
+  .where('je.is_reconciled', false)
+  .where('t.date', '<=', statementDate)
+  .whereNull('ri.id') // Only entries not already in this reconciliation
+  .select('je.id');
 
   if (entries.length === 0) return 0;
 
@@ -262,6 +245,12 @@ router.post('/', requireRole('admin', 'editor'), async (req, res, next) => {
       .where({ account_id, is_closed: true })
       .orderBy('statement_date', 'desc')
       .first();
+
+    if (lastClosed && new Date(statement_date) <= new Date(lastClosed.statement_date)) {
+      return res.status(400).json({
+        error: `Statement date must be after the last closed reconciliation (${lastClosed.statement_date})`
+      });
+    }
 
     if (lastClosed) {
       const expectedOpening = dec(lastClosed.statement_balance);
