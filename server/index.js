@@ -12,6 +12,7 @@ const contactRoutes         = require('./routes/contacts');
 const settingRoutes         = require('./routes/settings');
 const transactionRoutes     = require('./routes/transactions');
 const reconciliationRoutes  = require('./routes/reconciliation');
+const reportRoutes          = require('./routes/reports');
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -38,6 +39,7 @@ app.use('/api/contacts',        contactRoutes);
 app.use('/api/settings',        settingRoutes);
 app.use('/api/transactions',    transactionRoutes);
 app.use('/api/reconciliations', reconciliationRoutes);
+app.use('/api/reports',         reportRoutes);
 
 // ── 404 handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {
