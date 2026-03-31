@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!--
+      Content Security Policy
+      Restricts script execution to same-origin + Google OAuth only.
+      Prevents XSS attacks from stealing the JWT stored in localStorage.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self';
+        script-src  'self' https://accounts.google.com 'unsafe-inline';
+        style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src    'self' https://fonts.gstatic.com;
+        frame-src   https://accounts.google.com;
+        connect-src 'self' https://oauth2.googleapis.com https://accounts.google.com;
+        img-src     'self' data: https://lh3.googleusercontent.com;
+      "
+    />
+
+    <link rel="icon" type="image/svg+xml" href="/church.svg" />
+    <title>Church Accounting</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
