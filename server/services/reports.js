@@ -313,10 +313,10 @@ async function getDonorSummary({ from, to, fundId }) {
   const rows = await db('transactions as t')
     .join('journal_entries as je', 'je.transaction_id', 't.id')
     .join('accounts as a',         'a.id',              'je.account_id')
-    .join('contacts as c',         'c.id',              't.contact_id')
+    .join('contacts as c',         'c.id',              'je.contact_id')
     .where('a.type',    'INCOME')
     .where('je.credit', '>', 0)
-    .whereNotNull('t.contact_id')
+    .whereNotNull('je.contact_id')
     .modify((q) => {
       if (from)   q.where('t.date', '>=', from);
       if (to)     q.where('t.date', '<=', to);
@@ -339,7 +339,7 @@ async function getDonorSummary({ from, to, fundId }) {
     .join('accounts as a',         'a.id',              'je.account_id')
     .where('a.type',    'INCOME')
     .where('je.credit', '>', 0)
-    .whereNull('t.contact_id')
+    .whereNull('je.contact_id')
     .modify((q) => {
       if (from)   q.where('t.date', '>=', from);
       if (to)     q.where('t.date', '<=', to);
@@ -412,7 +412,7 @@ async function getDonorDetail({ from, to, fundId, contactId }) {
     const contact = await db('contacts').where({ id: contactId }).first();
     if (!contact) return { donors: [], anonymous: null, grand_total: 0 };
 
-    const transactions = await donationQuery().where('t.contact_id', contactId);
+    const transactions = await donationQuery().where('je.contact_id', contactId);
     const total = transactions.reduce((sum, tx) => sum.plus(dec(tx.amount)), dec(0));
 
     return {
@@ -432,15 +432,15 @@ async function getDonorDetail({ from, to, fundId, contactId }) {
 
   // All donors with donations in this period
   const contactIds = await donationQuery()
-    .whereNotNull('t.contact_id')
-    .distinct('t.contact_id as id');
+    .whereNotNull('je.contact_id')
+    .distinct('je.contact_id as id');
 
   const donors   = [];
   let grandTotal = dec(0);
 
   for (const { id } of contactIds) {
     const contact      = await db('contacts').where({ id }).first();
-    const transactions = await donationQuery().where('t.contact_id', id);
+    const transactions = await donationQuery().where('je.contact_id', id);
     const total        = transactions.reduce((sum, tx) => sum.plus(dec(tx.amount)), dec(0));
     grandTotal         = grandTotal.plus(total);
 
@@ -459,7 +459,7 @@ async function getDonorDetail({ from, to, fundId, contactId }) {
   donors.sort((a, b) => b.total - a.total);
 
   // Anonymous transactions
-  const anonTransactions = await donationQuery().whereNull('t.contact_id');
+  const anonTransactions = await donationQuery().whereNull('je.contact_id');
   const anonTotal        = anonTransactions.reduce((sum, tx) => sum.plus(dec(tx.amount)), dec(0));
   grandTotal             = grandTotal.plus(anonTotal);
 
