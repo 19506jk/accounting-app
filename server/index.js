@@ -18,9 +18,22 @@ const app  = express();
 const PORT = process.env.PORT || 4000;
 
 // ── Security & parsing middleware ────────────────────────────────────────────
-app.use(helmet());
+app.use(helmet({
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "script-src": ["'self'", "https://accounts.google.com"],
+      "frame-src": ["'self'", "https://accounts.google.com"],
+      "connect-src": ["'self'", "https://accounts.google.com"],
+    },
+  },
+}));
 app.use(cors({
-  origin:      process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  origin: [
+    process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+    'https://openclaw.tail8f0744.ts.net'
+  ],
   credentials: true,
 }));
 app.use(express.json());
