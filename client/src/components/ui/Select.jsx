@@ -11,7 +11,7 @@ export default function Select({
   const selectId = id || label?.toLowerCase().replace(/\s+/g, '_');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', ...style }}>
+    <div style={{ display: 'flex', flexDirection: 'column', ...(label && { gap: '0.3rem' }), ...style }}>
       {label && (
         <label
           htmlFor={selectId}
@@ -35,6 +35,7 @@ export default function Select({
           width:        '100%',
           boxSizing:    'border-box',
           cursor:       'pointer',
+          minHeight:    '36px',
         }}
       >
         {placeholder && (

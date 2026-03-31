@@ -83,7 +83,7 @@ export default function Combobox({
 
       {open && (
         <div ref={listRef} style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 500,
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000,
           background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px',
           boxShadow: '0 4px 16px rgba(0,0,0,0.1)', maxHeight: '220px',
           overflowY: 'auto', marginTop: '2px',

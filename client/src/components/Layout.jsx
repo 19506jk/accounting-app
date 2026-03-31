@@ -7,6 +7,7 @@ const NAV_LINKS = [
   { to: '/accounts',       label: '📒 Chart of Accounts' },
   { to: '/funds',          label: '🏦 Funds' },
   { to: '/contacts',       label: '👥 Contacts' },
+  { to: '/bills',          label: '📄 Bills' },
   { to: '/transactions',   label: '💳 Transactions' },
   { to: '/reconciliation', label: '✅ Reconciliation' },
   { to: '/reports',        label: '📈 Reports' },

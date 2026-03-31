@@ -39,6 +39,7 @@ async function nextEquityCode(trx) {
 /**
  * Calculate the current balance of a fund's net asset account.
  * Balance = SUM(credit) - SUM(debit) on EQUITY accounts for this fund.
+ * Excludes voided transactions.
  */
 async function fundBalance(fundId) {
   const result = await db('journal_entries as je')
@@ -46,6 +47,7 @@ async function fundBalance(fundId) {
     .join('accounts as a',     'a.id', 'je.account_id')
     .where('je.fund_id', fundId)
     .where('a.type',     'EQUITY')
+    .where('t.is_voided', false)  // Exclude voided transactions
     .select(
       db.raw('COALESCE(SUM(je.credit), 0) - COALESCE(SUM(je.debit), 0) AS balance')
     )

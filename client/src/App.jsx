@@ -11,6 +11,7 @@ import Dashboard       from './pages/Dashboard';
 import ChartOfAccounts from './pages/ChartOfAccounts';
 import Funds           from './pages/Funds';
 import Contacts        from './pages/Contacts';
+import Bills           from './pages/Bills';
 import Transactions    from './pages/Transactions';
 import Reconciliation  from './pages/Reconciliation';
 import Reports         from './pages/Reports';
@@ -42,6 +43,7 @@ function AppRoutes() {
         <Route path="/accounts"       element={<ChartOfAccounts />} />
         <Route path="/funds"          element={<Funds />} />
         <Route path="/contacts"       element={<Contacts />} />
+        <Route path="/bills"          element={<Bills />} />
         <Route path="/transactions"   element={<Transactions />} />
         <Route path="/reconciliation" element={<Reconciliation />} />
         <Route path="/reports"        element={<Reports />} />
