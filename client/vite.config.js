@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    allowedHosts: ['openclaw.tail8f0744.ts.net'],
+    allowedHosts: ['endian-server.tail8f0744.ts.net'],
     host: '0.0.0.0',
     proxy: {
       // All /api requests proxied to Express during development.

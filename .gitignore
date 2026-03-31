@@ -1,3 +1,4 @@
 node_modules/
 .env
 ecosystem.config.js
+server/db/seeds/data/accounts.json

@@ -1,39 +1,35 @@
+const fs = require('fs');
+const path = require('path');
+
 /**
  * Seed — Chart of Accounts
- *
- * Pre-loads the standard church accounts so the app is useful on day one.
- * Accounts are inserted in code-order within each type.
- *
- * To re-run safely: existing accounts (matched by code) are left untouched.
+ * Loads data from a private JSON file if available to protect sensitive chart details.
  */
-
-const ACCOUNTS = [
-  // ── ASSETS ──────────────────────────────────────────────────────────────
-  { code: '1000', name: 'Checking Account',    type: 'ASSET' },
-  { code: '1010', name: 'Savings Account',     type: 'ASSET' },
-  { code: '1020', name: 'Petty Cash',          type: 'ASSET' },
-
-  // ── LIABILITIES ─────────────────────────────────────────────────────────
-  { code: '2000', name: 'Accounts Payable',        type: 'LIABILITY' },
-  { code: '2010', name: 'Designated Funds Held',   type: 'LIABILITY' },
-
-  // ── EQUITY ──────────────────────────────────────────────────────────────
-  { code: '3090', name: 'Building Fund',       type: 'EQUITY' },
-
-  // ── INCOME ──────────────────────────────────────────────────────────────
-  { code: '4001', name: 'Regular Offering',        type: 'INCOME' },
-  { code: '4101', name: 'Collection - Retreat',    type: 'INCOME' },
-  { code: '4105', name: 'Collection - Sunday Meals', type: 'INCOME' },
-  { code: '4301', name: 'Missionary Funds',        type: 'INCOME' },
-  { code: '4401', name: 'Retreat Offering',        type: 'INCOME' },
-  { code: '4801', name: 'Bank Interest',           type: 'INCOME' },
-
-  // ── EXPENSES ────────────────────────────────────────────────────────────
-  { code: '5052', name: 'Gas Subsidies',       type: 'EXPENSE' },
-  { code: '5111', name: 'Retreat Food',        type: 'EXPENSE' },
-];
-
 exports.seed = async function (knex) {
+  const dataPath = path.join(__dirname, 'data/accounts.json');
+  
+  // 1. Define fallback "Example" accounts for GitHub/Public use
+  let ACCOUNTS = [
+    { code: '1000', name: 'General Checking', type: 'ASSET' },
+    { code: '3000', name: 'Net Assets',       type: 'EQUITY' },
+    { code: '4001', name: 'General Offering', type: 'INCOME' },
+    { code: '5001', name: 'General Expense',  type: 'EXPENSE' }
+  ];
+
+  // 2. Try to load the private data from the git-ignored JSON file
+  if (fs.existsSync(dataPath)) {
+    try {
+      const privateData = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+      ACCOUNTS = privateData;
+      console.log(`📂 Loaded ${ACCOUNTS.length} accounts from private data file.`);
+    } catch (err) {
+      console.error('❌ Error parsing private accounts.json, using defaults.');
+    }
+  } else {
+    console.log('ℹ️ No private data found at seeds/data/accounts.json. Using public templates.');
+  }
+
+  // 3. Idempotent Sync Logic (No Deletions)
   for (const account of ACCOUNTS) {
     const existing = await knex('accounts').where({ code: account.code }).first();
     if (!existing) {
@@ -43,6 +39,14 @@ exports.seed = async function (knex) {
         created_at: knex.fn.now(),
         updated_at: knex.fn.now(),
       });
+    } else {
+      // Update existing names/types to keep DB in sync with your JSON
+      await knex('accounts').where({ id: existing.id }).update({
+        name: account.name,
+        type: account.type,
+        updated_at: knex.fn.now()
+      });
     }
   }
+  console.log('✅ Account synchronization complete.');
 };
