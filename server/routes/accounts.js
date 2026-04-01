@@ -24,6 +24,7 @@ router.get('/', async (req, res, next) => {
     const { type } = req.query;
 
     const query = db('accounts as a')
+      .where('a.is_active', true)
       .leftJoin(
         // Find accounts that are net asset accounts for active funds
         db('funds').where('is_active', true).select('net_asset_account_id').as('af'),

@@ -190,10 +190,11 @@ export default function ChartOfAccounts() {
 
   async function handleDelete(account) {
     if (!account.is_deletable) return;
-    if (!confirm(`Deactivate "${account.name}"?`)) return;
+    if (!confirm(`Deactivate "${account.name}"?\n\nThis will hide the account from the chart. It can be restored manually if needed.`)) return;
     try {
       await deleteAccount.mutateAsync(account.id);
       addToast('Account deactivated.', 'success');
+      setModal(null);
     } catch (err) {
       addToast(err.response?.data?.error || 'Cannot deactivate.', 'error');
     }
@@ -257,17 +258,7 @@ export default function ChartOfAccounts() {
                     </span>
                   </td>
                   <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
-                      <Button variant="secondary" size="sm" onClick={() => openEdit(a)}>Edit</Button>
-                      <Button
-                        variant="ghost" size="sm"
-                        disabled={!a.is_deletable}
-                        onClick={() => handleDelete(a)}
-                        style={{ color: a.is_deletable ? '#dc2626' : '#d1d5db' }}
-                      >
-                        Deactivate
-                      </Button>
-                    </div>
+                    <Button variant="secondary" size="sm" onClick={() => openEdit(a)}>Edit</Button>
                   </td>
                 </tr>
               ))}
@@ -291,11 +282,26 @@ export default function ChartOfAccounts() {
           <Select label="Type" required value={form.type}
             onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
             options={TYPE_OPTIONS} />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-            <Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button>
-            <Button onClick={handleSave} isLoading={isSaving}>
-              {modal === 'add' ? 'Add Account' : 'Save'}
-            </Button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+            {/* Deactivate — only shown when editing, left side */}
+            {modal && modal !== 'add' && (
+              <Button
+                variant="ghost"
+                onClick={() => handleDelete(modal)}
+                isLoading={deleteAccount.isPending}
+                disabled={!modal.is_deletable}
+                style={{ color: modal.is_deletable ? '#dc2626' : '#d1d5db' }}
+              >
+                {modal.is_deletable ? 'Deactivate Account' : 'Cannot Deactivate'}
+              </Button>
+            )}
+            {modal === 'add' && <span />}
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button>
+              <Button onClick={handleSave} isLoading={isSaving}>
+                {modal === 'add' ? 'Add Account' : 'Save'}
+              </Button>
+            </div>
           </div>
         </div>
       </Modal>

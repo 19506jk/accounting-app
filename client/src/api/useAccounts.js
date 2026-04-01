@@ -20,7 +20,7 @@ export function useCreateAccount() {
       const { data } = await client.post('/accounts', payload);
       return data.account;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'], exact: false }),
   });
 }
 
@@ -31,7 +31,7 @@ export function useUpdateAccount() {
       const { data } = await client.put(`/accounts/${id}`, payload);
       return data.account;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'], exact: false }),
   });
 }
 
@@ -41,6 +41,6 @@ export function useDeleteAccount() {
     mutationFn: async (id) => {
       await client.delete(`/accounts/${id}`);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'], exact: false }),
   });
 }

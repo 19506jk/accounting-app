@@ -169,7 +169,7 @@ function BillForm({ bill, onClose, onSaved }) {
       const payload = {
         contact_id: form.contact_id,
         date: form.date,
-        due_date: form.due_date,
+        due_date: form.due_date || null,
         bill_number: form.bill_number || null,
         description: form.description,
         amount: lineTotal,

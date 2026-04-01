@@ -259,7 +259,7 @@ async function createBill(payload, userId) {
       .insert({
         contact_id: payload.contact_id,
         date: payload.date,
-        due_date: payload.due_date,
+        due_date: payload.due_date || null,
         bill_number: payload.bill_number?.trim() || null,
         description: payload.description.trim(),
         amount: dec(totalAmount).toFixed(2),
@@ -399,7 +399,7 @@ async function updateBill(id, payload, userId) {
   const updateData = {
     contact_id: payload.contact_id !== undefined ? payload.contact_id : bill.contact_id,
     date: payload.date !== undefined ? payload.date : bill.date,
-    due_date: payload.due_date !== undefined ? payload.due_date : bill.due_date,
+    due_date: payload.due_date !== undefined ? (payload.due_date || null) : bill.due_date,
     bill_number: payload.bill_number !== undefined ? payload.bill_number?.trim() || null : bill.bill_number,
     description: payload.description !== undefined ? payload.description.trim() : bill.description,
     amount: dec(newTotalAmount).toFixed(2),

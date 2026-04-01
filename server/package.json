@@ -12,7 +12,8 @@
     "migrate:status": "npx knex migrate:list",
     "seed": "npx knex seed:run",
     "seed:dev": "knex seed:run --env development",
-    "db:reset": "npx knex migrate:rollback --all && npx knex migrate:latest && npx knex seed:run"
+    "db:reset": "npx knex migrate:rollback --all && npx knex migrate:latest && npx knex seed:run",
+    "db:reset-dev": "npx knex migrate:rollback --all --env development && npx knex migrate:latest --env development && npx knex seed:run --env development"
   },
   "dependencies": {
     "cors": "^2.8.5",
