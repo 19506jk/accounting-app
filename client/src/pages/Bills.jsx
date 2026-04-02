@@ -56,16 +56,16 @@ function BillForm({ bill, onClose, onSaved }) {
   const updateBill = useUpdateBill();
 
   const [form, setForm] = useState(bill ? {
-    contact_id: bill.contact_id,
-    date: bill.date,
-    due_date: bill.due_date,
+    contact_id: String(bill.contact_id),
+    date: bill.date ? String(bill.date).split('T')[0] : '',
+    due_date: bill.due_date ? String(bill.due_date).split('T')[0] : '',
     bill_number: bill.bill_number || '',
-    description: bill.description,
-    fund_id: bill.fund_id,
-    line_items: bill.line_items?.map((li, idx) => ({
+    description: bill.description || '',
+    fund_id: String(bill.fund_id),
+    line_items: bill.line_items?.map((li) => ({
       id: `existing-${li.id}`,
       expense_account_id: String(li.expense_account_id),
-      description: li.description,
+      description: li.description || '',
       amount: li.amount,
     })) || [createEmptyLineItem('temp-1')],
   } : EMPTY_FORM);
@@ -83,15 +83,15 @@ function BillForm({ bill, onClose, onSaved }) {
 
   const vendorOptions = (contacts || [])
     .filter(c => ['PAYEE', 'BOTH'].includes(c.type))
-    .map(c => ({ value: c.id, label: c.name }));
+    .map(c => ({ value: String(c.id), label: c.name }));
 
   const expenseAccountOptions = (accounts || [])
     .filter(a => a.type === 'EXPENSE' && a.is_active)
-    .map(a => ({ value: a.id, label: `${a.code} — ${a.name}` }));
+    .map(a => ({ value: String(a.id), label: `${a.code} — ${a.name}` }));
 
   const fundOptions = (funds || [])
     .filter(f => f.is_active)
-    .map(f => ({ value: f.id, label: f.name }));
+    .map(f => ({ value: String(f.id), label: f.name }));
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -167,13 +167,13 @@ function BillForm({ bill, onClose, onSaved }) {
 
     try {
       const payload = {
-        contact_id: form.contact_id,
+        contact_id: parseInt(form.contact_id),
         date: form.date,
-        due_date: form.due_date || null,
+        due_date: form.due_date,
         bill_number: form.bill_number || null,
         description: form.description,
         amount: lineTotal,
-        fund_id: form.fund_id,
+        fund_id: parseInt(form.fund_id),
         line_items: form.line_items.map(li => ({
           expense_account_id: parseInt(li.expense_account_id),
           description: li.description.trim(),

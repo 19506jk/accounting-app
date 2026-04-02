@@ -318,7 +318,7 @@ function LedgerReport({ data }) {
             <thead>
               <tr style={{ color: '#6b7280' }}>
                 {['Date','Description','Fund','Debit','Credit','Balance'].map((h) => (
-                  <th key={h} style={{ textAlign: h === 'Description' || h === 'Fund' ? 'left' : 'right',
+                  <th key={h} style={{ textAlign: ['Date','Description','Fund'].includes(h) ? 'left' : 'right',
                     padding: '0.3rem 0.5rem', fontWeight: 600, fontSize: '0.72rem',
                     textTransform: 'uppercase' }}>{h}</th>
                 ))}
@@ -330,7 +330,7 @@ function LedgerReport({ data }) {
               </tr>
               {acct.rows.map((r, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '0.3rem 0.5rem', whiteSpace: 'nowrap' }}>{r.date}</td>
+                  <td style={{ padding: '0.3rem 0.5rem', whiteSpace: 'nowrap' }}>{fmtD(r.date)}</td>
                   <td style={{ padding: '0.3rem 0.5rem' }}>{r.description}</td>
                   <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{r.fund_name}</td>
                   <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#15803d' }}>

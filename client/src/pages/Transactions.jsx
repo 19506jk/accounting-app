@@ -6,6 +6,7 @@ import { useFunds }     from '../api/useFunds';
 import { useContacts }  from '../api/useContacts';
 import { useToast }     from '../components/ui/Toast';
 import Card        from '../components/ui/Card';
+import Table       from '../components/ui/Table';
 import Modal       from '../components/ui/Modal';
 import Button      from '../components/ui/Button';
 import Input       from '../components/ui/Input';
@@ -155,7 +156,7 @@ function TransactionForm({ onClose, onSaved }) {
           Journal Entries
         </div>
 
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', marginBottom: '0.75rem' }}>
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'visible', marginBottom: '0.75rem' }}>
           {/* Column headers */}
           <div style={{ display: 'grid',
             gridTemplateColumns: '2fr 1fr 90px 90px 1.5fr 28px',
@@ -258,6 +259,30 @@ export default function Transactions() {
     }
   }
 
+  const COLUMNS = [
+    { key: 'date', label: 'Date',
+      render: (r) => new Date(r.date).toLocaleDateString('en-CA') },
+    { key: 'description', label: 'Description', wrap: true },
+    { key: 'reference_no', label: 'Ref',
+      render: (r) => r.reference_no || <span style={{ color: '#d1d5db' }}>—</span> },
+    { key: 'total_amount', label: 'Amount', align: 'right',
+      render: (r) => <span style={{ fontWeight: 500 }}>{fmt(r.total_amount)}</span> },
+    { key: 'actions', label: '', align: 'right',
+      render: (r) => (
+        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+          <Button variant="secondary" size="sm"
+            onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
+            {expanded === r.id ? 'Hide' : 'Details'}
+          </Button>
+          <Button variant="ghost" size="sm" style={{ color: '#dc2626' }}
+            onClick={() => handleDelete(r.id)}>
+            Delete
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center',
@@ -273,84 +298,13 @@ export default function Transactions() {
       </div>
 
       <Card>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            fontSize: '0.875rem',
-          }}>
-            <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={{ padding: '0.65rem 1rem', textAlign: 'left', fontWeight: 600, color: '#6b7280', fontSize: '0.775rem', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>Date</th>
-                <th style={{ padding: '0.65rem 1rem', textAlign: 'left', fontWeight: 600, color: '#6b7280', fontSize: '0.775rem', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>Description</th>
-                <th style={{ padding: '0.65rem 1rem', textAlign: 'left', fontWeight: 600, color: '#6b7280', fontSize: '0.775rem', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>Ref</th>
-                <th style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: 600, color: '#6b7280', fontSize: '0.775rem', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>Amount</th>
-                <th style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: 600, color: '#6b7280', fontSize: '0.775rem', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={5} style={{ padding: '2.5rem', textAlign: 'center', color: '#9ca3af', fontSize: '0.875rem' }}>
-                    Loading...
-                  </td>
-                </tr>
-              ) : transactions.length === 0 ? (
-                <tr>
-                  <td colSpan={5} style={{ padding: '2.5rem', textAlign: 'center', color: '#9ca3af', fontSize: '0.875rem' }}>
-                    No transactions in this date range.
-                  </td>
-                </tr>
-              ) : (
-                transactions.map((tx) => (
-                  <>
-                    <tr
-                      key={tx.id}
-                      style={{
-                        borderBottom: '1px solid #f3f4f6',
-                        transition: 'background 0.1s',
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#fafafa'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <td style={{ padding: '0.75rem 1rem', color: '#1e293b', textAlign: 'left', whiteSpace: 'nowrap' }}>
-                        {new Date(tx.date).toLocaleDateString('en-CA')}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', color: '#1e293b', textAlign: 'left', whiteSpace: 'normal' }}>
-                        {tx.description}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', color: '#1e293b', textAlign: 'left', whiteSpace: 'nowrap' }}>
-                        {tx.reference_no || <span style={{ color: '#d1d5db' }}>—</span>}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontWeight: 500 }}>{fmt(tx.total_amount)}</span>
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                          <Button variant="secondary" size="sm"
-                            onClick={() => setExpanded(expanded === tx.id ? null : tx.id)}>
-                            {expanded === tx.id ? 'Hide' : 'Details'}
-                          </Button>
-                          <Button variant="ghost" size="sm" style={{ color: '#dc2626' }}
-                            onClick={() => handleDelete(tx.id)}>
-                            Delete
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                    {expanded === tx.id && (
-                      <tr key={`${tx.id}-detail`}>
-                        <td colSpan={5} style={{ padding: 0 }}>
-                          <TransactionDetail id={tx.id} />
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <Table columns={COLUMNS} rows={transactions} isLoading={isLoading}
+          emptyText="No transactions in this date range." />
+
+        {/* Expandable entry detail rows */}
+        {transactions.map((tx) => expanded === tx.id && (
+          <TransactionDetail key={tx.id} id={tx.id} />
+        ))}
       </Card>
 
       {/* New Transaction Modal (full width) */}
@@ -365,13 +319,17 @@ export default function Transactions() {
 }
 
 function TransactionDetail({ id }) {
+  const { data: tx, isLoading } = useTransactions({ limit: 1 });
+  // Fetch the specific transaction
   const [detail, setDetail] = useState(null);
+  const client = useTransactions;
 
+  // Use direct fetch for detail
   useState(() => {
     import('../api/client').then(({ default: apiClient }) => {
       apiClient.get(`/transactions/${id}`).then(({ data }) => setDetail(data.transaction));
     });
-  }, [id]);
+  });
 
   if (!detail) return (
     <div style={{ padding: '0.75rem 1rem', background: '#f8fafc',

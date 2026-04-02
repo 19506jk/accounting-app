@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * Combobox — searchable select for large lists (accounts, contacts).
@@ -11,8 +12,10 @@ export default function Combobox({
   const [search,   setSearch]   = useState('');
   const [open,     setOpen]     = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const inputRef = useRef(null);
-  const listRef  = useRef(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+  const inputRef  = useRef(null);
+  const listRef   = useRef(null);
+  const triggerRef = useRef(null);
 
   const selected = options.find((o) => o.value === value);
 
@@ -20,7 +23,17 @@ export default function Combobox({
     ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase()))
     : options;
 
-  useEffect(() => { if (!open) setSearch(''); }, [open]);
+  useEffect(() => {
+    if (!open) { setSearch(''); return; }
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top:   rect.bottom + window.scrollY + 2,
+        left:  rect.left   + window.scrollX,
+        width: rect.width,
+      });
+    }
+  }, [open]);
 
   function handleSelect(opt) {
     onChange(opt.value);
@@ -36,10 +49,12 @@ export default function Combobox({
     if (e.key === 'Escape')     setOpen(false);
   }
 
-  // Close on outside click
+  // Close on outside click — must check both the trigger and the portaled list
   useEffect(() => {
     const handler = (e) => {
-      if (!inputRef.current?.closest('[data-combobox]')?.contains(e.target)) setOpen(false);
+      const insideTrigger = inputRef.current?.closest('[data-combobox]')?.contains(e.target);
+      const insideList    = listRef.current?.contains(e.target);
+      if (!insideTrigger && !insideList) setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -54,6 +69,7 @@ export default function Combobox({
         </label>
       )}
       <div
+        ref={triggerRef}
         onClick={() => { if (!disabled) { setOpen((o) => !o); setTimeout(() => inputRef.current?.focus(), 0); } }}
         style={{
           padding: '0.45rem 0.75rem', border: `1px solid ${error ? '#fca5a5' : '#d1d5db'}`,
@@ -81,12 +97,16 @@ export default function Combobox({
         <span style={{ color: '#9ca3af', fontSize: '0.75rem', marginLeft: '0.5rem' }}>▾</span>
       </div>
 
-      {open && (
+      {open && createPortal(
         <div ref={listRef} style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000,
+          position: 'absolute',
+          top:      dropdownPos.top,
+          left:     dropdownPos.left,
+          width:    dropdownPos.width,
+          zIndex:   9999,
           background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px',
           boxShadow: '0 4px 16px rgba(0,0,0,0.1)', maxHeight: '220px',
-          overflowY: 'auto', marginTop: '2px',
+          overflowY: 'auto',
         }}>
           {filtered.length === 0 ? (
             <div style={{ padding: '0.75rem 1rem', color: '#9ca3af', fontSize: '0.875rem' }}>
@@ -106,7 +126,8 @@ export default function Combobox({
               {opt.label}
             </div>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
       {error && <span style={{ fontSize: '0.75rem', color: '#dc2626' }}>{error}</span>}
     </div>
