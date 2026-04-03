@@ -13,6 +13,7 @@ export default function Funds() {
   const [showInactive, setShowInactive] = useState(false);
 
   const { data: funds, isLoading } = useFunds({ include_inactive: showInactive });
+  const visibleFunds = showInactive ? (funds || []) : (funds?.filter(f => f.is_active) || []);
 
   const createFund = useCreateFund();
   const updateFund = useUpdateFund();
@@ -129,8 +130,12 @@ export default function Funds() {
       </div>
 
       <Card>
-        <Table columns={COLUMNS} rows={funds || []} isLoading={isLoading}
-          emptyText="No funds created yet." />
+	  <Table 
+	    columns={COLUMNS}
+	    rows={visibleFunds} 
+	    isLoading={isLoading}
+            emptyText="No funds created yet."
+	  />
       </Card>
 
       <Modal isOpen={!!modal} onClose={() => setModal(null)}
