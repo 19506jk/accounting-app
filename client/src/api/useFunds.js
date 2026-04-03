@@ -1,11 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import client from './client';
 
-export function useFunds() {
+export function useFunds(params = {}) {
+  const query = new URLSearchParams();
+  if (params.include_inactive) query.set('include_inactive', 'true');
   return useQuery({
-    queryKey: ['funds'],
+    queryKey: ['funds', params],
     queryFn:  async () => {
-      const { data } = await client.get('/funds');
+      const { data } = await client.get(`/funds?${query}`);
       return data.funds;
     },
   });
@@ -18,7 +20,10 @@ export function useCreateFund() {
       const { data } = await client.post('/funds', payload);
       return data;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['funds'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['funds'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    },
   });
 }
 
@@ -29,7 +34,10 @@ export function useUpdateFund() {
       const { data } = await client.put(`/funds/${id}`, payload);
       return data.fund;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['funds'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['funds'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    },
   });
 }
 
@@ -39,6 +47,9 @@ export function useDeleteFund() {
     mutationFn: async (id) => {
       await client.delete(`/funds/${id}`);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['funds'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['funds'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    },
   });
 }

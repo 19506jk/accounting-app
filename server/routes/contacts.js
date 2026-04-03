@@ -35,12 +35,15 @@ function validateContact(body, isPatch = false) {
 
 router.get('/', async (req, res, next) => {
   try {
-    const { type, class: contactClass, search } = req.query;
+    const { type, class: contactClass, search, include_inactive } = req.query;
     const query = db('contacts')
       .select('id','type','contact_class','name','first_name','last_name',
               'email','phone','city','province','postal_code','is_active','created_at')
-      .where('is_active', true)
       .orderBy('name', 'asc');
+
+    if (include_inactive !== 'true') {
+      query.where('is_active', true);
+    }
 
     if (type) {
       query.where(function () {

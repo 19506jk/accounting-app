@@ -3,7 +3,8 @@ import client from './client';
 
 export function useAccounts(params = {}) {
   const query = new URLSearchParams();
-  if (params.type) query.set('type', params.type);
+  if (params.type)             query.set('type',             params.type);
+  if (params.include_inactive) query.set('include_inactive', 'true');
   return useQuery({
     queryKey: ['accounts', params],
     queryFn:  async () => {

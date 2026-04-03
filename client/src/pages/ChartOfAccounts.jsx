@@ -146,7 +146,8 @@ const EMPTY_FORM = { code: '', name: '', type: 'ASSET' };
 
 export default function ChartOfAccounts() {
   const { addToast } = useToast();
-  const { data: accounts, isLoading } = useAccounts();
+  const [showInactive, setShowInactive] = useState(false);
+  const { data: accounts, isLoading } = useAccounts({ include_inactive: showInactive });
 
   const createAccount = useCreateAccount();
   const updateAccount = useUpdateAccount();
@@ -200,6 +201,17 @@ export default function ChartOfAccounts() {
     }
   }
 
+  async function handleReactivate(account) {
+    if (!confirm(`Reactivate "${account.name}"?`)) return;
+    try {
+      await updateAccount.mutateAsync({ id: account.id, is_active: true });
+      addToast('Account reactivated.', 'success');
+      setModal(null);
+    } catch (err) {
+      addToast(err.response?.data?.error || 'Cannot reactivate.', 'error');
+    }
+  }
+
   // Group by type
   const grouped = {};
   (accounts || []).forEach((a) => {
@@ -219,7 +231,12 @@ export default function ChartOfAccounts() {
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
           Chart of Accounts
         </h1>
-        <Button onClick={openAdd}>+ Add Account</Button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <Button variant="secondary" onClick={() => setShowInactive((v) => !v)}>
+            {showInactive ? 'Hide Inactive' : 'Show Inactive'}
+          </Button>
+          <Button onClick={openAdd}>+ Add Account</Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -239,7 +256,8 @@ export default function ChartOfAccounts() {
             <tbody>
               {grouped[type].map((a) => (
                 <tr key={a.id}
-                  style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
+                  style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer',
+                    opacity: a.is_active ? 1 : 0.45 }}
                   onMouseEnter={(e) => e.currentTarget.style.background = '#fafafa'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 >
@@ -283,8 +301,8 @@ export default function ChartOfAccounts() {
             onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
             options={TYPE_OPTIONS} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
-            {/* Deactivate — only shown when editing, left side */}
-            {modal && modal !== 'add' && (
+            {/* Left side — Deactivate / Reactivate */}
+            {modal && modal !== 'add' && modal.is_active && (
               <Button
                 variant="ghost"
                 onClick={() => handleDelete(modal)}
@@ -293,6 +311,16 @@ export default function ChartOfAccounts() {
                 style={{ color: modal.is_deletable ? '#dc2626' : '#d1d5db' }}
               >
                 {modal.is_deletable ? 'Deactivate Account' : 'Cannot Deactivate'}
+              </Button>
+            )}
+            {modal && modal !== 'add' && !modal.is_active && (
+              <Button
+                variant="ghost"
+                onClick={() => handleReactivate(modal)}
+                isLoading={updateAccount.isPending}
+                style={{ color: '#15803d' }}
+              >
+                Reactivate Account
               </Button>
             )}
             {modal === 'add' && <span />}

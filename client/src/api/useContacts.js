@@ -3,9 +3,10 @@ import client from './client';
 
 export function useContacts(params = {}) {
   const query = new URLSearchParams();
-  if (params.search) query.set('search', params.search);
-  if (params.type)   query.set('type',   params.type);
-  if (params.class)  query.set('class',  params.class);
+  if (params.search)           query.set('search',           params.search);
+  if (params.type)             query.set('type',             params.type);
+  if (params.class)            query.set('class',            params.class);
+  if (params.include_inactive) query.set('include_inactive', 'true');
 
   return useQuery({
     queryKey: ['contacts', params],

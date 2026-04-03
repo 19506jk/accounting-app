@@ -181,7 +181,7 @@ router.post('/', requireRole('admin', 'editor'), async (req, res, next) => {
  */
 router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, is_active } = req.body;
     const { id }                = req.params;
 
     const fund = await db('funds').where({ id }).first();
@@ -201,16 +201,16 @@ router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
     await db.transaction(async (trx) => {
       const newName = name?.trim() || fund.name;
 
-      // Update the fund
       await trx('funds')
         .where({ id })
         .update({
           name:        newName,
           description: description !== undefined ? description?.trim() || null : fund.description,
+          is_active:   is_active   !== undefined ? is_active : fund.is_active,
           updated_at:  trx.fn.now(),
         });
 
-      // Keep the Net Asset account name in sync
+      // Keep the Net Asset account name in sync on rename
       if (name && fund.net_asset_account_id) {
         await trx('accounts')
           .where({ id: fund.net_asset_account_id })
@@ -218,6 +218,21 @@ router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
             name:       `${newName} - Net Assets`,
             updated_at: trx.fn.now(),
           });
+      }
+
+      // On reactivation, also reactivate the linked net asset equity account
+      // to prevent orphaned funds with no account to store their value
+      if (is_active === true && fund.net_asset_account_id) {
+        await trx('accounts')
+          .where({ id: fund.net_asset_account_id })
+          .update({ is_active: true, updated_at: trx.fn.now() });
+      }
+
+      // On deactivation via PUT, also deactivate the linked net asset account
+      if (is_active === false && fund.net_asset_account_id) {
+        await trx('accounts')
+          .where({ id: fund.net_asset_account_id })
+          .update({ is_active: false, updated_at: trx.fn.now() });
       }
     });
 

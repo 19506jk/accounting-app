@@ -21,10 +21,9 @@ const TYPE_ORDER = { ASSET: 1, LIABILITY: 2, EQUITY: 3, INCOME: 4, EXPENSE: 5 };
  */
 router.get('/', async (req, res, next) => {
   try {
-    const { type } = req.query;
+    const { type, include_inactive } = req.query;
 
     const query = db('accounts as a')
-      .where('a.is_active', true)
       .leftJoin(
         // Find accounts that are net asset accounts for active funds
         db('funds').where('is_active', true).select('net_asset_account_id').as('af'),
@@ -46,6 +45,10 @@ router.get('/', async (req, res, next) => {
           END AS is_deletable
         `)
       );
+
+    if (include_inactive !== 'true') {
+      query.where('a.is_active', true);
+    }
 
     if (type) {
       const validTypes = ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'];
@@ -147,7 +150,7 @@ router.post('/', requireRole('admin', 'editor'), async (req, res, next) => {
 router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
   try {
     const { id }                       = req.params;
-    const { code, name, type, parent_id } = req.body;
+    const { code, name, type, parent_id, is_active } = req.body;
 
     const account = await db('accounts').where({ id }).first();
     if (!account) return res.status(404).json({ error: 'Account not found' });
@@ -184,6 +187,7 @@ router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
         name:       name?.trim()         || account.name,
         type:       type?.toUpperCase()  || account.type,
         parent_id:  parent_id !== undefined ? parent_id || null : account.parent_id,
+        is_active:  is_active !== undefined ? is_active : account.is_active,
         updated_at: db.fn.now(),
       })
       .returning('*');

@@ -95,15 +95,17 @@ function ContactForm({ form, setForm, errors = {} }) {
 export default function Contacts() {
   const { addToast } = useToast();
 
-  const [search,    setSearch]    = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [drawer,    setDrawer]    = useState(null); // null | 'add' | contact object
-  const [form,      setForm]      = useState(EMPTY_FORM);
-  const [errors,    setErrors]    = useState({});
+  const [search,      setSearch]      = useState('');
+  const [typeFilter,  setTypeFilter]  = useState('');
+  const [showInactive, setShowInactive] = useState(false);
+  const [drawer,      setDrawer]      = useState(null); // null | 'add' | contact object
+  const [form,        setForm]        = useState(EMPTY_FORM);
+  const [errors,      setErrors]      = useState({});
 
   const { data: contacts, isLoading } = useContacts({
-    search:    search || undefined,
-    type:      typeFilter || undefined,
+    search:           search || undefined,
+    type:             typeFilter || undefined,
+    include_inactive: showInactive,
   });
 
   const createContact = useCreateContact();
@@ -167,13 +169,25 @@ export default function Contacts() {
     }
   }
 
-  async function handleDeactivate(contact) {
-    if (!confirm(`Deactivate ${contact.name}?`)) return;
+  async function handleDeactivate() {
+    if (!confirm(`Deactivate ${drawer.name}?`)) return;
     try {
-      await deleteContact.mutateAsync(contact.id);
+      await deleteContact.mutateAsync(drawer.id);
       addToast('Contact deactivated.', 'success');
+      closeDrawer();
     } catch (err) {
       addToast(err.response?.data?.error || 'Cannot deactivate contact.', 'error');
+    }
+  }
+
+  async function handleReactivate() {
+    if (!confirm(`Reactivate ${drawer.name}?`)) return;
+    try {
+      await updateContact.mutateAsync({ id: drawer.id, is_active: true });
+      addToast('Contact reactivated.', 'success');
+      closeDrawer();
+    } catch (err) {
+      addToast(err.response?.data?.error || 'Cannot reactivate contact.', 'error');
     }
   }
 
@@ -183,7 +197,7 @@ export default function Contacts() {
     {
       key: 'name', label: 'Name',
       render: (c) => (
-        <div>
+        <div style={{ opacity: c.is_active ? 1 : 0.45 }}>
           <div style={{ fontWeight: 500, color: '#1e293b' }}>{c.name}</div>
           {c.email && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{c.email}</div>}
         </div>
@@ -208,12 +222,15 @@ export default function Contacts() {
         : <span style={{ color: '#d1d5db' }}>—</span>,
     },
     {
+      key: 'status', label: 'Status',
+      render: (c) => !c.is_active
+        ? <Badge label="Inactive" variant="inactive" />
+        : null,
+    },
+    {
       key: 'actions', label: '', align: 'right',
       render: (c) => (
-        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-          <Button variant="secondary" size="sm" onClick={() => openEdit(c)}>Edit</Button>
-          <Button variant="ghost" size="sm" onClick={() => handleDeactivate(c)}>Deactivate</Button>
-        </div>
+        <Button variant="secondary" size="sm" onClick={() => openEdit(c)}>Edit</Button>
       ),
     },
   ];
@@ -226,7 +243,12 @@ export default function Contacts() {
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
           Contacts & Donors
         </h1>
-        <Button onClick={openAdd}>+ Add Contact</Button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <Button variant="secondary" onClick={() => setShowInactive((v) => !v)}>
+            {showInactive ? 'Hide Inactive' : 'Show Inactive'}
+          </Button>
+          <Button onClick={openAdd}>+ Add Contact</Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -268,13 +290,33 @@ export default function Contacts() {
       >
         <ContactForm form={form} setForm={setForm} errors={errors} />
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end',
-          gap: '0.75rem', marginTop: '1.5rem', paddingTop: '1rem',
+        <div style={{ display: 'flex', justifyContent: 'space-between',
+          alignItems: 'center', marginTop: '1.5rem', paddingTop: '1rem',
           borderTop: '1px solid #f3f4f6' }}>
-          <Button variant="secondary" onClick={closeDrawer}>Cancel</Button>
-          <Button onClick={handleSave} isLoading={isSaving}>
-            {drawer === 'add' ? 'Add Contact' : 'Save Changes'}
-          </Button>
+          {/* Left — Deactivate / Reactivate (edit only) */}
+          {drawer && drawer !== 'add' && drawer.is_active && (
+            <Button variant="ghost" onClick={handleDeactivate}
+              isLoading={deleteContact.isPending}
+              style={{ color: '#dc2626' }}>
+              Deactivate
+            </Button>
+          )}
+          {drawer && drawer !== 'add' && !drawer.is_active && (
+            <Button variant="ghost" onClick={handleReactivate}
+              isLoading={updateContact.isPending}
+              style={{ color: '#15803d' }}>
+              Reactivate
+            </Button>
+          )}
+          {drawer === 'add' && <span />}
+
+          {/* Right — Cancel / Save */}
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <Button variant="secondary" onClick={closeDrawer}>Cancel</Button>
+            <Button onClick={handleSave} isLoading={isSaving}>
+              {drawer === 'add' ? 'Add Contact' : 'Save Changes'}
+            </Button>
+          </div>
         </div>
       </Drawer>
     </div>

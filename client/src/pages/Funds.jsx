@@ -10,7 +10,9 @@ import Input  from '../components/ui/Input';
 
 export default function Funds() {
   const { addToast } = useToast();
-  const { data: funds, isLoading } = useFunds();
+  const [showInactive, setShowInactive] = useState(false);
+
+  const { data: funds, isLoading } = useFunds({ include_inactive: showInactive });
 
   const createFund = useCreateFund();
   const updateFund = useUpdateFund();
@@ -22,7 +24,7 @@ export default function Funds() {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  function openAdd()  { setForm({ name: '', description: '' }); setErrors({}); setModal('add'); }
+  function openAdd() { setForm({ name: '', description: '' }); setErrors({}); setModal('add'); }
   function openEdit(f) {
     setForm({ name: f.name, description: f.description || '' });
     setErrors({});
@@ -52,23 +54,36 @@ export default function Funds() {
     }
   }
 
-  async function handleDeactivate(fund) {
-    if (!confirm(`Deactivate "${fund.name}"? This will fail if the fund has a non-zero balance or transaction history.`)) return;
+  async function handleDeactivate() {
+    if (!confirm(`Deactivate "${modal.name}"? This will fail if the fund has a non-zero balance or transaction history.`)) return;
     try {
-      await deleteFund.mutateAsync(fund.id);
+      await deleteFund.mutateAsync(modal.id);
       addToast('Fund deactivated.', 'success');
+      setModal(null);
     } catch (err) {
       addToast(err.response?.data?.error || 'Cannot deactivate fund.', 'error');
     }
   }
 
+  async function handleReactivate() {
+    if (!confirm(`Reactivate "${modal.name}"? Its linked net asset account will also be reactivated.`)) return;
+    try {
+      await updateFund.mutateAsync({ id: modal.id, is_active: true });
+      addToast('Fund reactivated.', 'success');
+      setModal(null);
+    } catch (err) {
+      addToast(err.response?.data?.error || 'Cannot reactivate fund.', 'error');
+    }
+  }
+
   const isSaving = createFund.isPending || updateFund.isPending;
+  const editingFund = modal && modal !== 'add' ? modal : null;
 
   const COLUMNS = [
     {
       key: 'name', label: 'Fund Name',
       render: (f) => (
-        <div>
+        <div style={{ opacity: f.is_active ? 1 : 0.45 }}>
           <div style={{ fontWeight: 600, color: '#1e293b' }}>{f.name}</div>
           {f.description && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{f.description}</div>}
         </div>
@@ -77,7 +92,7 @@ export default function Funds() {
     {
       key: 'net_asset', label: 'Net Asset Account',
       render: (f) => f.net_asset_code ? (
-        <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#6b7280' }}>
+        <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#6b7280', opacity: f.is_active ? 1 : 0.45 }}>
           {f.net_asset_code} — {f.net_asset_name}
         </span>
       ) : <span style={{ color: '#d1d5db' }}>—</span>,
@@ -90,16 +105,7 @@ export default function Funds() {
     {
       key: 'actions', label: '', align: 'right',
       render: (f) => (
-        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-          <Button variant="secondary" size="sm" onClick={() => openEdit(f)}>Edit</Button>
-          {f.is_active && (
-            <Button variant="ghost" size="sm"
-              style={{ color: '#dc2626' }}
-              onClick={() => handleDeactivate(f)}>
-              Deactivate
-            </Button>
-          )}
-        </div>
+        <Button variant="secondary" size="sm" onClick={() => openEdit(f)}>Edit</Button>
       ),
     },
   ];
@@ -114,7 +120,12 @@ export default function Funds() {
             Each fund automatically creates a linked equity (net assets) account.
           </p>
         </div>
-        <Button onClick={openAdd}>+ Add Fund</Button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <Button variant="secondary" onClick={() => setShowInactive((v) => !v)}>
+            {showInactive ? 'Hide Inactive' : 'Show Inactive'}
+          </Button>
+          <Button onClick={openAdd}>+ Add Fund</Button>
+        </div>
       </div>
 
       <Card>
@@ -138,11 +149,30 @@ export default function Funds() {
               An equity (net assets) account will be auto-created in the 3000–3899 range.
             </p>
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-            <Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button>
-            <Button onClick={handleSave} isLoading={isSaving}>
-              {modal === 'add' ? 'Create Fund' : 'Save Changes'}
-            </Button>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+            {editingFund?.is_active && (
+              <Button variant="ghost" onClick={handleDeactivate}
+                isLoading={deleteFund.isPending}
+                style={{ color: '#dc2626' }}>
+                Deactivate Fund
+              </Button>
+            )}
+            {editingFund && !editingFund.is_active && (
+              <Button variant="ghost" onClick={handleReactivate}
+                isLoading={updateFund.isPending}
+                style={{ color: '#15803d' }}>
+                Reactivate Fund
+              </Button>
+            )}
+            {modal === 'add' && <span />}
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button>
+              <Button onClick={handleSave} isLoading={isSaving}>
+                {modal === 'add' ? 'Create Fund' : 'Save Changes'}
+              </Button>
+            </div>
           </div>
         </div>
       </Modal>
