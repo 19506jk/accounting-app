@@ -1,5 +1,6 @@
 require('dotenv').config();
 
+const path = require('path');
 const express = require('express');
 const helmet  = require('helmet');
 const cors    = require('cors');
@@ -69,6 +70,18 @@ app.use((err, _req, res, _next) => {
   const message = err.message || 'Internal server error';
   res.status(status).json({ error: message });
 });
+
+if (process.env.NODE_ENV === 'production') {
+  // Serve static files from client/dist
+  app.use(express.static(path.join(__dirname, '../client/dist')));
+
+  // Fallback: Serve index.html for React Router SPA, if not an API request
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+    }
+  });
+}
 
 // ── Start ────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
