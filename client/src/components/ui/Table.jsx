@@ -18,13 +18,17 @@ function SkeletonRow({ cols }) {
 }
 
 export default function Table({
-  columns    = [],
-  rows       = [],
-  isLoading  = false,
-  emptyText  = 'No data found.',
+  columns      = [],
+  rows         = [],
+  isLoading    = false,
+  emptyText    = 'No data found.',
   skeletonRows = 4,
+  onRowClick   = null,   // (row) => void  — makes rows clickable
+  expandedId   = null,   // row.id currently expanded
+  renderExpanded = null, // (row) => ReactNode — inline detail panel
 }) {
   const colCount = columns.length;
+  const clickable = typeof onRowClick === 'function';
 
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -39,14 +43,14 @@ export default function Table({
               <th
                 key={col.key}
                 style={{
-                  padding:   '0.65rem 1rem',
-                  textAlign: col.align || 'left',
-                  fontWeight: 600,
-                  color:     '#6b7280',
-                  fontSize:  '0.775rem',
+                  padding:       '0.65rem 1rem',
+                  textAlign:     col.align || 'left',
+                  fontWeight:    600,
+                  color:         '#6b7280',
+                  fontSize:      '0.775rem',
                   textTransform: 'uppercase',
                   letterSpacing: '0.04em',
-                  whiteSpace: 'nowrap',
+                  whiteSpace:    'nowrap',
                 }}
               >
                 {col.label}
@@ -75,31 +79,50 @@ export default function Table({
                   </td>
                 </tr>
               )
-              : rows.map((row, i) => (
-                <tr
-                  key={row.id ?? i}
-                  style={{
-                    borderBottom: '1px solid #f3f4f6',
-                    transition:   'background 0.1s',
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#fafafa'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      style={{
-                        padding:   '0.75rem 1rem',
-                        color:     '#1e293b',
-                        textAlign: col.align || 'left',
-                        whiteSpace: col.wrap ? 'normal' : 'nowrap',
-                      }}
-                    >
-                      {col.render ? col.render(row) : row[col.key]}
-                    </td>
-                  ))}
-                </tr>
-              ))
+              : rows.map((row, i) => {
+                  const isExpanded = expandedId === (row.id ?? i);
+                  return (
+                    <>
+                      <tr
+                        key={row.id ?? i}
+                        onClick={clickable ? () => onRowClick(row) : undefined}
+                        style={{
+                          borderBottom: isExpanded ? 'none' : '1px solid #f3f4f6',
+                          transition:   'background 0.1s',
+                          cursor:       clickable ? 'pointer' : 'default',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = '#fafafa'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = isExpanded ? '#f8fafc' : 'transparent'}
+                      >
+                        {columns.map((col) => (
+                          <td
+                            key={col.key}
+                            style={{
+                              padding:   '0.75rem 1rem',
+                              color:     '#1e293b',
+                              textAlign: col.align || 'left',
+                              whiteSpace: col.wrap ? 'normal' : 'nowrap',
+                            }}
+                          >
+                            {col.render ? col.render(row) : row[col.key]}
+                          </td>
+                        ))}
+                      </tr>
+
+                      {/* Inline expanded detail row */}
+                      {isExpanded && renderExpanded && (
+                        <tr key={`${row.id ?? i}-expanded`}>
+                          <td
+                            colSpan={colCount}
+                            style={{ padding: 0, borderBottom: '1px solid #f3f4f6' }}
+                          >
+                            {renderExpanded(row)}
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })
           }
         </tbody>
       </table>
