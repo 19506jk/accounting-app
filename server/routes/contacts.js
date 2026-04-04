@@ -154,14 +154,17 @@ router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
 router.delete('/:id', requireRole('admin'), async (req, res, next) => {
   try {
     const { id } = req.params;
+
     const contact = await db('contacts').where({ id }).first();
     if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
-    // Check transactions header AND journal entry lines
-    const txCount = await db('transactions').where({ contact_id: id }).count('id as count').first();
-    const jeCount = await db('journal_entries').where({ contact_id: id }).count('id as count').first();
+    // journal_entries.contact_id is the sole source of truth (transactions.contact_id is deprecated)
+    const jeCount = await db('journal_entries')
+      .where({ contact_id: id })
+      .count('id as count')
+      .first();
 
-    if (parseInt(txCount.count, 10) > 0 || parseInt(jeCount.count, 10) > 0) {
+    if (parseInt(jeCount.count, 10) > 0) {
       return res.status(409).json({
         error: 'Cannot delete — contact is linked to transactions. Deactivate instead.',
       });
@@ -169,7 +172,9 @@ router.delete('/:id', requireRole('admin'), async (req, res, next) => {
 
     await db('contacts').where({ id }).update({ is_active: false, updated_at: db.fn.now() });
     res.json({ message: 'Contact deactivated successfully' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── Donor routes — now join on journal_entries.contact_id ────────────────────
