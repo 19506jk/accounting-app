@@ -17,6 +17,7 @@ import Reconciliation  from './pages/Reconciliation';
 import Reports         from './pages/Reports';
 import Settings        from './pages/Settings';
 import UserManagement  from './pages/UserManagement';
+import DepositEntry    from './pages/DepositEntry';
 
 function AppRoutes() {
   const { isInitialLoading } = useAuth();
@@ -44,7 +45,10 @@ function AppRoutes() {
         <Route path="/funds"          element={<Funds />} />
         <Route path="/contacts"       element={<Contacts />} />
         <Route path="/bills"          element={<Bills />} />
-        <Route path="/transactions"   element={<Transactions />} />
+	<Route path="/transactions">
+          <Route index element={<Transactions />} />
+          <Route path="deposit" element={<DepositEntry />} />
+        </Route>
         <Route path="/reconciliation" element={<Reconciliation />} />
         <Route path="/reports"        element={<Reports />} />
 

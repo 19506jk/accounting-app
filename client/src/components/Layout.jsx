@@ -3,14 +3,15 @@ import { useAuth }    from '../context/AuthContext';
 import RoleGuard      from './RoleGuard';
 
 const NAV_LINKS = [
-  { to: '/dashboard',      label: '📊 Dashboard' },
-  { to: '/accounts',       label: '📒 Chart of Accounts' },
-  { to: '/funds',          label: '🏦 Funds' },
-  { to: '/contacts',       label: '👥 Contacts' },
-  { to: '/bills',          label: '📄 Bills' },
-  { to: '/transactions',   label: '💳 Transactions' },
-  { to: '/reconciliation', label: '✅ Reconciliation' },
-  { to: '/reports',        label: '📈 Reports' },
+  { to: '/dashboard',               label: '📊 Dashboard' },
+  { to: '/accounts',                label: '📒 Chart of Accounts' },
+  { to: '/funds',                   label: '🏦 Funds' },
+  { to: '/contacts',                label: '👥 Contacts' },
+  { to: '/bills',                   label: '📄 Bills' },
+  { to: '/transactions',            label: '💳 Transactions', end: true },
+  { to: '/transactions/deposit',    label: '💰 Make a Deposit' },
+  { to: '/reconciliation',          label: '✅ Reconciliation' },
+  { to: '/reports',                 label: '📈 Reports' },
 ];
 
 const ADMIN_LINKS = [
@@ -111,8 +112,8 @@ export default function Layout() {
         <nav>
           {/* Main links — all roles */}
           <div style={{ marginBottom: '0.25rem' }}>
-            {NAV_LINKS.map(({ to, label }) => (
-              <NavLink key={to} to={to} style={linkStyle}>
+            {NAV_LINKS.map(({ to, end, label }) => (
+              <NavLink key={to} to={to} end={end} style={linkStyle}>
                 {label}
               </NavLink>
             ))}

@@ -45,6 +45,9 @@ function TransactionForm({ onClose, onSaved }) {
   // Header-level contact for expenses — auto-fills all debit lines
   const [headerContact, setHeaderContact] = useState('');
 
+  // Signals that all rows are occupied and the user needs to add a line to balance
+  const [needsNewLine, setNeedsNewLine] = useState(false);
+
   const accountOptions = (accounts || []).map((a) => ({
     value: a.id, label: `${a.code} — ${a.name}`,
   }));
@@ -64,7 +67,10 @@ function TransactionForm({ onClose, onSaved }) {
     });
   }
 
-  function addLine() { setEntries((prev) => [...prev, { ...EMPTY_ENTRY }]); }
+  function addLine() {
+    setNeedsNewLine(false);
+    setEntries((prev) => [...prev, { ...EMPTY_ENTRY }]);
+  }
   function removeLine(i) {
     if (entries.length <= 2) return;
     setEntries((prev) => prev.filter((_, idx) => idx !== i));
@@ -76,6 +82,55 @@ function TransactionForm({ onClose, onSaved }) {
     setEntries((prev) => prev.map((e) =>
       dec(e.debit).gt(0) ? { ...e, contact_id: val } : e
     ));
+  }
+
+  // Auto-balance: on blur, compute imbalance and fill the nearest empty row
+  function autoBalance(changedIndex) {
+    setEntries((prev) => {
+      const totalDebit  = prev.reduce((s, e) => s.plus(dec(e.debit)),  dec(0));
+      const totalCredit = prev.reduce((s, e) => s.plus(dec(e.credit)), dec(0));
+      const imbalance   = totalDebit.minus(totalCredit); // positive = need more credit
+
+      // Perfectly balanced — sweep any ghost rows (amount-only, no account/fund/contact/memo)
+      // Tax lines are safe: they always carry account_id + fund_id so isGhost is false for them
+      if (imbalance.equals(0)) {
+        setNeedsNewLine(false);
+        return prev.map((e) => {
+          const isGhost = !e.account_id && !e.fund_id && !e.contact_id && !e.memo
+                          && (dec(e.debit).gt(0) || dec(e.credit).gt(0));
+          return isGhost ? { ...EMPTY_ENTRY } : e;
+        });
+      }
+
+      // Find the nearest empty row (both debit and credit blank)
+      // Search forward from changedIndex first, then wrap backward
+      const targetIndex = (() => {
+        for (let i = changedIndex + 1; i < prev.length; i++) {
+          if (!dec(prev[i].debit).gt(0) && !dec(prev[i].credit).gt(0)) return i;
+        }
+        for (let i = 0; i < changedIndex; i++) {
+          if (!dec(prev[i].debit).gt(0) && !dec(prev[i].credit).gt(0)) return i;
+        }
+        return null;
+      })();
+
+      // No empty row available — signal the "+ Add Line" button
+      if (targetIndex === null) {
+        setNeedsNewLine(true);
+        return prev;
+      }
+
+      setNeedsNewLine(false);
+      const next = [...prev];
+      if (imbalance.gt(0)) {
+        // More debit than credit → fill target's credit
+        next[targetIndex] = { ...next[targetIndex], credit: imbalance.toFixed(2), debit: '' };
+      } else {
+        // More credit than debit → fill target's debit
+        next[targetIndex] = { ...next[targetIndex], debit: imbalance.abs().toFixed(2), credit: '' };
+      }
+      return next;
+    });
   }
 
   // Per-fund balance status for SummaryBar
@@ -185,6 +240,7 @@ function TransactionForm({ onClose, onSaved }) {
                   if (ev.target.value) setEntry(i, 'credit', '');
                   if (ev.target.value && headerContact) setEntry(i, 'contact_id', headerContact);
                 }}
+                onBlur={() => autoBalance(i)}
                 placeholder="0.00"
                 style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
                   borderRadius: '6px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }} />
@@ -193,6 +249,7 @@ function TransactionForm({ onClose, onSaved }) {
                   setEntry(i, 'credit', ev.target.value);
                   if (ev.target.value) setEntry(i, 'debit', '');
                 }}
+                onBlur={() => autoBalance(i)}
                 placeholder="0.00"
                 style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
                   borderRadius: '6px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }} />
@@ -208,7 +265,19 @@ function TransactionForm({ onClose, onSaved }) {
           ))}
         </div>
 
-        <Button variant="secondary" size="sm" onClick={addLine}>+ Add Line</Button>
+        <Button variant="secondary" size="sm" onClick={addLine}
+          style={needsNewLine ? {
+            borderColor: '#f97316', color: '#f97316',
+            boxShadow: '0 0 0 3px rgba(249,115,22,0.25)',
+            animation: 'pulse 1.2s ease-in-out infinite',
+          } : {}}>
+          + Add Line{needsNewLine ? ' (needed to balance)' : ''}
+        </Button>
+
+        <style>{`@keyframes pulse {
+          0%, 100% { box-shadow: 0 0 0 3px rgba(249,115,22,0.25); }
+          50%       { box-shadow: 0 0 0 6px rgba(249,115,22,0.10); }
+        }`}</style>
 
         {/* Errors */}
         {errors.length > 0 && (
