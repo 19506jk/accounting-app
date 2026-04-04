@@ -81,7 +81,7 @@ export default function UserManagement() {
     }
   }
 
-  const isPending = (u) => !u.google_id;
+  const isPending = (u) => !u.is_active;
   const isSelf    = (u) => u.id === me?.id;
 
   const COLUMNS = [

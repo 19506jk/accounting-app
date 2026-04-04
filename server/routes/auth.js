@@ -61,6 +61,7 @@ router.post('/google', async (req, res, next) => {
             name,
             avatar_url,
             updated_at: db.fn.now(),
+            is_active: true,
           })
           .returning('*');
         user = updated;

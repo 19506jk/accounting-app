@@ -6,6 +6,7 @@ export function useUsers() {
     queryKey: ['users'],
     queryFn:  async () => {
       const { data } = await client.get('/users');
+	    console.log(data);
       return data.users;
     },
   });

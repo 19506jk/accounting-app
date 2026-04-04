@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useBills, useCreateBill, useUpdateBill, usePayBill, useVoidBill, useBillSummary } from '../api/useBills';
+import { useTaxRates } from '../api/useTaxRates';
 import { useContacts } from '../api/useContacts';
 import { useAccounts } from '../api/useAccounts';
 import { useFunds } from '../api/useFunds';
@@ -32,6 +33,7 @@ function createEmptyLineItem(tempId) {
     expense_account_id: '',
     description: '',
     amount: '',
+    tax_rate_id: '',
   };
 }
 
@@ -52,6 +54,7 @@ function BillForm({ bill, onClose, onSaved }) {
   const { data: contacts } = useContacts({ type: 'PAYEE' });
   const { data: accounts } = useAccounts();
   const { data: funds } = useFunds();
+  const { data: taxRates = [] } = useTaxRates({ activeOnly: true });
   const createBill = useCreateBill();
   const updateBill = useUpdateBill();
 
@@ -67,6 +70,7 @@ function BillForm({ bill, onClose, onSaved }) {
       expense_account_id: String(li.expense_account_id),
       description: li.description || '',
       amount: li.amount,
+      tax_rate_id: li.tax_rate_id ? String(li.tax_rate_id) : '',
     })) || [createEmptyLineItem('temp-1')],
   } : EMPTY_FORM);
 
@@ -95,12 +99,33 @@ function BillForm({ bill, onClose, onSaved }) {
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  const lineTotal = useMemo(() => {
-    return form.line_items.reduce((sum, li) => {
-      const amt = parseFloat(li.amount) || 0;
-      return sum + amt;
-    }, 0);
-  }, [form.line_items]);
+  const taxRateOptions = [
+    { value: '', label: 'Exempt' },
+    ...taxRates.map(tr => ({ value: String(tr.id), label: `${tr.name} (${(tr.rate * 100).toFixed(2)}%)` })),
+  ];
+
+  // Build a lookup map for quick rate access in calculations
+  const taxRateMap = useMemo(() => {
+    return Object.fromEntries(taxRates.map(tr => [String(tr.id), tr]));
+  }, [taxRates]);
+
+  // Per-line tax breakdown using the internal tax formula: net = gross / (1 + rate), tax = gross - net
+  const lineTotals = useMemo(() => {
+    return form.line_items.map(li => {
+      const gross = parseFloat(li.amount) || 0;
+      const taxRate = li.tax_rate_id ? taxRateMap[li.tax_rate_id] : null;
+      if (!taxRate || gross === 0) return { gross, net: gross, tax: 0, taxName: null };
+      const net  = Math.round((gross / (1 + taxRate.rate)) * 100) / 100;
+      const tax  = Math.round((gross - net) * 100) / 100;
+      return { gross, net, tax, taxName: taxRate.name };
+    });
+  }, [form.line_items, taxRateMap]);
+
+  const lineTotal   = useMemo(() => lineTotals.reduce((sum, l) => sum + l.gross, 0), [lineTotals]);
+  const totalHST    = useMemo(() => lineTotals.filter(l => l.taxName === 'HST').reduce((sum, l) => sum + l.tax, 0), [lineTotals]);
+  const totalGST    = useMemo(() => lineTotals.filter(l => l.taxName === 'GST').reduce((sum, l) => sum + l.tax, 0), [lineTotals]);
+  const totalTax    = totalHST + totalGST;
+  const totalNet    = lineTotal - totalTax;
 
   function addLineItem() {
     tempIdCounter++;
@@ -178,6 +203,7 @@ function BillForm({ bill, onClose, onSaved }) {
           expense_account_id: parseInt(li.expense_account_id),
           description: li.description.trim(),
           amount: parseFloat(li.amount),
+          tax_rate_id: li.tax_rate_id ? parseInt(li.tax_rate_id) : null,
         })),
       };
 
@@ -239,64 +265,92 @@ function BillForm({ bill, onClose, onSaved }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '38%', fontWeight: 500, color: '#6b7280' }}>Account</th>
-                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '32%', fontWeight: 500, color: '#6b7280' }}>Description</th>
-                <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', width: '20%', fontWeight: 500, color: '#6b7280' }}>Amount</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem 0.75rem', width: '10%', fontWeight: 500, color: '#6b7280' }}></th>
+                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '30%', fontWeight: 500, color: '#6b7280' }}>Account</th>
+                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '24%', fontWeight: 500, color: '#6b7280' }}>Description</th>
+                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '16%', fontWeight: 500, color: '#6b7280' }}>Tax</th>
+                <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', width: '18%', fontWeight: 500, color: '#6b7280' }}>Gross Amount</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem 0.75rem', width: '8%', fontWeight: 500, color: '#6b7280' }}></th>
               </tr>
             </thead>
             <tbody>
-              {form.line_items.map((line, idx) => (
-                <tr key={line.id} style={{ borderBottom: idx < form.line_items.length - 1 ? '1px solid #e5e7eb' : 'none' }}>
-                  <td style={{ padding: '0.5rem' }}>
-                    <Combobox
-                      options={expenseAccountOptions}
-                      value={line.expense_account_id}
-                      onChange={(v) => updateLineItem(idx, 'expense_account_id', v)}
-                      placeholder="Select..."
-                      error={errors.line_items?.[idx]?.expense_account_id}
-                    />
-                  </td>
-                  <td style={{ padding: '0.5rem' }}>
-                    <Input
-                      value={line.description}
-                      onChange={(e) => updateLineItem(idx, 'description', e.target.value)}
-                      placeholder="Description"
-                      error={errors.line_items?.[idx]?.description}
-                    />
-                  </td>
-                  <td style={{ padding: '0.5rem' }}>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={line.amount}
-                      onChange={(e) => updateLineItem(idx, 'amount', e.target.value)}
-                      placeholder="0.00"
-                      error={errors.line_items?.[idx]?.amount}
-                      style={{ textAlign: 'right' }}
-                    />
-                  </td>
-                  <td style={{ padding: '0.5rem', textAlign: 'center' }}>
-                    {form.line_items.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeLineItem(idx)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: '#dc2626',
-                          fontSize: '1rem',
-                          padding: '0.25rem',
-                        }}
-                        title="Remove line"
-                      >
-                        🗑️
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {form.line_items.map((line, idx) => {
+                const { gross, net, tax, taxName } = lineTotals[idx] || { gross: 0, net: 0, tax: 0, taxName: null };
+                const hasAccount = !!line.expense_account_id;
+                const taxDisabled = !hasAccount;
+
+                return (
+                  <tr key={line.id} style={{ borderBottom: idx < form.line_items.length - 1 ? '1px solid #e5e7eb' : 'none' }}>
+                    <td style={{ padding: '0.5rem' }}>
+                      <Combobox
+                        options={expenseAccountOptions}
+                        value={line.expense_account_id}
+                        onChange={(v) => updateLineItem(idx, 'expense_account_id', v)}
+                        placeholder="Select..."
+                        error={errors.line_items?.[idx]?.expense_account_id}
+                      />
+                    </td>
+                    <td style={{ padding: '0.5rem' }}>
+                      <Input
+                        value={line.description}
+                        onChange={(e) => updateLineItem(idx, 'description', e.target.value)}
+                        placeholder="Description"
+                        error={errors.line_items?.[idx]?.description}
+                      />
+                    </td>
+                    <td style={{ padding: '0.5rem' }}>
+                      <div>
+                        <Select
+                          options={taxRateOptions}
+                          value={line.tax_rate_id}
+                          onChange={(e) => updateLineItem(idx, 'tax_rate_id', e.target.value)}
+                          disabled={taxDisabled}
+                          style={{ opacity: taxDisabled ? 0.5 : 1 }}
+                        />
+                        {tax > 0 && (
+                          <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.2rem', textAlign: 'right' }}>
+                            {taxName}: {fmt(tax)}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td style={{ padding: '0.5rem' }}>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={line.amount}
+                        onChange={(e) => updateLineItem(idx, 'amount', e.target.value)}
+                        placeholder="0.00"
+                        error={errors.line_items?.[idx]?.amount}
+                        style={{ textAlign: 'right' }}
+                      />
+                      {tax > 0 && (
+                        <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.2rem', textAlign: 'right' }}>
+                          Net: {fmt(net)}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                      {form.line_items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeLineItem(idx)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#dc2626',
+                            fontSize: '1rem',
+                            padding: '0.25rem',
+                          }}
+                          title="Remove line"
+                        >
+                          🗑️
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -306,14 +360,39 @@ function BillForm({ bill, onClose, onSaved }) {
         </Button>
 
         <div style={{ 
-          display: 'flex', 
-          justifyContent: 'flex-end', 
           padding: '0.75rem 1rem', 
           background: '#f9fafb', 
           borderRadius: '8px',
           marginBottom: '1.5rem',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: '0.3rem',
+          fontSize: '0.85rem',
         }}>
-          <span style={{ fontWeight: 600, color: '#1e293b' }}>Total: {fmt(lineTotal)}</span>
+          {totalTax > 0 && (
+            <>
+              <div style={{ color: '#6b7280' }}>
+                Subtotal (net): <span style={{ fontWeight: 500, color: '#1e293b', marginLeft: '1rem' }}>{fmt(totalNet)}</span>
+              </div>
+              {totalHST > 0 && (
+                <div style={{ color: '#6b7280' }}>
+                  HST: <span style={{ fontWeight: 500, color: '#1e293b', marginLeft: '1rem' }}>{fmt(totalHST)}</span>
+                </div>
+              )}
+              {totalGST > 0 && (
+                <div style={{ color: '#6b7280' }}>
+                  GST: <span style={{ fontWeight: 500, color: '#1e293b', marginLeft: '1rem' }}>{fmt(totalGST)}</span>
+                </div>
+              )}
+              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '0.3rem', marginTop: '0.1rem' }}>
+                Grand Total: <span style={{ fontWeight: 700, color: '#1e293b', marginLeft: '1rem' }}>{fmt(lineTotal)}</span>
+              </div>
+            </>
+          )}
+          {totalTax === 0 && (
+            <span style={{ fontWeight: 600, color: '#1e293b' }}>Total: {fmt(lineTotal)}</span>
+          )}
         </div>
 
         {form.line_items.length > 0 && form.fund_id && (
@@ -324,11 +403,22 @@ function BillForm({ bill, onClose, onSaved }) {
             <div style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>
               {form.line_items.map((li, idx) => {
                 const account = expenseAccountOptions.find(a => a.value === li.expense_account_id);
-                const amount = parseFloat(li.amount) || 0;
-                if (amount === 0) return null;
+                const { gross, net, tax, taxName } = lineTotals[idx] || {};
+                if (!gross || gross === 0) return null;
+                const taxRate = li.tax_rate_id ? taxRateMap[li.tax_rate_id] : null;
+
                 return (
-                  <div key={idx} style={{ color: amount >= 0 ? '#15803d' : '#b91c1c' }}>
-                    {amount >= 0 ? 'Dr' : 'Cr'} {account?.label || 'Expense'} — {fmt(amount)}
+                  <div key={idx}>
+                    {/* Expense line at net amount */}
+                    <div style={{ color: '#15803d' }}>
+                      Dr {account?.label || 'Expense'} — {fmt(tax > 0 ? net : gross)}
+                    </div>
+                    {/* Tax recoverable line if applicable */}
+                    {tax > 0 && taxRate && (
+                      <div style={{ color: '#15803d', paddingLeft: '1rem', fontSize: '0.8rem' }}>
+                        Dr {taxRate.recoverable_account_name || `${taxName} Recoverable`} — {fmt(tax)}
+                      </div>
+                    )}
                   </div>
                 );
               })}

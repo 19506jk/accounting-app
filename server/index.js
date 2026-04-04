@@ -15,6 +15,7 @@ const transactionRoutes     = require('./routes/transactions');
 const reconciliationRoutes  = require('./routes/reconciliation');
 const reportRoutes          = require('./routes/reports');
 const billRoutes            = require('./routes/bills');
+const taxRatesRouter        = require('./routes/taxRates');
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -56,6 +57,7 @@ app.use('/api/transactions',    transactionRoutes);
 app.use('/api/reconciliations', reconciliationRoutes);
 app.use('/api/reports',         reportRoutes);
 app.use('/api/bills',           billRoutes);
+app.use('/api/tax-rates',       taxRatesRouter);
 
 if (process.env.NODE_ENV === 'production') {
   // Serve static files from client/dist

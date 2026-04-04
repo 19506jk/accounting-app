@@ -97,11 +97,14 @@ async function getBillWithLineItems(billId) {
 
   const lineItems = await db('bill_line_items as bli')
     .join('accounts as a', 'a.id', 'bli.expense_account_id')
+    .leftJoin('tax_rates as tr', 'tr.id', 'bli.tax_rate_id')
     .where('bli.bill_id', billId)
     .select(
       'bli.*',
       'a.code as expense_account_code',
-      'a.name as expense_account_name'
+      'a.name as expense_account_name',
+      'tr.name as tax_rate_name',
+      'tr.rate as tax_rate_value',
     );
 
   return {
@@ -115,6 +118,17 @@ async function getBillWithLineItems(billId) {
       expense_account_name: li.expense_account_name,
       amount: parseFloat(li.amount),
       description: li.description,
+      tax_rate_id: li.tax_rate_id || null,
+      tax_rate_name: li.tax_rate_name || null,
+      tax_rate_value: li.tax_rate_value ? parseFloat(li.tax_rate_value) : null,
+      // tax_amount computed from gross: tax = gross - round(gross / (1 + rate), 2)
+      tax_amount: li.tax_rate_id
+        ? parseFloat(
+            dec(li.amount)
+              .minus(dec(li.amount).dividedBy(dec(1).plus(dec(li.tax_rate_value))).toDecimalPlaces(2))
+              .toFixed(2)
+          )
+        : null,
     })),
   };
 }
@@ -124,7 +138,8 @@ async function createBillLineItems(billId, lineItems, trx) {
     bill_id: billId,
     expense_account_id: li.expense_account_id,
     amount: dec(li.amount).toFixed(2),
-    description: li.description.trim(),
+    description: li.description?.trim() || null,
+    tax_rate_id: li.tax_rate_id || null,
     created_at: trx.fn.now(),
     updated_at: trx.fn.now(),
   }));
@@ -133,60 +148,143 @@ async function createBillLineItems(billId, lineItems, trx) {
 }
 
 async function createMultiLineJournalEntries(transactionId, billId, lineItems, fundId, apAccountId, contactName, billNumber, trx) {
-  const totalAmount = lineItems.reduce((sum, li) => sum + dec(li.amount).toNumber(), 0);
-  
+  // Resolve all tax rates needed for this set of line items in one query
+  const taxRateIds = [...new Set(lineItems.map(li => li.tax_rate_id).filter(Boolean))];
+  const taxRates = taxRateIds.length > 0
+    ? await trx('tax_rates').whereIn('id', taxRateIds)
+    : [];
+  const taxRateMap = Object.fromEntries(taxRates.map(tr => [tr.id, tr]));
+
   const journalEntries = [];
+  let apTotal = dec(0);
 
   for (const line of lineItems) {
-    const amount = dec(line.amount).toFixed(2);
-    if (dec(amount).gte(0)) {
+    const gross = dec(line.amount);
+    const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null;
+
+    if (taxRate) {
+      // Internal tax formula: net = round(gross / (1 + rate), 2), tax = gross - net
+      const net = gross.dividedBy(dec(1).plus(dec(taxRate.rate))).toDecimalPlaces(2);
+      const tax = gross.minus(net);
+
+      // Expense line — net amount only
       journalEntries.push({
         transaction_id: transactionId,
-        account_id: line.expense_account_id,
-        fund_id: fundId,
-        debit: amount,
-        credit: 0,
-        memo: `Bill ${billNumber || ''} - ${line.description}`,
-        is_reconciled: false,
-        created_at: trx.fn.now(),
-        updated_at: trx.fn.now(),
+        account_id:     line.expense_account_id,
+        fund_id:        fundId,
+        debit:          net.toFixed(2),
+        credit:         0,
+        memo:           `Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
+        is_reconciled:  false,
+        tax_rate_id:    line.tax_rate_id,
+        is_tax_line:    false,
+        created_at:     trx.fn.now(),
+        updated_at:     trx.fn.now(),
       });
+
+      // Tax recoverable line — inherits fund and contact from parent
+      journalEntries.push({
+        transaction_id: transactionId,
+        account_id:     taxRate.recoverable_account_id,
+        fund_id:        fundId,
+        debit:          tax.toFixed(2),
+        credit:         0,
+        memo:           `${taxRate.name} on Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
+        is_reconciled:  false,
+        tax_rate_id:    line.tax_rate_id,
+        is_tax_line:    true,
+        created_at:     trx.fn.now(),
+        updated_at:     trx.fn.now(),
+      });
+
+      apTotal = apTotal.plus(gross); // AP credit = full gross
     } else {
-      journalEntries.push({
-        transaction_id: transactionId,
-        account_id: line.expense_account_id,
-        fund_id: fundId,
-        debit: 0,
-        credit: Math.abs(parseFloat(amount)).toFixed(2),
-        memo: `Bill ${billNumber || ''} - ${line.description}`,
-        is_reconciled: false,
-        created_at: trx.fn.now(),
-        updated_at: trx.fn.now(),
-      });
+      // No tax — behaviour unchanged from original
+      const amount = dec(line.amount);
+      if (amount.gte(0)) {
+        journalEntries.push({
+          transaction_id: transactionId,
+          account_id:     line.expense_account_id,
+          fund_id:        fundId,
+          debit:          amount.toFixed(2),
+          credit:         0,
+          memo:           `Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
+          is_reconciled:  false,
+          tax_rate_id:    null,
+          is_tax_line:    false,
+          created_at:     trx.fn.now(),
+          updated_at:     trx.fn.now(),
+        });
+      } else {
+        journalEntries.push({
+          transaction_id: transactionId,
+          account_id:     line.expense_account_id,
+          fund_id:        fundId,
+          debit:          0,
+          credit:         amount.abs().toFixed(2),
+          memo:           `Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
+          is_reconciled:  false,
+          tax_rate_id:    null,
+          is_tax_line:    false,
+          created_at:     trx.fn.now(),
+          updated_at:     trx.fn.now(),
+        });
+      }
+      apTotal = apTotal.plus(amount);
     }
   }
 
+  // AP credit line — full gross total (tax-inclusive)
   journalEntries.push({
     transaction_id: transactionId,
-    account_id: apAccountId,
-    fund_id: fundId,
-    debit: 0,
-    credit: dec(totalAmount).toFixed(2),
-    memo: `Bill ${billNumber || ''} - ${contactName}`,
-    is_reconciled: false,
-    created_at: trx.fn.now(),
-    updated_at: trx.fn.now(),
+    account_id:     apAccountId,
+    fund_id:        fundId,
+    debit:          0,
+    credit:         apTotal.toFixed(2),
+    memo:           `Bill ${billNumber || ''} - ${contactName}`,
+    is_reconciled:  false,
+    tax_rate_id:    null,
+    is_tax_line:    false,
+    created_at:     trx.fn.now(),
+    updated_at:     trx.fn.now(),
   });
+
+  // Rounding check: sum of all debits vs AP credit
+  const totalDebits = journalEntries.reduce((sum, e) => sum.plus(dec(e.debit)), dec(0));
+  const diff = totalDebits.minus(apTotal).abs();
+  if (diff.gt(0) && diff.lte(TOLERANCE)) {
+    const roundingAccount = await trx('accounts')
+      .where({ code: ROUNDING_ACCOUNT_CODE })
+      .first();
+    if (roundingAccount) {
+      journalEntries.push({
+        transaction_id: transactionId,
+        account_id:     roundingAccount.id,
+        fund_id:        fundId,
+        debit:          totalDebits.lt(apTotal) ? diff.toFixed(2) : 0,
+        credit:         totalDebits.gt(apTotal) ? diff.toFixed(2) : 0,
+        memo:           'Rounding adjustment',
+        is_reconciled:  false,
+        tax_rate_id:    null,
+        is_tax_line:    false,
+        created_at:     trx.fn.now(),
+        updated_at:     trx.fn.now(),
+      });
+    }
+  }
 
   return trx('journal_entries').insert(journalEntries).returning('*');
 }
 
 async function validateLineItemAccounts(lineItems) {
   const errors = [];
-  const roundingAccount = await db('accounts')
-    .where({ code: ROUNDING_ACCOUNT_CODE })
-    .where('is_active', true)
-    .first();
+
+  // Pre-fetch all tax rates needed
+  const taxRateIds = [...new Set(lineItems.map(li => li.tax_rate_id).filter(Boolean))];
+  const taxRates = taxRateIds.length > 0
+    ? await db('tax_rates').whereIn('id', taxRateIds).where('is_active', true)
+    : [];
+  const activeTaxRateIds = new Set(taxRates.map(tr => tr.id));
 
   for (let i = 0; i < lineItems.length; i++) {
     const line = lineItems[i];
@@ -206,6 +304,16 @@ async function validateLineItemAccounts(lineItems) {
 
     if (dec(line.amount).lt(0) && account.code !== ROUNDING_ACCOUNT_CODE) {
       errors.push(`Line ${i + 1}: Negative amounts only allowed in account ${ROUNDING_ACCOUNT_CODE} (Rounding & Adjustments)`);
+    }
+
+    // Tax validation: tax may only be applied to EXPENSE accounts
+    if (line.tax_rate_id) {
+      if (account.type !== 'EXPENSE') {
+        errors.push(`Line ${i + 1}: Tax can only be applied to EXPENSE accounts`);
+      }
+      if (!activeTaxRateIds.has(line.tax_rate_id)) {
+        errors.push(`Line ${i + 1}: Tax rate #${line.tax_rate_id} does not exist or is inactive`);
+      }
     }
   }
 
