@@ -200,6 +200,12 @@ function ReceiptPDF({ receipt }) {
         <View style={receiptStyles.section}>
           <Text style={receiptStyles.label}>Issued to:</Text>
           <Text style={receiptStyles.bold}>{donor.name}</Text>
+          {/* Donor ID — shown when available */}
+          {donor.donor_id && (
+            <Text style={{ fontSize: 9, color: '#555', marginTop: 2 }}>
+              Donor ID: {donor.donor_id}
+            </Text>
+          )}
           {donor.address_line1 && <Text>{donor.address_line1}</Text>}
           {donor.address_line2 && <Text>{donor.address_line2}</Text>}
           <Text>
@@ -438,7 +444,14 @@ function DonorDetailReport({ data, settings }) {
         <div key={d.contact_id} style={{ marginBottom: '2rem', pageBreakInside: 'avoid' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             marginBottom: '0.5rem' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>{d.contact_name}</div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>{d.contact_name}</div>
+              {d.donor_id && (
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', fontFamily: 'monospace' }}>
+                  ID: {d.donor_id}
+                </div>
+              )}
+            </div>
             <PDFDownloadLink
               document={<ReceiptPDF receipt={{
                 church: {
@@ -449,7 +462,7 @@ function DonorDetailReport({ data, settings }) {
                   postal_code:     settings?.church_postal_code || '',
                   registration_no: settings?.church_registration_no || '',
                 },
-                donor: d,
+                donor: d,   // d now includes donor_id from the API response
                 year:         new Date().getFullYear(),
                 donations:    d.transactions || [],
                 total:        d.total,
@@ -496,6 +509,31 @@ function DonorDetailReport({ data, settings }) {
           <div style={{ fontWeight: 700, color: '#9ca3af', fontStyle: 'italic', marginBottom: '0.5rem' }}>
             Anonymous ({data.anonymous.transactions.length} donations)
           </div>
+          <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc' }}>
+                {['Date','Description','Account','Fund','Amount'].map((h) => (
+                  <th key={h} style={{ padding: '0.4rem 0.6rem', textAlign: h === 'Amount' ? 'right' : 'left',
+                    fontWeight: 600, color: '#6b7280', fontSize: '0.72rem', textTransform: 'uppercase' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.anonymous.transactions.map((tx, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={{ padding: '0.35rem 0.6rem' }}>{fmtD(tx.date)}</td>
+                  <td style={{ padding: '0.35rem 0.6rem' }}>{tx.description}</td>
+                  <td style={{ padding: '0.35rem 0.6rem', color: '#6b7280' }}>{tx.account_name}</td>
+                  <td style={{ padding: '0.35rem 0.6rem', color: '#6b7280' }}>{tx.fund_name}</td>
+                  <td style={{ padding: '0.35rem 0.6rem', textAlign: 'right', fontWeight: 500 }}>{fmt(tx.amount)}</td>
+                </tr>
+              ))}
+              <tr style={{ borderTop: '1px solid #e5e7eb' }}>
+                <td colSpan={4} style={{ padding: '0.35rem 0.6rem', fontWeight: 600 }}>Subtotal</td>
+                <td style={{ padding: '0.35rem 0.6rem', textAlign: 'right', fontWeight: 700 }}>{fmt(data.anonymous.total)}</td>
+              </tr>
+            </tbody>
+          </table>
           <LineItem label="Total" value={fmt(data.anonymous.total)} bold />
         </div>
       )}

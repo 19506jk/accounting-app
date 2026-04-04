@@ -23,18 +23,22 @@ const CLASS_OPTIONS = [
   { value: 'HOUSEHOLD',  label: 'Household' },
 ];
 
+const DONOR_TYPES = ['DONOR', 'BOTH'];
+const isDonorType = (type) => DONOR_TYPES.includes(type?.toUpperCase());
+
 const EMPTY_FORM = {
   type: 'DONOR', contact_class: 'INDIVIDUAL',
   name: '', first_name: '', last_name: '',
   email: '', phone: '',
   address_line1: '', address_line2: '',
   city: '', province: 'ON', postal_code: '',
-  notes: '',
+  notes: '', donor_id: '',
 };
 
 function ContactForm({ form, setForm, errors = {} }) {
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const isHousehold = form.contact_class === 'HOUSEHOLD';
+  const showDonorId = isDonorType(form.type);
 
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
@@ -44,6 +48,18 @@ function ContactForm({ form, setForm, errors = {} }) {
         <Select label="Class" required value={form.contact_class}
           onChange={set('contact_class')} options={CLASS_OPTIONS} />
       </div>
+
+      {/* Donor ID — only shown for DONOR or BOTH */}
+      {showDonorId && (
+        <Input
+          label="Donor ID"
+          required
+          value={form.donor_id}
+          onChange={set('donor_id')}
+          error={errors.donor_id}
+          placeholder="e.g. 5-12345"
+        />
+      )}
 
       <Input label="Display Name" required value={form.name}
         onChange={set('name')} error={errors.name}
@@ -133,6 +149,7 @@ export default function Contacts() {
       province:      contact.province      || 'ON',
       postal_code:   contact.postal_code   || '',
       notes:         contact.notes         || '',
+      donor_id:      contact.donor_id      || '',
     });
     setErrors({});
     setDrawer(contact);
@@ -143,6 +160,9 @@ export default function Contacts() {
   function validate() {
     const errs = {};
     if (!form.name.trim()) errs.name = 'Display name is required';
+    if (isDonorType(form.type) && !form.donor_id.trim()) {
+      errs.donor_id = 'Donor ID is required for Donor or Both contact types';
+    }
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -160,12 +180,7 @@ export default function Contacts() {
       closeDrawer();
     } catch (err) {
       const msg = err.response?.data?.error || 'Something went wrong.';
-      // Handle duplicate detection
-      if (err.response?.status === 409) {
-        addToast(msg, 'error');
-      } else {
-        addToast(msg, 'error');
-      }
+      addToast(msg, 'error');
     }
   }
 
@@ -202,6 +217,12 @@ export default function Contacts() {
           {c.email && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{c.email}</div>}
         </div>
       ),
+    },
+    {
+      key: 'donor_id', label: 'Donor ID',
+      render: (c) => c.donor_id
+        ? <span style={{ fontSize: '0.8rem', fontFamily: 'monospace', color: '#374151' }}>{c.donor_id}</span>
+        : <span style={{ color: '#d1d5db' }}>—</span>,
     },
     {
       key: 'type', label: 'Type',
@@ -256,7 +277,7 @@ export default function Contacts() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name or email…"
+          placeholder="Search by name, email, or donor ID…"
           style={{ padding: '0.45rem 0.75rem', border: '1px solid #d1d5db',
             borderRadius: '6px', fontSize: '0.875rem', width: '260px' }}
         />

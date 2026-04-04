@@ -8,6 +8,12 @@ router.use(auth);
 
 const VALID_PROVINCES = ['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT'];
 
+const DONOR_TYPES = ['DONOR', 'BOTH'];
+
+function isDonorType(type) {
+  return DONOR_TYPES.includes(type?.toUpperCase());
+}
+
 function normalisePostalCode(raw) {
   if (!raw) return null;
   const cleaned = raw.replace(/\s+/g, '').toUpperCase();
@@ -15,19 +21,32 @@ function normalisePostalCode(raw) {
   return raw.toUpperCase().trim();
 }
 
-function validateContact(body, isPatch = false) {
+function validateContact(body, isPatch = false, existingType = null) {
   const errors = [];
+
   if (!isPatch) {
     if (!body.type)          errors.push('type is required');
     if (!body.contact_class) errors.push('contact_class is required');
     if (!body.name?.trim())  errors.push('name is required');
   }
-  if (body.type && !['DONOR', 'PAYEE', 'BOTH'].includes(body.type))
+
+  if (body.type && !['DONOR', 'PAYEE', 'BOTH'].includes(body.type.toUpperCase()))
     errors.push('type must be DONOR, PAYEE, or BOTH');
-  if (body.contact_class && !['INDIVIDUAL', 'HOUSEHOLD'].includes(body.contact_class))
+
+  if (body.contact_class && !['INDIVIDUAL', 'HOUSEHOLD'].includes(body.contact_class.toUpperCase()))
     errors.push('contact_class must be INDIVIDUAL or HOUSEHOLD');
+
   if (body.province && !VALID_PROVINCES.includes(body.province.toUpperCase()))
-    errors.push(`province must be a valid Canadian province/territory code`);
+    errors.push('province must be a valid Canadian province/territory code');
+
+  // Determine the effective type for donor_id validation:
+  // On PATCH the incoming type may be absent — fall back to the existing DB type.
+  const effectiveType = body.type?.toUpperCase() || existingType?.toUpperCase();
+
+  if (isDonorType(effectiveType) && !body.donor_id?.trim()) {
+    errors.push('donor_id is required for contacts of type DONOR or BOTH');
+  }
+
   return errors;
 }
 
@@ -37,8 +56,11 @@ router.get('/', async (req, res, next) => {
   try {
     const { type, class: contactClass, search, include_inactive } = req.query;
     const query = db('contacts')
-      .select('id','type','contact_class','name','first_name','last_name',
-              'email','phone','city','province','postal_code','is_active','created_at')
+      .select(
+        'id', 'type', 'contact_class', 'name', 'first_name', 'last_name',
+        'email', 'phone', 'city', 'province', 'postal_code',
+        'donor_id', 'is_active', 'created_at',
+      )
       .orderBy('name', 'asc');
 
     if (include_inactive !== 'true') {
@@ -54,10 +76,11 @@ router.get('/', async (req, res, next) => {
     if (search?.trim()) {
       const term = `%${search.trim().toLowerCase()}%`;
       query.where(function () {
-        this.whereRaw('LOWER(name) LIKE ?',       [term])
+        this.whereRaw('LOWER(name) LIKE ?',        [term])
             .orWhereRaw('LOWER(first_name) LIKE ?', [term])
             .orWhereRaw('LOWER(last_name) LIKE ?',  [term])
-            .orWhereRaw('LOWER(email) LIKE ?',      [term]);
+            .orWhereRaw('LOWER(email) LIKE ?',      [term])
+            .orWhereRaw('LOWER(donor_id) LIKE ?',   [term]);
       });
     }
     res.json({ contacts: await query });
@@ -80,11 +103,12 @@ router.post('/', requireRole('admin', 'editor'), async (req, res, next) => {
     const {
       type, contact_class, name, first_name, last_name,
       email, phone, address_line1, address_line2,
-      city, province, postal_code, notes,
+      city, province, postal_code, notes, donor_id,
     } = req.body;
 
     const normalisedPostal = normalisePostalCode(postal_code);
 
+    // Duplicate check: same name + postal code
     if (name && normalisedPostal) {
       const duplicate = await db('contacts')
         .whereRaw('LOWER(name) = LOWER(?)', [name.trim()])
@@ -97,15 +121,35 @@ router.post('/', requireRole('admin', 'editor'), async (req, res, next) => {
       }
     }
 
+    // Unique donor_id check
+    if (donor_id?.trim()) {
+      const existingDonorId = await db('contacts')
+        .whereRaw('LOWER(donor_id) = LOWER(?)', [donor_id.trim()])
+        .first();
+      if (existingDonorId) {
+        return res.status(409).json({
+          error: `Donor ID "${donor_id.trim()}" is already in use by another contact`,
+        });
+      }
+    }
+
     const [contact] = await db('contacts').insert({
       type: type.toUpperCase(), contact_class: contact_class.toUpperCase(),
       name: name.trim(),
-      first_name: first_name?.trim() || null, last_name: last_name?.trim() || null,
-      email: email?.trim() || null, phone: phone?.trim() || null,
-      address_line1: address_line1?.trim() || null, address_line2: address_line2?.trim() || null,
-      city: city?.trim() || null, province: province?.toUpperCase() || null,
-      postal_code: normalisedPostal, notes: notes?.trim() || null,
-      is_active: true, created_at: db.fn.now(), updated_at: db.fn.now(),
+      first_name:    first_name?.trim()    || null,
+      last_name:     last_name?.trim()     || null,
+      email:         email?.trim()         || null,
+      phone:         phone?.trim()         || null,
+      address_line1: address_line1?.trim() || null,
+      address_line2: address_line2?.trim() || null,
+      city:          city?.trim()          || null,
+      province:      province?.toUpperCase() || null,
+      postal_code:   normalisedPostal,
+      notes:         notes?.trim()         || null,
+      donor_id:      donor_id?.trim()      || null,
+      is_active:     true,
+      created_at:    db.fn.now(),
+      updated_at:    db.fn.now(),
     }).returning('*');
 
     res.status(201).json({ contact });
@@ -118,16 +162,34 @@ router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
     const contact = await db('contacts').where({ id }).first();
     if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
-    const errors = validateContact(req.body, true);
+    // Pass existing type so validation can determine donor_id requirement
+    // even when type is not included in a partial update.
+    const errors = validateContact(req.body, true, contact.type);
     if (errors.length) return res.status(400).json({ errors });
 
     const {
       type, contact_class, name, first_name, last_name,
       email, phone, address_line1, address_line2,
-      city, province, postal_code, notes, is_active,
+      city, province, postal_code, notes, is_active, donor_id,
     } = req.body;
 
-    const normalisedPostal = postal_code ? normalisePostalCode(postal_code) : contact.postal_code;
+    const normalisedPostal = postal_code
+      ? normalisePostalCode(postal_code)
+      : contact.postal_code;
+
+    // Unique donor_id check — exclude current contact from the lookup
+    const incomingDonorId = donor_id !== undefined ? donor_id?.trim() || null : contact.donor_id;
+    if (incomingDonorId && incomingDonorId !== contact.donor_id) {
+      const existingDonorId = await db('contacts')
+        .whereRaw('LOWER(donor_id) = LOWER(?)', [incomingDonorId])
+        .whereNot({ id })
+        .first();
+      if (existingDonorId) {
+        return res.status(409).json({
+          error: `Donor ID "${incomingDonorId}" is already in use by another contact`,
+        });
+      }
+    }
 
     const [updated] = await db('contacts').where({ id }).update({
       type:          type          ? type.toUpperCase()          : contact.type,
@@ -143,6 +205,7 @@ router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
       province:      province    !== undefined ? province?.toUpperCase() || null : contact.province,
       postal_code:   normalisedPostal,
       notes:         notes       !== undefined ? notes?.trim()       || null : contact.notes,
+      donor_id:      donor_id    !== undefined ? donor_id?.trim()    || null : contact.donor_id,
       is_active:     is_active   !== undefined ? is_active : contact.is_active,
       updated_at:    db.fn.now(),
     }).returning('*');
@@ -177,7 +240,7 @@ router.delete('/:id', requireRole('admin'), async (req, res, next) => {
   }
 });
 
-// ── Donor routes — now join on journal_entries.contact_id ────────────────────
+// ── Donor routes — join on journal_entries.contact_id ────────────────────────
 
 /**
  * GET /api/contacts/:id/donations
@@ -195,7 +258,7 @@ router.get('/:id/donations', async (req, res, next) => {
       .join('transactions as t', 't.id', 'je.transaction_id')
       .join('accounts as a',     'a.id', 'je.account_id')
       .join('funds as f',        'f.id', 'je.fund_id')
-      .where('je.contact_id', id)       // ← entry-level contact
+      .where('je.contact_id', id)
       .where('a.type',  'INCOME')
       .where('je.credit', '>', 0)
       .select(
@@ -209,7 +272,7 @@ router.get('/:id/donations', async (req, res, next) => {
     if (year) query.whereRaw('EXTRACT(YEAR FROM t.date) = ?', [parseInt(year, 10)]);
 
     const donations = await query;
-    res.json({ contact: { id: contact.id, name: contact.name }, donations });
+    res.json({ contact: { id: contact.id, name: contact.name, donor_id: contact.donor_id }, donations });
   } catch (err) { next(err); }
 });
 
@@ -225,7 +288,7 @@ router.get('/:id/donations/summary', async (req, res, next) => {
     const summary = await db('journal_entries as je')
       .join('transactions as t', 't.id', 'je.transaction_id')
       .join('accounts as a',     'a.id', 'je.account_id')
-      .where('je.contact_id', id)       // ← entry-level contact
+      .where('je.contact_id', id)
       .where('a.type',  'INCOME')
       .where('je.credit', '>', 0)
       .select(db.raw('EXTRACT(YEAR FROM t.date)::integer AS year'))
@@ -234,7 +297,7 @@ router.get('/:id/donations/summary', async (req, res, next) => {
       .groupByRaw('EXTRACT(YEAR FROM t.date)')
       .orderBy('year', 'desc');
 
-    res.json({ contact: { id: contact.id, name: contact.name }, summary });
+    res.json({ contact: { id: contact.id, name: contact.name, donor_id: contact.donor_id }, summary });
   } catch (err) { next(err); }
 });
 
@@ -258,7 +321,7 @@ router.get('/:id/receipt', async (req, res, next) => {
     const donations = await db('journal_entries as je')
       .join('transactions as t', 't.id', 'je.transaction_id')
       .join('accounts as a',     'a.id', 'je.account_id')
-      .where('je.contact_id', id)       // ← entry-level contact
+      .where('je.contact_id', id)
       .where('a.type',  'INCOME')
       .where('je.credit', '>', 0)
       .whereRaw('EXTRACT(YEAR FROM t.date) = ?', [yearInt])
@@ -288,6 +351,7 @@ router.get('/:id/receipt', async (req, res, next) => {
           name:          contact.name,
           first_name:    contact.first_name,
           last_name:     contact.last_name,
+          donor_id:      contact.donor_id,       // ← added
           address_line1: contact.address_line1,
           address_line2: contact.address_line2,
           city:          contact.city,
@@ -313,7 +377,6 @@ router.get('/receipts/bulk', requireRole('admin'), async (req, res, next) => {
     if (!year) return res.status(400).json({ error: 'year query parameter is required' });
     const yearInt = parseInt(year, 10);
 
-    // Donors with entry-level contact_id
     const donorIds = await db('journal_entries as je')
       .join('transactions as t', 't.id', 'je.transaction_id')
       .join('accounts as a',     'a.id', 'je.account_id')
@@ -341,7 +404,7 @@ router.get('/receipts/bulk', requireRole('admin'), async (req, res, next) => {
 
         const total = donations.reduce((sum, d) => sum + parseFloat(d.amount), 0);
         return {
-          donor:           contact,
+          donor:           contact,           // includes donor_id via contact row
           year:            yearInt,
           donations:       donations.map((d) => ({ ...d, amount: parseFloat(d.amount) })),
           total:           parseFloat(total.toFixed(2)),
