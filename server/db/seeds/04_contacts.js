@@ -3,33 +3,36 @@
  *
  * Reads seeds/data/contacts.csv and inserts all rows into the contacts table.
  *
- * CSV headers expected:
+ * CSV headers expected (produced by prepare_contacts.py):
  *   Display Name, First Name, Last Name, Company, Main Phone, Main Email,
- *   Address 1, City, Province, Postal Code
+ *   Address 1, City, Province, Postal Code, Type
  *
- * Drop your parsed CSV at seeds/data/contacts.csv before running:
+ * Drop your prepared CSV at seeds/data/contacts.csv before running:
  *   knex seed:run --specific=seed_contacts.js
  */
 
 const path = require('path');
 const fs   = require('fs');
 
-const CSV_PATH = path.join(__dirname, 'data', 'donors.csv');
+const CSV_PATH = path.join(__dirname, 'data', 'contacts.csv');
 
-/**
- * Detect whether a display name represents a household.
- * Households contain '&' or '/' (e.g. "John & Jane Smith", "John / Jane Smith").
- */
+const TYPE_MAP = {
+  'donor': 'DONOR',
+  'payee': 'PAYEE',
+  'both':  'BOTH',
+};
+
+const VALID_PROVINCES = new Set([
+  'AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT'
+]);
+
 function isHousehold(displayName) {
   return /[&\/]/.test(displayName);
 }
 
-/**
- * Parse a raw CSV line respecting double-quoted fields.
- */
 function parseCsvLine(line) {
   const fields = [];
-  let current = '';
+  let current  = '';
   let inQuotes = false;
 
   for (let i = 0; i < line.length; i++) {
@@ -52,63 +55,51 @@ function parseCsvLine(line) {
   return fields;
 }
 
-/**
- * Read and parse the CSV file into an array of objects.
- */
 function readCsv(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
-
-  // Normalize line endings and split
-  const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const lines   = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 
   if (lines.length < 2) return [];
 
   const headers = parseCsvLine(lines[0]);
-  const rows = [];
+  const rows    = [];
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
 
     const values = parseCsvLine(line);
-    const row = {};
-    headers.forEach((h, idx) => {
-      row[h] = values[idx] ?? '';
-    });
+    const row    = {};
+    headers.forEach((h, idx) => { row[h] = values[idx] ?? ''; });
     rows.push(row);
   }
 
   return rows;
 }
 
-/**
- * Map a CSV row to a contacts DB record.
- */
 function mapRow(row) {
   const displayName = row['Display Name']?.trim() ?? '';
   const household   = isHousehold(displayName);
 
+  const rawType = (row['Type'] ?? '').trim().toLowerCase();
+  const type    = TYPE_MAP[rawType] ?? 'DONOR';
+
+  const province = row['Province']?.trim().toUpperCase() || null;
+
   return {
-    type:          'DONOR',
+    type,
     contact_class: household ? 'HOUSEHOLD' : 'INDIVIDUAL',
     name:          displayName,
-
-    // first_name / last_name only for individuals
-    first_name: household ? null : (row['First Name']?.trim() || null),
-    last_name:  household ? null : (row['Last Name']?.trim()  || null),
-
-    // Company maps to donor_id
-    donor_id: row['Company']?.trim() || null,
-
-    email:    row['Main Email']?.trim() || null,
-    phone:    row['Main Phone']?.trim() || null,
-
-    address_line1: row['Address 1']?.trim()    || null,
-    city:          row['City']?.trim()          || null,
-    province:      row['Province']?.trim()      || null,
-    postal_code:   row['Postal Code']?.trim()   || null,
-
-    is_active: true,
+    first_name:    household ? null : (row['First Name']?.trim() || null),
+    last_name:     household ? null : (row['Last Name']?.trim()  || null),
+    donor_id:      row['Company']?.trim() || null,
+    email:         row['Main Email']?.trim() || null,
+    phone:         row['Main Phone']?.trim() || null,
+    address_line1: row['Address 1']?.trim()  || null,
+    city:          row['City']?.trim()        || null,
+    province:      VALID_PROVINCES.has(province) ? province : null,
+    postal_code:   row['Postal Code']?.trim() || null,
+    is_active:     true,
   };
 }
 
@@ -119,7 +110,7 @@ exports.seed = async function (knex) {
 
   const rows    = readCsv(CSV_PATH);
   const records = rows
-    .filter(row => row['Display Name']?.trim())   // skip rows with no name
+    .filter(row => row['Display Name']?.trim())
     .map(mapRow);
 
   if (records.length === 0) {
