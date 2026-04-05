@@ -20,14 +20,14 @@ export default function Funds() {
   const deleteFund = useDeleteFund();
 
   const [modal,  setModal]  = useState(null);
-  const [form,   setForm]   = useState({ name: '', description: '' });
+  const [form,   setForm]   = useState({ name: '', description: '', code: '' });
   const [errors, setErrors] = useState({});
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  function openAdd() { setForm({ name: '', description: '' }); setErrors({}); setModal('add'); }
+  function openAdd() { setForm({ name: '', description: '', code: '' }); setErrors({}); setModal('add'); }
   function openEdit(f) {
-    setForm({ name: f.name, description: f.description || '' });
+    setForm({ name: f.name, description: f.description || '', code: f.net_asset_code || '' });
     setErrors({});
     setModal(f);
   }
@@ -35,6 +35,7 @@ export default function Funds() {
   function validate() {
     const e = {};
     if (!form.name.trim()) e.name = 'Fund name is required';
+    if (!form.code.trim()) e.code = 'Fund code is required';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -141,6 +142,8 @@ export default function Funds() {
       <Modal isOpen={!!modal} onClose={() => setModal(null)}
         title={modal === 'add' ? 'Add Fund' : 'Edit Fund'}>
         <div style={{ display: 'grid', gap: '1rem' }}>
+          <Input label="Fund Code" required value={form.code}
+            onChange={set('code')} error={errors.code} placeholder="e.g., 3000" />
           <Input label="Fund Name" required value={form.name}
             onChange={set('name')} error={errors.name} placeholder="General Fund" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>

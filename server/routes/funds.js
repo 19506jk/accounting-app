@@ -11,32 +11,6 @@ router.use(auth);
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Find the next available equity account code in the range 3000–3899.
- * Throws if the range is exhausted.
- */
-async function nextEquityCode(trx) {
-  const rows = await (trx || db)('accounts')
-    .where('type', 'EQUITY')
-    .whereBetween('code', ['3000', '3899'])
-    .select('code')
-    .orderBy('code', 'desc');
-
-  if (rows.length === 0) return '3000';
-
-  const highest = parseInt(rows[0].code, 10);
-  const next    = highest + 1;
-
-  if (next > 3899) {
-    throw Object.assign(
-      new Error('Maximum auto-generated equity account range (3000–3899) exhausted. Please manually assign a code.'),
-      { status: 409 }
-    );
-  }
-
-  return String(next);
-}
-
-/**
  * Calculate the current balance of a fund's net asset account.
  * Balance = SUM(credit) - SUM(debit) on EQUITY accounts for this fund.
  * Excludes voided transactions.
@@ -119,14 +93,18 @@ router.get('/:id', async (req, res, next) => {
  * Create a fund + auto-create its Net Asset equity account.
  * Wrapped in a DB transaction — either both succeed or both roll back.
  *
- * Body: { name, description? }
+ * Body: { name, description?, code }
  */
 router.post('/', requireRole('admin', 'editor'), async (req, res, next) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, code } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Fund name is required' });
+    }
+
+    if (!code?.trim()) {
+      return res.status(400).json({ error: 'Fund code is required' });
     }
 
     // Check for duplicate fund name
@@ -135,11 +113,15 @@ router.post('/', requireRole('admin', 'editor'), async (req, res, next) => {
       return res.status(409).json({ error: 'A fund with that name already exists' });
     }
 
-    const result = await db.transaction(async (trx) => {
-      // 1. Find next available equity code
-      const code = await nextEquityCode(trx);
+    // Check for duplicate account code
+    const existingCode = await db('accounts').where({ code: code.trim() }).first();
+    if (existingCode) {
+      return res.status(409).json({ error: 'An account with that code already exists' });
+    }
 
-      // 2. Create the Net Asset equity account
+    const result = await db.transaction(async (trx) => {
+
+      // 1. Create the Net Asset equity account
       const [equityAccount] = await trx('accounts')
         .insert({
           code,
@@ -151,7 +133,7 @@ router.post('/', requireRole('admin', 'editor'), async (req, res, next) => {
         })
         .returning('*');
 
-      // 3. Create the fund linked to the equity account
+      // 2. Create the fund linked to the equity account
       const [fund] = await trx('funds')
         .insert({
           name:                 name.trim(),
@@ -177,11 +159,11 @@ router.post('/', requireRole('admin', 'editor'), async (req, res, next) => {
  * Update fund name or description.
  * Renames the linked Net Asset account to match the new fund name.
  *
- * Body: { name?, description? }
+ * Body: { name?, description?, is_active?, code? }
  */
 router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
   try {
-    const { name, description, is_active } = req.body;
+    const { name, description, is_active, code } = req.body;
     const { id }                = req.params;
 
     const fund = await db('funds').where({ id }).first();
@@ -198,6 +180,17 @@ router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
       }
     }
 
+    // Check for duplicate account code (excluding self)
+    if (code) {
+      const duplicateCode = await db('accounts')
+        .where({ code: code.trim() })
+        .whereNot({ id: fund.net_asset_account_id })
+        .first();
+      if (duplicateCode) {
+        return res.status(409).json({ error: 'An account with that code already exists' });
+      }
+    }
+
     await db.transaction(async (trx) => {
       const newName = name?.trim() || fund.name;
 
@@ -209,6 +202,16 @@ router.put('/:id', requireRole('admin', 'editor'), async (req, res, next) => {
           is_active:   is_active   !== undefined ? is_active : fund.is_active,
           updated_at:  trx.fn.now(),
         });
+
+      // Update account code if provided
+      if (code && fund.net_asset_account_id) {
+        await trx('accounts')
+          .where({ id: fund.net_asset_account_id })
+          .update({
+            code:       code.trim(),
+            updated_at: trx.fn.now(),
+          });
+      }
 
       // Keep the Net Asset account name in sync on rename
       if (name && fund.net_asset_account_id) {

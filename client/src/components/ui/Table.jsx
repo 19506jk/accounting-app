@@ -1,3 +1,5 @@
+import React from 'react';
+
 function SkeletonRow({ cols }) {
   return (
     <tr>
@@ -82,9 +84,8 @@ export default function Table({
               : rows.map((row, i) => {
                   const isExpanded = expandedId === (row.id ?? i);
                   return (
-                    <>
+                    <React.Fragment key={row.id ?? i}>
                       <tr
-                        key={row.id ?? i}
                         onClick={clickable ? () => onRowClick(row) : undefined}
                         style={{
                           borderBottom: isExpanded ? 'none' : '1px solid #f3f4f6',
@@ -111,7 +112,7 @@ export default function Table({
 
                       {/* Inline expanded detail row */}
                       {isExpanded && renderExpanded && (
-                        <tr key={`${row.id ?? i}-expanded`}>
+                        <tr>
                           <td
                             colSpan={colCount}
                             style={{ padding: 0, borderBottom: '1px solid #f3f4f6' }}
@@ -120,7 +121,7 @@ export default function Table({
                           </td>
                         </tr>
                       )}
-                    </>
+                    </React.Fragment>
                   );
                 })
           }

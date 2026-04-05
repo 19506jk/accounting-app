@@ -78,7 +78,7 @@ function BillForm({ bill, onClose, onSaved }) {
     if (!bill && funds && funds.length > 0 && !form.fund_id) {
       const firstActiveFund = funds.find(f => f.is_active);
       if (firstActiveFund) {
-        setForm(f => ({ ...f, fund_id: firstActiveFund.id }));
+        setForm(f => ({ ...f, fund_id: String(firstActiveFund.id) }));
       }
     }
   }, [funds, bill, form.fund_id]);
