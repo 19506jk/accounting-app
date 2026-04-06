@@ -2,18 +2,22 @@
   "name": "church-accounting-server",
   "version": "1.0.0",
   "description": "Church accounting app — Express API",
-  "main": "index.js",
+  "type": "module",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "NODE_ENV=development nodemon index.js",
-    "migrate:dev": "knex migrate:latest --env development",
-    "migrate": "npx knex migrate:latest",
-    "migrate:rollback": "npx knex migrate:rollback",
-    "migrate:status": "npx knex migrate:list",
-    "seed": "npx knex seed:run",
-    "seed:dev": "knex seed:run --env development",
-    "db:reset": "npx knex migrate:rollback --all && npx knex migrate:latest && npx knex seed:run",
-    "db:reset-dev": "npx knex migrate:rollback --all --env development && npx knex migrate:latest --env development && npx knex seed:run --env development"
+    "start": "node dist/index.js",
+    "dev": "NODE_ENV=development tsx watch index.ts",
+    "build": "tsc -p tsconfig.json",
+    "postbuild": "mkdir -p dist/routes dist/middleware dist/services dist/db && cp routes/package.json dist/routes/package.json && cp middleware/package.json dist/middleware/package.json && cp services/package.json dist/services/package.json && cp db/package.json dist/db/package.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "migrate:dev": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:latest --env development",
+    "migrate": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:latest",
+    "migrate:rollback": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:rollback",
+    "migrate:status": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:list",
+    "seed": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts seed:run",
+    "seed:dev": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts seed:run --env development",
+    "db:reset": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:rollback --all && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:latest && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts seed:run",
+    "db:reset-dev": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:rollback --all --env development && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:latest --env development && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts seed:run --env development"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -27,6 +31,13 @@
     "pg": "^8.12.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.5.2",
     "nodemon": "^3.1.4"
+    ,
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
   }
 }

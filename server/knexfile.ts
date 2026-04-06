@@ -1,13 +1,15 @@
-require('dotenv').config();
+import 'dotenv/config';
 
-module.exports = {
+import type { Knex } from 'knex';
+
+const config: Record<string, Knex.Config> = {
   development: {
     client: 'postgresql',
     connection: {
-      host:     'localhost',
-      port:     5432,
+      host: 'localhost',
+      port: 5432,
       database: process.env.DB_NAME,
-      user:     process.env.DB_USER,
+      user: process.env.DB_USER,
       password: process.env.DB_PASS,
     },
     migrations: {
@@ -18,12 +20,11 @@ module.exports = {
       directory: './db/seeds',
     },
   },
-
   production: {
     client: 'postgresql',
     connection: {
       connectionString: process.env.DATABASE_URL,
-      ssl: false, // internal VPS connection — Tailscale handles transport security
+      ssl: false,
     },
     migrations: {
       directory: './db/migrations',
@@ -38,3 +39,5 @@ module.exports = {
     },
   },
 };
+
+export default config;
