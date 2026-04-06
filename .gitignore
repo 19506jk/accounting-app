@@ -1,6 +1,6 @@
 node_modules/
 .env
-ecosystem.config.js
+ecosystem.config.cjs
 server/db/seeds/data/*
 server/dist/
 client/dist/
