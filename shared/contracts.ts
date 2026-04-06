@@ -626,24 +626,56 @@ export interface BillMutationResponse {
 
 export interface BillSummaryResponse {
   summary: {
-    total_unpaid: number;
-    overdue_count: number;
-    due_this_week: number;
-    due_this_month: number;
+    count: number;
+    total_outstanding: number;
+    earliest_due: string | null;
   };
 }
 
-export interface BillAgingBucket {
-  bucket: string;
+export interface BillAgingVendor {
+  vendor_name: string;
+  contact_id: number;
+  current: number;
+  days31_60: number;
+  days61_90: number;
+  days90_plus: number;
+  total: number;
+}
+
+export interface BillAgingBill {
+  id: number;
+  contact_id: number;
+  vendor_name: string;
+  bill_number: string | null;
+  description: string;
   amount: number;
-  count: number;
+  amount_paid: number;
+  due_date: string;
+  outstanding: number;
+  days_overdue: number;
+}
+
+export interface BillAgingTotals {
+  current: number;
+  days31_60: number;
+  days61_90: number;
+  days90_plus: number;
+  total: number;
+}
+
+export interface BillAgingBuckets {
+  current: BillAgingBill[];
+  days31_60: BillAgingBill[];
+  days61_90: BillAgingBill[];
+  days90_plus: BillAgingBill[];
 }
 
 export interface BillAgingReportResponse {
   report: {
-    as_of: string;
-    total_unpaid: number;
-    buckets: BillAgingBucket[];
+    as_of_date: string;
+    vendor_aging: BillAgingVendor[];
+    totals: BillAgingTotals;
+    buckets: BillAgingBuckets;
   };
 }
 

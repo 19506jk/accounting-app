@@ -1,13 +1,155 @@
-const Decimal = require('decimal.js');
-const db      = require('../db');
+import type { Knex } from 'knex';
+import Decimal from 'decimal.js';
 
-const dec = (v) => new Decimal(v ?? 0);
+import type {
+  BillAgingReportResponse,
+  BillDetail,
+  BillLineItemInput,
+  BillSummaryResponse,
+  CreateBillInput,
+  PayBillInput,
+  UpdateBillInput,
+} from '@shared/contracts';
+
+const db = require('../db') as Knex;
+
+type Numeric = string | number;
+
+type PaymentBillInput = PayBillInput & {
+  amount?: Numeric;
+  reference_no?: string;
+};
+
+type BillServiceResult = { errors: string[]; outstanding?: number } | { errors?: undefined };
+type BillMutationResult = BillServiceResult & { bill?: BillDetail | null; transaction?: any };
+
+interface BillJoinedRow {
+  id: number;
+  contact_id: number;
+  date: string | Date;
+  due_date: string | Date | null;
+  bill_number: string | null;
+  description: string;
+  amount: Numeric;
+  amount_paid: Numeric;
+  status: 'UNPAID' | 'PAID' | 'VOID';
+  fund_id: number;
+  transaction_id: number | null;
+  created_transaction_id: number | null;
+  created_by: number;
+  paid_by: number | null;
+  paid_at: string | Date | null;
+  created_at: string | Date;
+  updated_at: string | Date;
+  vendor_name: string | null;
+  vendor_email: string | null;
+  vendor_phone: string | null;
+  fund_name: string | null;
+  created_by_name: string | null;
+  paid_by_name: string | null;
+}
+
+interface BillLineItemJoinedRow {
+  id: number;
+  expense_account_id: number;
+  amount: Numeric;
+  description: string | null;
+  tax_rate_id: number | null;
+  expense_account_code: string;
+  expense_account_name: string;
+  tax_rate_name: string | null;
+  tax_rate_value: Numeric | null;
+}
+
+interface TaxRateRow {
+  id: number;
+  name: string;
+  rate: Numeric;
+  recoverable_account_id: number;
+}
+
+interface AccountRow {
+  id: number;
+  code: string;
+  type: string;
+  is_active?: boolean;
+}
+
+interface ContactRow {
+  id: number;
+  type: 'DONOR' | 'PAYEE' | 'BOTH';
+  name: string;
+}
+
+interface FundRow {
+  id: number;
+}
+
+interface UnpaidSummaryRow {
+  count: string | number;
+  total_outstanding: Numeric | null;
+  earliest_due: string | null;
+}
+
+interface AgingSourceBillRow {
+  id: number;
+  contact_id: number;
+  vendor_name: string;
+  bill_number: string | null;
+  description: string;
+  amount: Numeric;
+  amount_paid: Numeric;
+  due_date: string | Date;
+}
+
+interface JournalEntryInsertRow {
+  transaction_id: number;
+  account_id: number;
+  fund_id: number;
+  debit: Numeric;
+  credit: Numeric;
+  memo: string;
+  is_reconciled: boolean;
+  tax_rate_id: number | null;
+  is_tax_line: boolean;
+  created_at: unknown;
+  updated_at: unknown;
+}
+
+type AgingBill = AgingSourceBillRow & {
+  amount: number;
+  amount_paid: number;
+  due_date: string;
+  outstanding: number;
+  days_overdue: number;
+};
+
+type AgingBucket = {
+  current: AgingBill[];
+  days31_60: AgingBill[];
+  days61_90: AgingBill[];
+  days90_plus: AgingBill[];
+};
+
+type VendorAgingItem = {
+  vendor_name: string;
+  contact_id: number;
+  current: number;
+  days31_60: number;
+  days61_90: number;
+  days90_plus: number;
+  total: number;
+};
+
+const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
+const asDateString = (value: string | Date) => (value instanceof Date ? value.toISOString() : String(value));
 
 const ROUNDING_ACCOUNT_CODE = '59999';
+const AP_ACCOUNT_CODE = '20000';
 const TOLERANCE = 0.01;
 
-function validateBillData(data, isUpdate = false) {
-  const errors = [];
+function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = false): string[] {
+  const errors: string[] = [];
 
   if (!isUpdate || data.contact_id !== undefined) {
     if (!data.contact_id) errors.push('contact_id (vendor) is required');
@@ -39,10 +181,11 @@ function validateBillData(data, isUpdate = false) {
     } else {
       for (let i = 0; i < data.line_items.length; i++) {
         const line = data.line_items[i];
+        if (!line) continue;
         if (!line.expense_account_id) {
           errors.push(`Line ${i + 1}: expense account is required`);
         }
-        if (line.amount === undefined || line.amount === null || line.amount === '') {
+        if (line.amount === undefined || line.amount === null) {
           errors.push(`Line ${i + 1}: amount is required`);
         } else {
           const amount = dec(line.amount);
@@ -75,7 +218,7 @@ function validateBillData(data, isUpdate = false) {
   return errors;
 }
 
-async function getBillWithLineItems(billId) {
+async function getBillWithLineItems(billId: string | number): Promise<BillDetail | null> {
   const bill = await db('bills as b')
     .leftJoin('contacts as c', 'c.id', 'b.contact_id')
     .leftJoin('funds as f', 'f.id', 'b.fund_id')
@@ -91,7 +234,7 @@ async function getBillWithLineItems(billId) {
       'created_by.name as created_by_name',
       'paid_by.name as paid_by_name',
     )
-    .first();
+    .first() as BillJoinedRow | undefined;
 
   if (!bill) return null;
 
@@ -105,22 +248,27 @@ async function getBillWithLineItems(billId) {
       'a.name as expense_account_name',
       'tr.name as tax_rate_name',
       'tr.rate as tax_rate_value',
-    );
+    ) as BillLineItemJoinedRow[];
 
   return {
     ...bill,
-    amount: parseFloat(bill.amount),
-    amount_paid: parseFloat(bill.amount_paid),
+    date: asDateString(bill.date),
+    due_date: bill.due_date ? asDateString(bill.due_date) : null,
+    paid_at: bill.paid_at ? asDateString(bill.paid_at) : null,
+    created_at: asDateString(bill.created_at),
+    updated_at: asDateString(bill.updated_at),
+    amount: parseFloat(String(bill.amount)),
+    amount_paid: parseFloat(String(bill.amount_paid)),
     line_items: lineItems.map(li => ({
       id: li.id,
       expense_account_id: li.expense_account_id,
       expense_account_code: li.expense_account_code,
       expense_account_name: li.expense_account_name,
-      amount: parseFloat(li.amount),
+      amount: parseFloat(String(li.amount)),
       description: li.description,
       tax_rate_id: li.tax_rate_id || null,
       tax_rate_name: li.tax_rate_name || null,
-      tax_rate_value: li.tax_rate_value ? parseFloat(li.tax_rate_value) : null,
+      tax_rate_value: li.tax_rate_value ? parseFloat(String(li.tax_rate_value)) : null,
       // tax_amount computed from gross: tax = gross - round(gross / (1 + rate), 2)
       tax_amount: li.tax_rate_id
         ? parseFloat(
@@ -130,10 +278,14 @@ async function getBillWithLineItems(billId) {
           )
         : null,
     })),
-  };
+  } as BillDetail;
 }
 
-async function createBillLineItems(billId, lineItems, trx) {
+async function createBillLineItems(
+  billId: number | string,
+  lineItems: BillLineItemInput[],
+  trx: Knex.Transaction
+) {
   const lineItemRecords = lineItems.map(li => ({
     bill_id: billId,
     expense_account_id: li.expense_account_id,
@@ -147,15 +299,24 @@ async function createBillLineItems(billId, lineItems, trx) {
   return trx('bill_line_items').insert(lineItemRecords).returning('*');
 }
 
-async function createMultiLineJournalEntries(transactionId, billId, lineItems, fundId, apAccountId, contactName, billNumber, trx) {
+async function createMultiLineJournalEntries(
+  transactionId: number,
+  billId: number | string,
+  lineItems: BillLineItemInput[],
+  fundId: number,
+  apAccountId: number,
+  contactName: string,
+  billNumber: string | null | undefined,
+  trx: Knex.Transaction
+) {
   // Resolve all tax rates needed for this set of line items in one query
-  const taxRateIds = [...new Set(lineItems.map(li => li.tax_rate_id).filter(Boolean))];
+  const taxRateIds = [...new Set(lineItems.map(li => li.tax_rate_id).filter((v): v is number => Boolean(v)))];
   const taxRates = taxRateIds.length > 0
     ? await trx('tax_rates').whereIn('id', taxRateIds)
-    : [];
-  const taxRateMap = Object.fromEntries(taxRates.map(tr => [tr.id, tr]));
+    : [] as TaxRateRow[];
+  const taxRateMap = Object.fromEntries((taxRates as TaxRateRow[]).map(tr => [tr.id, tr]));
 
-  const journalEntries = [];
+  const journalEntries: JournalEntryInsertRow[] = [];
   let apTotal = dec(0);
 
   for (const line of lineItems) {
@@ -176,7 +337,7 @@ async function createMultiLineJournalEntries(transactionId, billId, lineItems, f
         credit:         0,
         memo:           `Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
         is_reconciled:  false,
-        tax_rate_id:    line.tax_rate_id,
+        tax_rate_id:    line.tax_rate_id ?? null,
         is_tax_line:    false,
         created_at:     trx.fn.now(),
         updated_at:     trx.fn.now(),
@@ -191,7 +352,7 @@ async function createMultiLineJournalEntries(transactionId, billId, lineItems, f
         credit:         0,
         memo:           `${taxRate.name} on Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
         is_reconciled:  false,
-        tax_rate_id:    line.tax_rate_id,
+        tax_rate_id:    line.tax_rate_id ?? null,
         is_tax_line:    true,
         created_at:     trx.fn.now(),
         updated_at:     trx.fn.now(),
@@ -255,7 +416,7 @@ async function createMultiLineJournalEntries(transactionId, billId, lineItems, f
   if (diff.gt(0) && diff.lte(TOLERANCE)) {
     const roundingAccount = await trx('accounts')
       .where({ code: ROUNDING_ACCOUNT_CODE })
-      .first();
+      .first() as AccountRow | undefined;
     if (roundingAccount) {
       journalEntries.push({
         transaction_id: transactionId,
@@ -276,22 +437,23 @@ async function createMultiLineJournalEntries(transactionId, billId, lineItems, f
   return trx('journal_entries').insert(journalEntries).returning('*');
 }
 
-async function validateLineItemAccounts(lineItems) {
-  const errors = [];
+async function validateLineItemAccounts(lineItems: BillLineItemInput[]): Promise<string[]> {
+  const errors: string[] = [];
 
   // Pre-fetch all tax rates needed
-  const taxRateIds = [...new Set(lineItems.map(li => li.tax_rate_id).filter(Boolean))];
+  const taxRateIds = [...new Set(lineItems.map(li => li.tax_rate_id).filter((v): v is number => Boolean(v)))];
   const taxRates = taxRateIds.length > 0
     ? await db('tax_rates').whereIn('id', taxRateIds).where('is_active', true)
-    : [];
-  const activeTaxRateIds = new Set(taxRates.map(tr => tr.id));
+    : [] as TaxRateRow[];
+  const activeTaxRateIds = new Set((taxRates as TaxRateRow[]).map(tr => tr.id));
 
   for (let i = 0; i < lineItems.length; i++) {
     const line = lineItems[i];
+    if (!line) continue;
     const account = await db('accounts')
       .where({ id: line.expense_account_id })
       .where('is_active', true)
-      .first();
+      .first() as AccountRow | undefined;
 
     if (!account) {
       errors.push(`Line ${i + 1}: Expense account not found or inactive`);
@@ -320,14 +482,14 @@ async function validateLineItemAccounts(lineItems) {
   return errors;
 }
 
-async function createBill(payload, userId) {
+async function createBill(payload: CreateBillInput, userId: number): Promise<BillMutationResult> {
   const errors = validateBillData(payload);
   if (errors.length) return { errors };
 
   const contact = await db('contacts')
     .where({ id: payload.contact_id })
     .where('is_active', true)
-    .first();
+    .first() as ContactRow | undefined;
 
   if (!contact) {
     return { errors: ['Vendor not found or inactive'] };
@@ -340,7 +502,7 @@ async function createBill(payload, userId) {
   const fund = await db('funds')
     .where({ id: payload.fund_id })
     .where('is_active', true)
-    .first();
+    .first() as FundRow | undefined;
 
   if (!fund) {
     return { errors: ['Fund not found or inactive'] };
@@ -352,17 +514,17 @@ async function createBill(payload, userId) {
   }
 
   const apAccount = await db('accounts')
-    .where({ code: '20000' })
+    .where({ code: AP_ACCOUNT_CODE })
     .where('is_active', true)
-    .first();
+    .first() as AccountRow | undefined;
 
   if (!apAccount) {
-    return { errors: ['Accounts Payable account (20000) not found'] };
+    return { errors: [`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`] };
   }
 
   const totalAmount = payload.line_items.reduce((sum, li) => sum + dec(li.amount).toNumber(), 0);
 
-  const result = await db.transaction(async (trx) => {
+  const result = await db.transaction(async (trx: Knex.Transaction) => {
     const [bill] = await trx('bills')
       .insert({
         contact_id: payload.contact_id,
@@ -416,8 +578,8 @@ async function createBill(payload, userId) {
   return { bill: billWithLineItems, transaction: result.transaction };
 }
 
-async function updateBill(id, payload, userId) {
-  const bill = await db('bills').where({ id }).first();
+async function updateBill(id: string, payload: UpdateBillInput, userId: number): Promise<BillMutationResult> {
+  const bill = await db('bills').where({ id }).first() as any;
   if (!bill) {
     return { errors: ['Bill not found'] };
   }
@@ -433,7 +595,7 @@ async function updateBill(id, payload, userId) {
     const contact = await db('contacts')
       .where({ id: payload.contact_id })
       .where('is_active', true)
-      .first();
+      .first() as ContactRow | undefined;
 
     if (!contact) {
       return { errors: ['Vendor not found or inactive'] };
@@ -448,7 +610,7 @@ async function updateBill(id, payload, userId) {
     const fund = await db('funds')
       .where({ id: payload.fund_id })
       .where('is_active', true)
-      .first();
+      .first() as FundRow | undefined;
 
     if (!fund) {
       return { errors: ['Fund not found or inactive'] };
@@ -467,8 +629,8 @@ async function updateBill(id, payload, userId) {
     ? newLineItems.reduce((sum, li) => sum + dec(li.amount).toNumber(), 0)
     : dec(bill.amount).toNumber();
 
-  if (payload.line_items !== undefined || payload.created_transaction_id) {
-    await db.transaction(async (trx) => {
+  if (payload.line_items !== undefined || (payload as any).created_transaction_id) {
+    await db.transaction(async (trx: Knex.Transaction) => {
       await trx('bill_line_items')
         .where({ bill_id: id })
         .delete();
@@ -483,8 +645,8 @@ async function updateBill(id, payload, userId) {
           .delete();
 
         const apAccount = await trx('accounts')
-          .where({ code: '20000' })
-          .first();
+          .where({ code: AP_ACCOUNT_CODE })
+          .first() as AccountRow | undefined;
 
         const contact = await trx('contacts')
           .where({ id: payload.contact_id || bill.contact_id })
@@ -495,7 +657,7 @@ async function updateBill(id, payload, userId) {
           id,
           newLineItems,
           payload.fund_id || bill.fund_id,
-          apAccount.id,
+          apAccount?.id || 0,
           contact?.name || '',
           bill.bill_number || '',
           trx
@@ -524,7 +686,7 @@ async function updateBill(id, payload, userId) {
   return { bill: billWithLineItems };
 }
 
-async function payBill(id, paymentData, userId) {
+async function payBill(id: string, paymentData: PaymentBillInput, userId: number): Promise<BillMutationResult> {
   const bill = await getBillWithLineItems(id);
   if (!bill) {
     return { errors: ['Bill not found'] };
@@ -534,7 +696,7 @@ async function payBill(id, paymentData, userId) {
     return { errors: [`Cannot pay a ${bill.status} bill`] };
   }
 
-  const errors = [];
+  const errors: string[] = [];
   if (!paymentData.payment_date) errors.push('payment_date is required');
   if (!paymentData.bank_account_id) errors.push('bank_account_id is required');
   
@@ -543,7 +705,7 @@ async function payBill(id, paymentData, userId) {
   const bankAccount = await db('accounts')
     .where({ id: paymentData.bank_account_id })
     .where('is_active', true)
-    .first();
+    .first() as AccountRow | undefined;
 
   if (!bankAccount) {
     return { errors: ['Bank account not found or inactive'] };
@@ -566,15 +728,15 @@ async function payBill(id, paymentData, userId) {
   }
 
   const apAccount = await db('accounts')
-    .where({ code: '20000' })
+    .where({ code: AP_ACCOUNT_CODE })
     .where('is_active', true)
-    .first();
+    .first() as AccountRow | undefined;
 
   if (!apAccount) {
-    return { errors: ['Accounts Payable account (20000) not found'] };
+    return { errors: [`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`] };
   }
 
-  const result = await db.transaction(async (trx) => {
+  const result = await db.transaction(async (trx: Knex.Transaction) => {
     const [transaction] = await trx('transactions')
       .insert({
         date: paymentData.payment_date,
@@ -632,7 +794,7 @@ async function payBill(id, paymentData, userId) {
   return { bill: billWithLineItems, transaction: result.transaction };
 }
 
-async function voidBill(id, userId) {
+async function voidBill(id: string, userId: number): Promise<BillMutationResult> {
   const bill = await getBillWithLineItems(id);
   if (!bill) {
     return { errors: ['Bill not found'] };
@@ -647,15 +809,15 @@ async function voidBill(id, userId) {
   }
 
   const apAccount = await db('accounts')
-    .where({ code: '20000' })
+    .where({ code: AP_ACCOUNT_CODE })
     .where('is_active', true)
-    .first();
+    .first() as AccountRow | undefined;
 
   if (!apAccount) {
-    return { errors: ['Accounts Payable account (20000) not found'] };
+    return { errors: [`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`] };
   }
 
-  const result = await db.transaction(async (trx) => {
+  const result = await db.transaction(async (trx: Knex.Transaction) => {
     // Set is_voided flag on the original transaction
     if (bill.created_transaction_id) {
       await trx('transactions')
@@ -681,7 +843,7 @@ async function voidBill(id, userId) {
   return { bill: billWithLineItems, transaction: null };
 }
 
-async function getAgingReport(asOfDate = new Date()) {
+async function getAgingReport(asOfDate: string | Date = new Date()): Promise<BillAgingReportResponse['report']> {
   const asOf = new Date(asOfDate);
   
   const bills = await db('bills as b')
@@ -696,14 +858,9 @@ async function getAgingReport(asOfDate = new Date()) {
       'b.amount',
       'b.amount_paid',
       'b.due_date',
-    );
+    ) as AgingSourceBillRow[];
 
-  const aging = {
-    current: [],
-    days31_60: [],
-    days61_90: [],
-    days90_plus: [],
-  };
+  const aging: AgingBucket = { current: [], days31_60: [], days61_90: [], days90_plus: [] };
 
   const today = new Date(asOf).setHours(0, 0, 0, 0);
 
@@ -712,10 +869,11 @@ async function getAgingReport(asOfDate = new Date()) {
     const daysOverdue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
     const outstanding = parseFloat(dec(bill.amount).minus(dec(bill.amount_paid)).toFixed(2));
 
-    const billData = {
+    const billData: AgingBill = {
       ...bill,
-      amount: parseFloat(bill.amount),
-      amount_paid: parseFloat(bill.amount_paid),
+      amount: parseFloat(String(bill.amount)),
+      amount_paid: parseFloat(String(bill.amount_paid)),
+      due_date: String(bill.due_date),
       outstanding,
       days_overdue: daysOverdue,
     };
@@ -731,7 +889,14 @@ async function getAgingReport(asOfDate = new Date()) {
     }
   });
 
-  const byVendor = {};
+  const byVendor: Record<string, {
+    contact_id: number;
+    current: number;
+    days31_60: number;
+    days61_90: number;
+    days90_plus: number;
+    total: number;
+  }> = {};
   Object.entries(aging).forEach(([bucket, bucketBills]) => {
     bucketBills.forEach(bill => {
       if (!byVendor[bill.vendor_name]) {
@@ -744,12 +909,13 @@ async function getAgingReport(asOfDate = new Date()) {
           total: 0,
         };
       }
-      byVendor[bill.vendor_name][bucket] += bill.outstanding;
-      byVendor[bill.vendor_name].total += bill.outstanding;
+      const vendor = byVendor[bill.vendor_name]!;
+      vendor[bucket as keyof Omit<typeof vendor, 'contact_id' | 'total'>] += bill.outstanding;
+      vendor.total += bill.outstanding;
     });
   });
 
-  const vendorAging = Object.entries(byVendor).map(([name, data]) => ({
+  const vendorAging: VendorAgingItem[] = Object.entries(byVendor).map(([name, data]) => ({
     vendor_name: name,
     contact_id: data.contact_id,
     current: parseFloat(data.current.toFixed(2)),
@@ -759,17 +925,18 @@ async function getAgingReport(asOfDate = new Date()) {
     total: parseFloat(data.total.toFixed(2)),
   }));
 
-  const totals = {
+  const totals: BillAgingReportResponse['report']['totals'] = {
     current: parseFloat(aging.current.reduce((sum, b) => sum + b.outstanding, 0).toFixed(2)),
     days31_60: parseFloat(aging.days31_60.reduce((sum, b) => sum + b.outstanding, 0).toFixed(2)),
     days61_90: parseFloat(aging.days61_90.reduce((sum, b) => sum + b.outstanding, 0).toFixed(2)),
     days90_plus: parseFloat(aging.days90_plus.reduce((sum, b) => sum + b.outstanding, 0).toFixed(2)),
+    total: 0,
   };
   totals.total = totals.current + totals.days31_60 + totals.days61_90 + totals.days90_plus;
 
   return {
-    as_of_date: asOf.toISOString().split('T')[0],
-    vendor_aging,
+    as_of_date: asOf.toISOString().slice(0, 10),
+    vendor_aging: vendorAging,
     totals,
     buckets: {
       current: aging.current,
@@ -780,7 +947,7 @@ async function getAgingReport(asOfDate = new Date()) {
   };
 }
 
-async function getUnpaidSummary() {
+async function getUnpaidSummary(): Promise<BillSummaryResponse['summary']> {
   const summary = await db('bills')
     .where('status', 'UNPAID')
     .select(
@@ -788,16 +955,16 @@ async function getUnpaidSummary() {
       db.raw('SUM(amount - amount_paid) as total_outstanding'),
       db.raw('MIN(due_date) as earliest_due'),
     )
-    .first();
+    .first() as UnpaidSummaryRow | undefined;
 
   return {
-    count: parseInt(summary.count, 10),
-    total_outstanding: parseFloat(dec(summary.total_outstanding ?? 0).toFixed(2)),
-    earliest_due: summary.earliest_due,
+    count: parseInt(String(summary?.count ?? 0), 10),
+    total_outstanding: parseFloat(dec(summary?.total_outstanding ?? 0).toFixed(2)),
+    earliest_due: summary?.earliest_due ?? null,
   };
 }
 
-module.exports = {
+export = {
   createBill,
   updateBill,
   payBill,

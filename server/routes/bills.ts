@@ -26,6 +26,8 @@ import type {
 const db = require('../db');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/roles');
+import billService = require('../services/bills');
+
 const {
   createBill,
   updateBill,
@@ -34,15 +36,7 @@ const {
   getAgingReport,
   getUnpaidSummary,
   getBillWithLineItems,
-} = require('../services/bills') as {
-  createBill: (payload: CreateBillInput, userId: number) => Promise<{ errors?: string[]; bill?: BillDetail; transaction?: TransactionRow }>;
-  updateBill: (id: string, payload: UpdateBillInput, userId: number) => Promise<{ errors?: string[]; bill?: BillDetail }>;
-  payBill: (id: string, payload: PayBillInput, userId: number) => Promise<{ errors?: string[]; outstanding?: number; bill?: BillDetail; transaction?: TransactionRow }>;
-  voidBill: (id: string, userId: number) => Promise<{ errors?: string[]; bill?: BillDetail; transaction?: TransactionRow }>;
-  getAgingReport: (asOfDate: string) => Promise<BillAgingReportResponse['report']>;
-  getUnpaidSummary: () => Promise<BillSummaryResponse['summary']>;
-  getBillWithLineItems: (id: string) => Promise<BillDetail | null>;
-};
+} = billService;
 
 const router = express.Router();
 router.use(auth);
