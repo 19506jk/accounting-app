@@ -761,6 +761,7 @@ export interface LedgerReportRow {
   date: string;
   description: string;
   reference_no: string | null;
+  contact_name: string | null;
   fund_name: string;
   debit: number;
   credit: number;

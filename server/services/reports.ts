@@ -62,6 +62,7 @@ interface LedgerEntryRow {
   date: string | Date;
   description: string;
   reference_no: string | null;
+  contact_name: string | null;
   fund_name: string;
   debit: Numeric;
   credit: Numeric;
@@ -275,11 +276,13 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
 
   for (const account of accounts) {
     const entries = await baseQuery({ from, to, fundId })
+      .leftJoin('contacts as c', 'c.id', 'je.contact_id')
       .where('je.account_id', account.id)
       .select(
         't.date',
         't.description',
         't.reference_no',
+        'c.name as contact_name',
         'f.name as fund_name',
         'je.debit',
         'je.credit',
@@ -327,6 +330,7 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
         date: asDateString(entry.date),
         description: entry.description,
         reference_no: entry.reference_no,
+        contact_name: entry.contact_name,
         fund_name: entry.fund_name,
         debit: parseFloat(dec(entry.debit).toFixed(2)),
         credit: parseFloat(dec(entry.credit).toFixed(2)),

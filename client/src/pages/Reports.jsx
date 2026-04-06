@@ -83,20 +83,38 @@ function exportBalanceSheet(data, filters) {
 }
 
 function exportLedger(data, filters) {
+  const headers = ['Date', 'Description', 'Contact', 'Fund', 'Debit', 'Credit', 'Balance']
   const rows = [
-    ['General Ledger', '', '', '', '', ''],
-    [`Period: ${filters.from} to ${filters.to}`, '', '', '', '', ''],
+    ['General Ledger', '', '', '', '', '', ''],
+    [`Period: ${filters.from} to ${filters.to}`, '', '', '', '', '', ''],
     [],
   ];
   (data.ledger || []).forEach((acct) => {
-    rows.push([`${acct.account.code} — ${acct.account.name}`, '', '', '', '', '']);
-    rows.push(['Date', 'Description', 'Fund', 'Debit', 'Credit', 'Balance']);
-    rows.push(['Opening Balance', '', '', '', '', acct.opening_balance]);
-    acct.rows.forEach((r) => rows.push([r.date, r.description, r.fund_name, r.debit || '', r.credit || '', r.balance]));
-    rows.push(['Closing Balance', '', '', '', '', acct.closing_balance]);
+    rows.push([`${acct.account.code} — ${acct.account.name}`, '', '', '', '', '', '']);
+    rows.push(headers);
+    rows.push(['Opening Balance', '', '', '', '', '', acct.opening_balance]);
+    acct.rows.forEach((r) => rows.push([
+      r.date,
+      r.description,
+      r.contact_name || 'Unassigned',
+      r.fund_name,
+      r.debit || '',
+      r.credit || '',
+      r.balance,
+    ]));
+    rows.push(['Closing Balance', '', '', '', '', '', acct.closing_balance]);
     rows.push([]);
   });
-  downloadXlsx(rows, `ledger_${filters.from}_${filters.to}.xlsx`, 'General Ledger');
+  const cols = [
+    { wch: 12 },
+    { wch: 28 },
+    { wch: 26 },
+    { wch: 18 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 14 },
+  ];
+  downloadXlsx(rows, `ledger_${filters.from}_${filters.to}.xlsx`, 'General Ledger', cols);
 }
 
 function exportTrialBalance(data, filters) {
@@ -150,9 +168,10 @@ function exportDonorDetail(data, filters) {
   downloadXlsx(rows, `donor_detail_${filters.from}_${filters.to}.xlsx`, 'Donor Detail');
 }
 
-function downloadXlsx(rows, filename, sheetName) {
+function downloadXlsx(rows, filename, sheetName, cols = null) {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
+  if (cols) ws['!cols'] = cols;
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
   XLSX.writeFile(wb, filename);
 }
@@ -314,6 +333,10 @@ function BalanceSheetReport({ data }) {
 }
 
 function LedgerReport({ data }) {
+  const headers = ['Date', 'Description', 'Contact', 'Fund', 'Debit', 'Credit', 'Balance']
+  const labelSpan = headers.length - 1
+  const isLeftAlignedHeader = (header) => ['Date', 'Description', 'Contact', 'Fund'].includes(header)
+
   return (
     <div>
       {(data.ledger || []).map((acct) => (
@@ -325,21 +348,24 @@ function LedgerReport({ data }) {
           <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ color: '#6b7280' }}>
-                {['Date','Description','Fund','Debit','Credit','Balance'].map((h) => (
-                  <th key={h} style={{ textAlign: ['Date','Description','Fund'].includes(h) ? 'left' : 'right',
+                {headers.map((h) => (
+                  <th key={h} style={{ textAlign: isLeftAlignedHeader(h) ? 'left' : 'right',
                     padding: '0.3rem 0.5rem', fontWeight: 600, fontSize: '0.72rem',
                     textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              <tr><td colSpan={5} style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>Opening Balance</td>
+              <tr><td colSpan={labelSpan} style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>Opening Balance</td>
                 <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', fontWeight: 500 }}>{fmt(acct.opening_balance)}</td>
               </tr>
               {acct.rows.map((r, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
                   <td style={{ padding: '0.3rem 0.5rem', whiteSpace: 'nowrap' }}>{fmtD(r.date)}</td>
                   <td style={{ padding: '0.3rem 0.5rem' }}>{r.description}</td>
+                  <td style={{ padding: '0.3rem 0.5rem', color: r.contact_name ? '#111827' : '#9ca3af' }}>
+                    {r.contact_name || 'Unassigned'}
+                  </td>
                   <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{r.fund_name}</td>
                   <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#15803d' }}>
                     {r.debit > 0 ? fmt(r.debit) : ''}
@@ -353,7 +379,7 @@ function LedgerReport({ data }) {
                 </tr>
               ))}
               <tr style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td colSpan={5} style={{ padding: '0.3rem 0.5rem', fontWeight: 600 }}>Closing Balance</td>
+                <td colSpan={labelSpan} style={{ padding: '0.3rem 0.5rem', fontWeight: 600 }}>Closing Balance</td>
                 <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', fontWeight: 700 }}>{fmt(acct.closing_balance)}</td>
               </tr>
             </tbody>
