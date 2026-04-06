@@ -62,18 +62,7 @@ app.use('/api/bills', billRoutes);
 app.use('/api/tax-rates', taxRatesRouter);
 
 if (process.env.NODE_ENV === 'production') {
-  const clientDistCandidates = [
-    path.resolve(__dirname, '../client/dist'),
-    path.resolve(__dirname, '../../client/dist'),
-    path.resolve(process.cwd(), '../client/dist'),
-    path.resolve(process.cwd(), 'client/dist'),
-  ];
-
-  const clientDistPath = clientDistCandidates.find((candidate) => fs.existsSync(candidate));
-
-  if (!clientDistPath) {
-    throw new Error(`Unable to locate client build directory. Tried: ${clientDistCandidates.join(', ')}`);
-  }
+  const clientDistPath = path.resolve(__dirname, '../../client/dist');
 
   app.use(express.static(clientDistPath));
 
