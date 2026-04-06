@@ -32,6 +32,8 @@ router.use(auth);
 const VALID_PROVINCES = ['AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 'PE', 'QC', 'SK', 'YT'];
 
 const DONOR_TYPES = ['DONOR', 'BOTH'];
+const SETTINGS_CACHE_TTL_MS = 60 * 1000;
+let settingsCache: { values: Record<string, string | null>; expiresAt: number } | null = null;
 
 function isDonorType(type: string | null | undefined) {
   return DONOR_TYPES.includes(String(type || '').toUpperCase());
@@ -57,7 +59,22 @@ function normaliseContactDates(contact: ContactRow): ContactWithStringDates {
   };
 }
 
-function validateContact(body: CreateContactInput | UpdateContactInput, isPatch = false, existingType: string | null = null) {
+async function getSettingsMap() {
+  const now = Date.now();
+  if (settingsCache && settingsCache.expiresAt > now) return settingsCache.values;
+
+  const settingRows = await db('settings') as Array<{ key: string; value: string | null }>;
+  const values = Object.fromEntries(settingRows.map((r) => [r.key, r.value]));
+  settingsCache = { values, expiresAt: now + SETTINGS_CACHE_TTL_MS };
+  return values;
+}
+
+function validateContact(
+  body: CreateContactInput | UpdateContactInput,
+  isPatch = false,
+  existingType: string | null = null,
+  existingDonorId: string | null = null
+) {
   const errors: string[] = [];
 
   if (!isPatch) {
@@ -79,8 +96,11 @@ function validateContact(body: CreateContactInput | UpdateContactInput, isPatch 
   }
 
   const effectiveType = body.type?.toUpperCase() || existingType?.toUpperCase();
+  const effectiveDonorId = body.donor_id !== undefined
+    ? body.donor_id?.trim() || null
+    : existingDonorId;
 
-  if (isDonorType(effectiveType) && !body.donor_id?.trim()) {
+  if (isDonorType(effectiveType) && !effectiveDonorId) {
     errors.push('donor_id is required for contacts of type DONOR or BOTH');
   }
 
@@ -110,6 +130,7 @@ router.get(
       }
 
       if (type) {
+        // Include BOTH so mixed contacts still appear in DONOR/PAYEE filtered views.
         query.where(function byType(this: any) {
           this.where('type', type.toUpperCase()).orWhere('type', 'BOTH');
         });
@@ -130,6 +151,115 @@ router.get(
 
       const contacts = await query as ContactRow[];
       res.json({ contacts: contacts.map((c) => normaliseContactDates(c)) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  '/receipts/bulk',
+  requireRole('admin'),
+  async (
+    req: Request<{}, BulkReceiptsResponse | ApiErrorResponse, unknown, { year?: string }>,
+    res: Response<BulkReceiptsResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const { year } = req.query;
+      if (!year) return res.status(400).json({ error: 'year query parameter is required' });
+      const yearInt = parseInt(year, 10);
+
+      const donorIds = await db('journal_entries as je')
+        .join('transactions as t', 't.id', 'je.transaction_id')
+        .join('accounts as a', 'a.id', 'je.account_id')
+        .whereNotNull('je.contact_id')
+        .where('a.type', 'INCOME')
+        .where('je.credit', '>', 0)
+        .whereRaw('EXTRACT(YEAR FROM t.date) = ?', [yearInt])
+        .distinct('je.contact_id as id') as Array<{ id: number }>;
+
+      const ids = donorIds.map((d) => d.id);
+      const contactsArr = ids.length > 0
+        ? await db('contacts').whereIn('id', ids) as ContactRow[]
+        : [];
+      const contactsMap = Object.fromEntries(contactsArr.map((c) => [c.id, c]));
+
+      const donationsRows = ids.length > 0
+        ? await db('journal_entries as je')
+          .join('transactions as t', 't.id', 'je.transaction_id')
+          .join('accounts as a', 'a.id', 'je.account_id')
+          .whereIn('je.contact_id', ids)
+          .where('a.type', 'INCOME')
+          .where('je.credit', '>', 0)
+          .whereRaw('EXTRACT(YEAR FROM t.date) = ?', [yearInt])
+          .select(
+            'je.contact_id',
+            't.date',
+            't.description',
+            'a.name as account_name',
+            'je.credit as amount'
+          )
+          .orderBy('t.date', 'asc') as Array<{
+            contact_id: number;
+            date: string | Date;
+            description: string;
+            account_name: string;
+            amount: string | number;
+          }>
+        : [];
+
+      const donationsByContact = new Map<number, Array<{
+        date: string;
+        description: string;
+        account_name: string;
+        amount: number;
+      }>>();
+      donationsRows.forEach((row) => {
+        const existing = donationsByContact.get(row.contact_id) || [];
+        existing.push({
+          date: String(row.date),
+          description: row.description,
+          account_name: row.account_name,
+          amount: parseFloat(String(row.amount)),
+        });
+        donationsByContact.set(row.contact_id, existing);
+      });
+
+      const settings = await getSettingsMap();
+
+      const receipts = donorIds.flatMap(({ id }) => {
+        const contact = contactsMap[id];
+        if (!contact) return [];
+
+        const donations = donationsByContact.get(id) || [];
+        const total = donations.reduce((sum, d) => sum + d.amount, 0);
+        const roundedTotal = parseFloat(total.toFixed(2));
+
+        return [{
+          donor: normaliseContactDates(contact),
+          year: yearInt,
+          donations,
+          total: roundedTotal,
+          // TODO: calculate CRA receipting advantages and derive eligible_amount separately.
+          eligible_amount: roundedTotal,
+        }];
+      });
+
+      res.json({
+        year: yearInt,
+        church: {
+          name: settings.church_name || '',
+          address_line1: settings.church_address_line1 || '',
+          city: settings.church_city || '',
+          province: settings.church_province || '',
+          postal_code: settings.church_postal_code || '',
+          registration_no: settings.church_registration_no || '',
+          signature_url: settings.church_signature_url || '',
+        },
+        count: receipts.length,
+        receipts,
+      });
     } catch (err) {
       next(err);
     }
@@ -240,7 +370,7 @@ router.put(
       const contact = await db('contacts').where({ id }).first() as ContactRow | undefined;
       if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
-      const errors = validateContact(req.body, true, contact.type);
+      const errors = validateContact(req.body, true, contact.type, contact.donor_id);
       if (errors.length) return res.status(400).json({ errors });
 
       const {
@@ -422,8 +552,7 @@ router.get(
       const contact = await db('contacts').where({ id }).first() as ContactRow | undefined;
       if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
-      const settingRows = await db('settings') as Array<{ key: string; value: string }>;
-      const settings = Object.fromEntries(settingRows.map((r) => [r.key, r.value]));
+      const settings = await getSettingsMap();
 
       const donations = await db('journal_entries as je')
         .join('transactions as t', 't.id', 'je.transaction_id')
@@ -476,77 +605,9 @@ router.get(
           generated_at: new Date().toISOString(),
           donations: donations.map((d) => ({ ...d, date: String(d.date), amount: parseFloat(String(d.amount)) })),
           total: parseFloat(total.toFixed(2)),
+          // TODO: calculate CRA receipting advantages and derive eligible_amount separately.
           eligible_amount: parseFloat(total.toFixed(2)),
         },
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
-router.get(
-  '/receipts/bulk',
-  requireRole('admin'),
-  async (
-    req: Request<{}, BulkReceiptsResponse | ApiErrorResponse, unknown, { year?: string }>,
-    res: Response<BulkReceiptsResponse | ApiErrorResponse>,
-    next: NextFunction
-  ) => {
-    try {
-      const { year } = req.query;
-      if (!year) return res.status(400).json({ error: 'year query parameter is required' });
-      const yearInt = parseInt(year, 10);
-
-      const donorIds = await db('journal_entries as je')
-        .join('transactions as t', 't.id', 'je.transaction_id')
-        .join('accounts as a', 'a.id', 'je.account_id')
-        .whereNotNull('je.contact_id')
-        .where('a.type', 'INCOME')
-        .where('je.credit', '>', 0)
-        .whereRaw('EXTRACT(YEAR FROM t.date) = ?', [yearInt])
-        .distinct('je.contact_id as id') as Array<{ id: number }>;
-
-      const settingRows = await db('settings') as Array<{ key: string; value: string }>;
-      const settings = Object.fromEntries(settingRows.map((r) => [r.key, r.value]));
-
-      const receipts = await Promise.all(
-        donorIds.map(async ({ id }) => {
-          const contact = await db('contacts').where({ id }).first() as ContactRow;
-          const donations = await db('journal_entries as je')
-            .join('transactions as t', 't.id', 'je.transaction_id')
-            .join('accounts as a', 'a.id', 'je.account_id')
-            .where('je.contact_id', id)
-            .where('a.type', 'INCOME')
-            .where('je.credit', '>', 0)
-            .whereRaw('EXTRACT(YEAR FROM t.date) = ?', [yearInt])
-            .select('t.date', 't.description', 'a.name as account_name', 'je.credit as amount')
-            .orderBy('t.date', 'asc') as Array<{ date: string | Date; description: string; account_name: string; amount: string | number }>;
-
-          const total = donations.reduce((sum, d) => sum + parseFloat(String(d.amount)), 0);
-          return {
-            donor: normaliseContactDates(contact),
-            year: yearInt,
-            donations: donations.map((d) => ({ ...d, date: String(d.date), amount: parseFloat(String(d.amount)) })),
-            total: parseFloat(total.toFixed(2)),
-            eligible_amount: parseFloat(total.toFixed(2)),
-          };
-        })
-      );
-
-      res.json({
-        year: yearInt,
-        church: {
-          name: settings.church_name || '',
-          address_line1: settings.church_address_line1 || '',
-          city: settings.church_city || '',
-          province: settings.church_province || '',
-          postal_code: settings.church_postal_code || '',
-          registration_no: settings.church_registration_no || '',
-          signature_url: settings.church_signature_url || '',
-        },
-        count: receipts.length,
-        receipts,
       });
     } catch (err) {
       next(err);

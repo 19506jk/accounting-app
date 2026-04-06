@@ -39,13 +39,26 @@ const {
   updateBill: (id: string, payload: UpdateBillInput, userId: number) => Promise<{ errors?: string[]; bill?: BillDetail }>;
   payBill: (id: string, payload: PayBillInput, userId: number) => Promise<{ errors?: string[]; outstanding?: number; bill?: BillDetail; transaction?: TransactionRow }>;
   voidBill: (id: string, userId: number) => Promise<{ errors?: string[]; bill?: BillDetail; transaction?: TransactionRow }>;
-  getAgingReport: (asOfDate: string | Date) => Promise<BillAgingReportResponse['report']>;
+  getAgingReport: (asOfDate: string) => Promise<BillAgingReportResponse['report']>;
   getUnpaidSummary: () => Promise<BillSummaryResponse['summary']>;
   getBillWithLineItems: (id: string) => Promise<BillDetail | null>;
 };
 
 const router = express.Router();
 router.use(auth);
+
+function applyBillFilters(q: any, filters: BillsQuery) {
+  // Knex query builders vary by chain shape, so we keep this helper flexible with `any`.
+  const { status, contact_id, from, to } = filters;
+  if (status) {
+    if (Array.isArray(status)) q.whereIn('b.status', status);
+    else q.where('b.status', status);
+  }
+  if (contact_id) q.where('b.contact_id', contact_id);
+  if (from) q.where('b.date', '>=', from);
+  if (to) q.where('b.date', '<=', to);
+  return q;
+}
 
 function normaliseMutationTransaction(
   transaction: TransactionRow | undefined
@@ -69,7 +82,7 @@ router.get(
     try {
       const { status, contact_id, from, to, limit = 100, offset = 0 } = req.query;
 
-      const query = db('bills as b')
+      const query = applyBillFilters(db('bills as b'), { status, contact_id, from, to })
         .leftJoin('contacts as c', 'c.id', 'b.contact_id')
         .leftJoin('funds as f', 'f.id', 'b.fund_id')
         .leftJoin('users as u', 'u.id', 'b.created_by')
@@ -83,57 +96,24 @@ router.get(
         )
         .orderBy('b.created_at', 'desc');
 
-      if (status) {
-        if (Array.isArray(status)) {
-          query.whereIn('b.status', status);
-        } else {
-          query.where('b.status', status);
-        }
-      }
-
-      if (contact_id) {
-        query.where('b.contact_id', contact_id);
-      }
-
-      if (from) {
-        query.where('b.date', '>=', from);
-      }
-
-      if (to) {
-        query.where('b.date', '<=', to);
-      }
-
-      const countQuery = db('bills as b').count('b.id as count');
-
-      if (status) {
-        if (Array.isArray(status)) {
-          countQuery.whereIn('b.status', status);
-        } else {
-          countQuery.where('b.status', status);
-        }
-      }
-      if (contact_id) {
-        countQuery.where('b.contact_id', contact_id);
-      }
-      if (from) {
-        countQuery.where('b.date', '>=', from);
-      }
-      if (to) {
-        countQuery.where('b.date', '<=', to);
-      }
-
-      const [countRow] = await countQuery as Array<{ count: string }>;
+      // NOTE: if filters referencing joined tables are added, mirror those joins in this count query.
+      const countQuery = applyBillFilters(
+        db('bills as b').count('b.id as count'),
+        { status, contact_id, from, to }
+      );
 
       const cap = Math.min(parseInt(String(limit), 10), 200);
       const off = parseInt(String(offset), 10) || 0;
-      query.limit(cap).offset(off);
-
-      const bills = await query as BillListRow[];
+      const [[countRow], bills] = await Promise.all([
+        countQuery as Promise<Array<{ count: string }>>,
+        query.limit(cap).offset(off) as Promise<BillListRow[]>,
+      ]);
 
       const billIds = bills.map((b) => b.id);
       const lineItemsMap: Record<number, BillSummary['line_items']> = {};
 
       if (billIds.length > 0) {
+        // Intentionally minimal payload for list view; detail endpoint returns tax/account enrichment.
         const lineItemsResult = await db('bill_line_items')
           .whereIn('bill_id', billIds)
           .select('bill_id', 'id', 'expense_account_id', 'amount', 'description') as Array<BillLineItemRow & { bill_id: number }>;
@@ -190,7 +170,7 @@ router.get(
   ) => {
     try {
       const { as_of } = req.query;
-      const asOfDate = as_of || new Date();
+      const asOfDate = as_of || new Date().toISOString().slice(0, 10);
 
       const report = await getAgingReport(asOfDate);
       res.json({ report });
@@ -216,6 +196,7 @@ router.get(
         return res.status(404).json({ error: 'Bill not found' });
       }
 
+      // Service returns bill + line items but not created transaction void flag, so we resolve it here.
       let is_voided = false;
       if (bill.created_transaction_id) {
         const transaction = await db('transactions')
@@ -269,8 +250,9 @@ router.post(
       if (result.errors) {
         return res.status(400).json({ errors: result.errors });
       }
+      if (!result.bill) throw new Error('Unexpected missing bill after createBill');
 
-      res.status(201).json({ bill: result.bill as BillDetail, transaction: normaliseMutationTransaction(result.transaction) });
+      res.status(201).json({ bill: result.bill, transaction: normaliseMutationTransaction(result.transaction) });
     } catch (err) {
       next(err);
     }
@@ -292,8 +274,9 @@ router.put(
       if (result.errors) {
         return res.status(400).json({ errors: result.errors });
       }
+      if (!result.bill) throw new Error('Unexpected missing bill after updateBill');
 
-      res.json({ bill: result.bill as BillDetail });
+      res.json({ bill: result.bill });
     } catch (err) {
       next(err);
     }
@@ -318,8 +301,9 @@ router.post(
           outstanding: result.outstanding,
         });
       }
+      if (!result.bill) throw new Error('Unexpected missing bill after payBill');
 
-      res.json({ bill: result.bill as BillDetail, transaction: normaliseMutationTransaction(result.transaction) });
+      res.json({ bill: result.bill, transaction: normaliseMutationTransaction(result.transaction) });
     } catch (err) {
       next(err);
     }
@@ -341,8 +325,9 @@ router.post(
       if (result.errors) {
         return res.status(400).json({ errors: result.errors });
       }
+      if (!result.bill) throw new Error('Unexpected missing bill after voidBill');
 
-      res.json({ bill: result.bill as BillDetail, transaction: normaliseMutationTransaction(result.transaction) });
+      res.json({ bill: result.bill, transaction: normaliseMutationTransaction(result.transaction) });
     } catch (err) {
       next(err);
     }
