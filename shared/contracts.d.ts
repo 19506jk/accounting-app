@@ -326,3 +326,326 @@ export interface CloseReconciliationResponse {
   message: string;
   summary: ReconciliationSummaryCounts;
 }
+
+export type ContactType = 'DONOR' | 'PAYEE' | 'BOTH';
+export type ContactClass = 'INDIVIDUAL' | 'HOUSEHOLD';
+
+export interface ContactSummary {
+  id: number;
+  type: ContactType;
+  contact_class: ContactClass;
+  name: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  province: string | null;
+  postal_code: string | null;
+  donor_id: string | null;
+  is_active: boolean;
+  created_at?: string | Date;
+}
+
+export interface ContactDetail extends ContactSummary {
+  address_line1: string | null;
+  address_line2: string | null;
+  notes: string | null;
+  updated_at?: string | Date;
+}
+
+export interface ContactsQuery {
+  type?: ContactType;
+  class?: ContactClass;
+  search?: string;
+  include_inactive?: boolean;
+}
+
+export interface CreateContactInput {
+  type: ContactType;
+  contact_class: ContactClass;
+  name: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  province?: string;
+  postal_code?: string;
+  notes?: string;
+  donor_id?: string;
+}
+
+export interface UpdateContactInput {
+  type?: ContactType;
+  contact_class?: ContactClass;
+  name?: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  province?: string;
+  postal_code?: string;
+  notes?: string;
+  donor_id?: string;
+  is_active?: boolean;
+}
+
+export interface ContactsListResponse {
+  contacts: ContactSummary[];
+}
+
+export interface ContactResponse {
+  contact: ContactDetail;
+}
+
+export interface ContactDonation {
+  transaction_id: number;
+  date: string;
+  description: string;
+  reference_no: string | null;
+  account_name: string;
+  account_code: string;
+  fund_name: string;
+  amount: number;
+  memo: string | null;
+}
+
+export interface ContactDonationSummaryItem {
+  year: number;
+  total: number | string;
+  donation_count: number | string;
+}
+
+export interface ContactReceipt {
+  church: {
+    name: string;
+    address_line1: string;
+    address_line2: string;
+    city: string;
+    province: string;
+    postal_code: string;
+    phone: string;
+    email: string;
+    registration_no: string;
+    signature_url: string;
+  };
+  donor: {
+    name: string;
+    first_name: string | null;
+    last_name: string | null;
+    donor_id: string | null;
+    address_line1: string | null;
+    address_line2: string | null;
+    city: string | null;
+    province: string | null;
+    postal_code: string | null;
+  };
+  year: number;
+  generated_at: string;
+  donations: Array<{
+    date: string;
+    description: string;
+    reference_no: string | null;
+    account_name: string;
+    amount: number;
+    memo: string | null;
+  }>;
+  total: number;
+  eligible_amount: number;
+}
+
+export interface ContactDonationsResponse {
+  contact: { id: number; name: string; donor_id: string | null };
+  donations: ContactDonation[];
+}
+
+export interface ContactDonationsSummaryResponse {
+  contact: { id: number; name: string; donor_id: string | null };
+  summary: ContactDonationSummaryItem[];
+}
+
+export interface ContactReceiptResponse {
+  receipt: ContactReceipt;
+}
+
+export interface BulkReceiptsResponse {
+  year: number;
+  church: {
+    name: string;
+    address_line1: string;
+    city: string;
+    province: string;
+    postal_code: string;
+    registration_no: string;
+    signature_url: string;
+  };
+  count: number;
+  receipts: Array<{
+    donor: ContactDetail;
+    year: number;
+    donations: Array<{
+      date: string;
+      description: string;
+      account_name: string;
+      amount: number;
+    }>;
+    total: number;
+    eligible_amount: number;
+  }>;
+}
+
+export type BillStatus = 'UNPAID' | 'PAID' | 'VOID';
+
+export interface BillLineItem {
+  id: number;
+  expense_account_id: number;
+  amount: number;
+  description: string | null;
+  expense_account_code?: string;
+  expense_account_name?: string;
+  tax_rate_id?: number | null;
+  tax_rate_name?: string | null;
+  tax_rate_value?: number | null;
+  tax_amount?: number | null;
+}
+
+export interface BillSummary {
+  id: number;
+  contact_id: number;
+  date: string;
+  due_date: string | null;
+  bill_number: string | null;
+  description: string;
+  amount: number;
+  amount_paid: number;
+  status: BillStatus;
+  fund_id: number;
+  transaction_id: number | null;
+  created_transaction_id: number | null;
+  created_by: number;
+  paid_by: number | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+  vendor_name?: string | null;
+  fund_name?: string | null;
+  created_by_name?: string | null;
+  is_voided?: boolean;
+  line_items?: BillLineItem[];
+}
+
+export interface BillDetail extends BillSummary {
+  vendor_email?: string | null;
+  vendor_phone?: string | null;
+  paid_by_name?: string | null;
+  payment_transaction?: {
+    id: number;
+    date: string;
+    description: string;
+    reference_no: string | null;
+    created_by_name: string | null;
+  } | null;
+}
+
+export interface BillsQuery {
+  status?: BillStatus | BillStatus[];
+  contact_id?: number | string;
+  from?: string;
+  to?: string;
+  limit?: number | string;
+  offset?: number | string;
+}
+
+export interface BillLineItemInput {
+  expense_account_id: number;
+  amount: number;
+  description?: string;
+  tax_rate_id?: number | null;
+}
+
+export interface CreateBillInput {
+  contact_id: number;
+  date: string;
+  due_date?: string | null;
+  bill_number?: string | null;
+  description: string;
+  amount: number;
+  fund_id: number;
+  line_items: BillLineItemInput[];
+}
+
+export interface UpdateBillInput {
+  contact_id?: number;
+  date?: string;
+  due_date?: string | null;
+  bill_number?: string | null;
+  description?: string;
+  amount?: number;
+  fund_id?: number;
+  line_items?: BillLineItemInput[];
+}
+
+export interface PayBillInput {
+  payment_date?: string;
+  bank_account_id?: number;
+  memo?: string;
+}
+
+export interface BillsListResponse {
+  bills: BillSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface BillResponse {
+  bill: BillDetail;
+}
+
+export interface BillMutationResponse {
+  bill: BillDetail;
+  transaction?: {
+    id: number;
+    date: string | Date;
+    description: string;
+    reference_no: string | null;
+    fund_id: number;
+    created_by: number;
+    created_at: string | Date;
+    updated_at: string | Date;
+  };
+}
+
+export interface BillSummaryResponse {
+  summary: {
+    total_unpaid: number;
+    overdue_count: number;
+    due_this_week: number;
+    due_this_month: number;
+  };
+}
+
+export interface BillAgingBucket {
+  bucket: string;
+  amount: number;
+  count: number;
+}
+
+export interface BillAgingReportResponse {
+  report: {
+    as_of: string;
+    total_unpaid: number;
+    buckets: BillAgingBucket[];
+  };
+}
+
+export type BillServiceError = {
+  errors: string[];
+  outstanding?: number;
+};

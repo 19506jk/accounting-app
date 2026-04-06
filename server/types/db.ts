@@ -145,3 +145,77 @@ export interface ReconciliationItemRow {
   debit: string | number;
   credit: string | number;
 }
+
+export interface ContactRow {
+  id: number;
+  type: 'DONOR' | 'PAYEE' | 'BOTH';
+  contact_class: 'INDIVIDUAL' | 'HOUSEHOLD';
+  name: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  province: string | null;
+  postal_code: string | null;
+  notes: string | null;
+  donor_id: string | null;
+  is_active: boolean;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+export interface ContactDonationRow {
+  transaction_id: number;
+  date: Date | string;
+  description: string;
+  reference_no: string | null;
+  account_name: string;
+  account_code: string;
+  fund_name: string;
+  amount: string | number;
+  memo: string | null;
+}
+
+export interface ContactDonationSummaryRow {
+  year: number;
+  total: string | number;
+  donation_count: string | number;
+}
+
+export interface BillRow {
+  id: number;
+  contact_id: number;
+  date: Date | string;
+  due_date: Date | string | null;
+  bill_number: string | null;
+  description: string;
+  amount: string | number;
+  fund_id: number;
+  amount_paid: string | number;
+  status: 'UNPAID' | 'PAID' | 'VOID';
+  transaction_id: number | null;
+  created_transaction_id: number | null;
+  created_by: number;
+  paid_by: number | null;
+  paid_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+export interface BillListRow extends BillRow {
+  vendor_name: string | null;
+  fund_name: string | null;
+  created_by_name: string | null;
+  is_voided: boolean | null;
+}
+
+export interface BillLineItemRow {
+  id: number;
+  bill_id: number;
+  expense_account_id: number;
+  amount: string | number;
+  description: string | null;
+}
