@@ -12,5 +12,5 @@ npm run seed --prefix server -- --env production --specific=03_tax_rates.js
 if pm2 describe accounting-app > /dev/null 2>&1; then
   pm2 delete accounting-app
 fi
-pm2 start /home/endian/accounting-app/server/dist/index.js --name accounting-app --update-env
+pm2 start server/ecosystem.config.cjs --update-env
 pm2 save
