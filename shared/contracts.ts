@@ -98,7 +98,7 @@ export interface AccountSummary {
   type: AccountType;
   parent_id: number | null;
   is_active: boolean;
-  journal_entry_count?: string | number;
+  journal_entry_count?: number;
   is_deletable?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -236,8 +236,8 @@ export interface ReconciliationSummary {
   account_name: string;
   account_code: string;
   statement_date: string;
-  statement_balance: number | string;
-  opening_balance: number | string;
+  statement_balance: number;
+  opening_balance: number;
   is_closed: boolean;
   created_at: string;
   created_by_name: string | null;
@@ -344,14 +344,14 @@ export interface ContactSummary {
   postal_code: string | null;
   donor_id: string | null;
   is_active: boolean;
-  created_at?: string | Date;
+  created_at?: string;
 }
 
 export interface ContactDetail extends ContactSummary {
   address_line1: string | null;
   address_line2: string | null;
   notes: string | null;
-  updated_at?: string | Date;
+  updated_at?: string;
 }
 
 export interface ContactsQuery {
@@ -418,8 +418,8 @@ export interface ContactDonation {
 
 export interface ContactDonationSummaryItem {
   year: number;
-  total: number | string;
-  donation_count: number | string;
+  total: number;
+  donation_count: number;
 }
 
 export interface ContactReceipt {
@@ -432,8 +432,8 @@ export interface ContactReceipt {
     postal_code: string;
     phone: string;
     email: string;
-    registration_no: string;
-    signature_url: string;
+    registration_no: string | null;
+    signature_url: string | null;
   };
   donor: {
     name: string;
@@ -482,22 +482,24 @@ export interface BulkReceiptsResponse {
     city: string;
     province: string;
     postal_code: string;
-    registration_no: string;
-    signature_url: string;
+    registration_no: string | null;
+    signature_url: string | null;
   };
   count: number;
-  receipts: Array<{
-    donor: ContactDetail;
-    year: number;
-    donations: Array<{
-      date: string;
-      description: string;
-      account_name: string;
-      amount: number;
-    }>;
-    total: number;
-    eligible_amount: number;
+  receipts: BulkReceiptItem[];
+}
+
+export interface BulkReceiptItem {
+  donor: ContactDetail;
+  year: number;
+  donations: Array<{
+    date: string;
+    description: string;
+    account_name: string;
+    amount: number;
   }>;
+  total: number;
+  eligible_amount: number;
 }
 
 export type BillStatus = 'UNPAID' | 'PAID' | 'VOID';
@@ -612,13 +614,13 @@ export interface BillMutationResponse {
   bill: BillDetail;
   transaction?: {
     id: number;
-    date: string | Date;
+    date: string;
     description: string;
     reference_no: string | null;
     fund_id: number;
     created_by: number;
-    created_at: string | Date;
-    updated_at: string | Date;
+    created_at: string;
+    updated_at: string;
   };
 }
 
@@ -678,10 +680,7 @@ export interface BalanceSheetReportFilters {
   fund_id?: string | number;
 }
 
-export interface LedgerReportFilters {
-  from: DateRangeReportFilters['from'];
-  to: DateRangeReportFilters['to'];
-  fund_id?: DateRangeReportFilters['fund_id'];
+export interface LedgerReportFilters extends DateRangeReportFilters {
   account_id?: string | number;
 }
 
@@ -689,10 +688,7 @@ export interface TrialBalanceReportFilters extends DateRangeReportFilters {}
 
 export interface DonorSummaryReportFilters extends DateRangeReportFilters {}
 
-export interface DonorDetailReportFilters {
-  from: DateRangeReportFilters['from'];
-  to: DateRangeReportFilters['to'];
-  fund_id?: DateRangeReportFilters['fund_id'];
+export interface DonorDetailReportFilters extends DateRangeReportFilters {
   contact_id?: string | number;
 }
 
@@ -786,7 +782,7 @@ export interface DonorSummaryReportData {
   anonymous: {
     total: number;
     transaction_count: number;
-  };
+  } | null;
   grand_total: number;
   donor_count: number;
 }
@@ -849,8 +845,8 @@ export interface SettingItem {
   key: string;
   value: string | null;
   label: string;
-  created_at: string | Date;
-  updated_at: string | Date;
+  created_at: string;
+  updated_at: string;
 }
 
 export type SettingsValues = Record<string, string | null>;
@@ -871,8 +867,8 @@ export interface TaxRateSummary {
   recoverable_account_id: number | null;
   recoverable_account_code: string | null;
   recoverable_account_name: string | null;
-  created_at?: string | Date;
-  updated_at?: string | Date;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface TaxRatesListResponse {
@@ -884,5 +880,6 @@ export interface TaxRateResponse {
 }
 
 export interface UpdateTaxRateInput {
+  // Matches current server route: PUT /api/tax-rates/:id accepts only `rate`.
   rate: number;
 }

@@ -47,6 +47,18 @@ const {
 const router = express.Router();
 router.use(auth);
 
+function normaliseMutationTransaction(
+  transaction: TransactionRow | undefined
+): BillMutationResponse['transaction'] {
+  if (!transaction) return undefined;
+  return {
+    ...transaction,
+    date: String(transaction.date),
+    created_at: String(transaction.created_at),
+    updated_at: String(transaction.updated_at),
+  };
+}
+
 router.get(
   '/',
   async (
@@ -258,7 +270,7 @@ router.post(
         return res.status(400).json({ errors: result.errors });
       }
 
-      res.status(201).json({ bill: result.bill as BillDetail, transaction: result.transaction });
+      res.status(201).json({ bill: result.bill as BillDetail, transaction: normaliseMutationTransaction(result.transaction) });
     } catch (err) {
       next(err);
     }
@@ -307,7 +319,7 @@ router.post(
         });
       }
 
-      res.json({ bill: result.bill as BillDetail, transaction: result.transaction });
+      res.json({ bill: result.bill as BillDetail, transaction: normaliseMutationTransaction(result.transaction) });
     } catch (err) {
       next(err);
     }
@@ -330,7 +342,7 @@ router.post(
         return res.status(400).json({ errors: result.errors });
       }
 
-      res.json({ bill: result.bill as BillDetail, transaction: result.transaction });
+      res.json({ bill: result.bill as BillDetail, transaction: normaliseMutationTransaction(result.transaction) });
     } catch (err) {
       next(err);
     }

@@ -44,6 +44,19 @@ function normalisePostalCode(raw: string | null | undefined) {
   return raw.toUpperCase().trim();
 }
 
+type ContactWithStringDates = Omit<ContactRow, 'created_at' | 'updated_at'> & {
+  created_at: string;
+  updated_at: string;
+};
+
+function normaliseContactDates(contact: ContactRow): ContactWithStringDates {
+  return {
+    ...contact,
+    created_at: String(contact.created_at),
+    updated_at: String(contact.updated_at),
+  };
+}
+
 function validateContact(body: CreateContactInput | UpdateContactInput, isPatch = false, existingType: string | null = null) {
   const errors: string[] = [];
 
@@ -116,7 +129,7 @@ router.get(
       }
 
       const contacts = await query as ContactRow[];
-      res.json({ contacts });
+      res.json({ contacts: contacts.map((c) => normaliseContactDates(c)) });
     } catch (err) {
       next(err);
     }
@@ -133,7 +146,7 @@ router.get(
     try {
       const contact = await db('contacts').where({ id: req.params.id }).first() as ContactRow | undefined;
       if (!contact) return res.status(404).json({ error: 'Contact not found' });
-      res.json({ contact: contact as ContactDetail });
+      res.json({ contact: normaliseContactDates(contact) as ContactDetail });
     } catch (err) {
       next(err);
     }
@@ -205,8 +218,9 @@ router.post(
         created_at: db.fn.now(),
         updated_at: db.fn.now(),
       }).returning('*') as ContactRow[];
+      if (!contact) throw new Error('Failed to create contact');
 
-      res.status(201).json({ contact: contact as ContactDetail });
+      res.status(201).json({ contact: normaliseContactDates(contact) as ContactDetail });
     } catch (err) {
       next(err);
     }
@@ -269,8 +283,9 @@ router.put(
         is_active: is_active !== undefined ? is_active : contact.is_active,
         updated_at: db.fn.now(),
       }).returning('*') as ContactRow[];
+      if (!updated) throw new Error('Failed to update contact');
 
-      res.json({ contact: updated as ContactDetail });
+      res.json({ contact: normaliseContactDates(updated) as ContactDetail });
     } catch (err) {
       next(err);
     }
@@ -510,7 +525,7 @@ router.get(
 
           const total = donations.reduce((sum, d) => sum + parseFloat(String(d.amount)), 0);
           return {
-            donor: contact,
+            donor: normaliseContactDates(contact),
             year: yearInt,
             donations: donations.map((d) => ({ ...d, date: String(d.date), amount: parseFloat(String(d.amount)) })),
             total: parseFloat(total.toFixed(2)),
