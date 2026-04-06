@@ -1,7 +1,8 @@
-const knex = require('knex');
-require('dotenv').config();
+import 'dotenv/config';
 
-const config = {
+import type { Knex } from 'knex';
+
+const config: Record<string, Knex.Config> = {
   development: {
     client: 'postgresql',
     connection: {
@@ -39,8 +40,4 @@ const config = {
   },
 };
 
-const env = process.env.NODE_ENV || 'development';
-
-const db = knex(config[env]);
-
-module.exports = db;
+export default config;
