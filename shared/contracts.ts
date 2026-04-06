@@ -665,11 +665,13 @@ export interface ReportEnvelope<TType extends ReportType, TFilters, TData> {
   data: TData;
 }
 
-export interface PLReportFilters {
+export interface DateRangeReportFilters {
   from: string;
   to: string;
   fund_id?: string | number;
 }
+
+export interface PLReportFilters extends DateRangeReportFilters {}
 
 export interface BalanceSheetReportFilters {
   as_of: string;
@@ -677,16 +679,20 @@ export interface BalanceSheetReportFilters {
 }
 
 export interface LedgerReportFilters {
-  from: string;
-  to: string;
-  fund_id?: string | number;
+  from: DateRangeReportFilters['from'];
+  to: DateRangeReportFilters['to'];
+  fund_id?: DateRangeReportFilters['fund_id'];
   account_id?: string | number;
 }
 
+export interface TrialBalanceReportFilters extends DateRangeReportFilters {}
+
+export interface DonorSummaryReportFilters extends DateRangeReportFilters {}
+
 export interface DonorDetailReportFilters {
-  from: string;
-  to: string;
-  fund_id?: string | number;
+  from: DateRangeReportFilters['from'];
+  to: DateRangeReportFilters['to'];
+  fund_id?: DateRangeReportFilters['fund_id'];
   contact_id?: string | number;
 }
 
@@ -827,11 +833,11 @@ export interface LedgerReportResponse {
 }
 
 export interface TrialBalanceReportResponse {
-  report: ReportEnvelope<'trial-balance', PLReportFilters, TrialBalanceReportData>;
+  report: ReportEnvelope<'trial-balance', TrialBalanceReportFilters, TrialBalanceReportData>;
 }
 
 export interface DonorSummaryReportResponse {
-  report: ReportEnvelope<'donors-summary', PLReportFilters, DonorSummaryReportData>;
+  report: ReportEnvelope<'donors-summary', DonorSummaryReportFilters, DonorSummaryReportData>;
 }
 
 export interface DonorDetailReportResponse {

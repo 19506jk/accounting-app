@@ -25,7 +25,9 @@ export function usePLSummary() {
   return useQuery<PLReportData>({
     queryKey: ['reports', 'pl', from, to],
     queryFn: async () => {
-      const { data } = await client.get<PLReportResponse>(`/reports/pl?from=${from}&to=${to}`)
+      const { data } = await client.get<PLReportResponse>('/reports/pl', {
+        params: { from, to },
+      })
       return data.report.data
     },
   })
@@ -37,7 +39,9 @@ export function useBalanceSheet() {
   return useQuery<BalanceSheetReportData>({
     queryKey: ['reports', 'balance-sheet', today],
     queryFn: async () => {
-      const { data } = await client.get<BalanceSheetReportResponse>(`/reports/balance-sheet?as_of=${today}`)
+      const { data } = await client.get<BalanceSheetReportResponse>('/reports/balance-sheet', {
+        params: { as_of: today },
+      })
       return data.report.data
     },
   })
@@ -47,7 +51,9 @@ export function useRecentTransactions(limit = 10) {
   return useQuery<TransactionListItem[]>({
     queryKey: ['transactions', 'recent', limit],
     queryFn: async () => {
-      const { data } = await client.get<{ transactions: TransactionListItem[] }>(`/transactions?limit=${limit}`)
+      const { data } = await client.get<{ transactions: TransactionListItem[] }>('/transactions', {
+        params: { limit },
+      })
       return data.transactions
     },
   })
