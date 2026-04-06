@@ -25,7 +25,7 @@ import type {
   TransactionListRow,
   TransactionRow,
 } from '../types/db';
-import { addDaysDateOnly, compareDateOnly, getChurchToday, parseDateOnlyStrict } from '../utils/date.js';
+import { addDaysDateOnly, compareDateOnly, getChurchToday, normalizeDateOnly, parseDateOnlyStrict } from '../utils/date.js';
 import { getChurchTimeZone } from '../services/churchTimeZone.js';
 
 const db = require('../db');
@@ -210,7 +210,7 @@ router.get(
 
       const mapped: TransactionListItem[] = transactions.map((t) => ({
         ...t,
-        date: String(t.date),
+        date: normalizeDateOnly(t.date),
         created_at: String(t.created_at),
         total_amount: parseFloat(String(t.total_amount)),
       }));
@@ -279,7 +279,7 @@ router.get(
 
       const detail: TransactionDetail = {
         ...transaction,
-        date: String(transaction.date),
+        date: normalizeDateOnly(transaction.date),
         created_at: String(transaction.created_at),
         total_amount: parseFloat(totalAmount.toFixed(2)),
         entries: entries.map((e) => ({
@@ -346,7 +346,7 @@ router.post(
 
       const payload: TransactionCreateResult = {
         ...result.transaction,
-        date: String(result.transaction.date),
+        date: normalizeDateOnly(result.transaction.date),
         created_at: String(result.transaction.created_at),
         updated_at: String(result.transaction.updated_at),
         entries: result.entries.map((e) => ({
@@ -406,7 +406,7 @@ router.put(
       res.json({
         transaction: {
           ...updated,
-          date: String(updated.date),
+          date: normalizeDateOnly(updated.date),
           created_at: String(updated.created_at),
         },
       });

@@ -13,7 +13,7 @@ import Input       from '../components/ui/Input';
 import Combobox    from '../components/ui/Combobox';
 import SummaryBar  from '../components/ui/SummaryBar';
 import DateRangePicker from '../components/ui/DateRangePicker';
-import { currentMonthRange, formatDateOnlyForDisplay, getChurchToday } from '../utils/date';
+import { currentMonthRange, formatDateOnlyForDisplay, getChurchToday, toDateOnly } from '../utils/date';
 
 const dec = (v) => new Decimal(v || 0);
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
@@ -229,7 +229,7 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
   const updateTx = useUpdateTransaction();
 
   const [form, setForm] = useState({
-    date:         transaction.date?.split('T')[0] ?? '',
+    date:         toDateOnly(String(transaction.date || '')),
     description:  transaction.description ?? '',
     reference_no: transaction.reference_no ?? '',
   });
