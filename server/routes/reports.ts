@@ -15,34 +15,9 @@ import type {
 } from '@shared/contracts';
 
 const auth = require('../middleware/auth');
+import reports = require('../services/reports');
 
-interface ReportsService {
-  getPL: (args: { from: string; to: string; fundId: string | null }) => Promise<PLReportData>;
-  getBalanceSheet: (args: { asOf: string; fundId: string | null }) => Promise<BalanceSheetReportData>;
-  getLedger: (args: {
-    from: string;
-    to: string;
-    fundId: string | null;
-    accountId: string | null;
-  }) => Promise<LedgerReportData>;
-  getTrialBalance: (args: { from: string; to: string; fundId: string | null }) => Promise<TrialBalanceReportData>;
-  getDonorSummary: (args: { from: string; to: string; fundId: string | null }) => Promise<DonorSummaryReportData>;
-  getDonorDetail: (args: {
-    from: string;
-    to: string;
-    fundId: string | null;
-    contactId: string | null;
-  }) => Promise<DonorDetailReportData>;
-}
-
-const {
-  getPL,
-  getBalanceSheet,
-  getLedger,
-  getTrialBalance,
-  getDonorSummary,
-  getDonorDetail,
-} = require('../services/reports') as ReportsService;
+const { getPL, getBalanceSheet, getLedger, getTrialBalance, getDonorSummary, getDonorDetail } = reports;
 
 const router = express.Router();
 router.use(auth);

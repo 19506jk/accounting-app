@@ -2,20 +2,33 @@
 
 ## Remaining JavaScript Modules
 
-- `server/routes/reports.js`
-- `server/routes/settings.js`
-- `server/routes/taxRates.js`
-- `server/services/bills.js` (intentional hold during current route-boundary migration)
-- `server/services/reports.js` (paired with `server/routes/reports.js`)
+- `server/services/bills.js` (intentional hold; only remaining runtime JS module)
 
-## Route Conversion Guardrails
+## Completed In This Session
 
-Before converting the remaining routes to TypeScript, preserve current runtime behavior for these edge cases:
+- Converted remaining server routes to TypeScript:
+  - `server/routes/reports.ts`
+  - `server/routes/settings.ts`
+  - `server/routes/taxRates.ts`
+- Converted reports service to TypeScript:
+  - `server/services/reports.ts`
 
-- `settings` PUT currently coerces falsy values to `null` (`value || null`), including empty strings.
-- `tax-rates` GET currently filters inactive rows unless `all` is truthy (`if (!all)` behavior).
+## Behavior Changes Applied (Intentional)
 
-Validate both behaviors before and after route conversion so any behavior change is explicit and intentional.
+- `settings` PUT now preserves empty strings via `value ?? null`.
+- `tax-rates` GET now includes inactive rows only when `all=true`.
+
+## Behavior Parity Verification
+
+- Captured authenticated pre/post API snapshots for:
+  - `/api/reports/pl`
+  - `/api/reports/balance-sheet`
+  - `/api/reports/ledger`
+  - `/api/reports/trial-balance`
+  - `/api/reports/donors/summary`
+  - `/api/reports/donors/detail`
+- Normalized diff result: all report responses matched post-conversion.
+- Unauthorized smoke check (`/api/reports/pl`): status/body matched pre-conversion.
 
 ## Strictness Rollout
 
@@ -26,12 +39,10 @@ Validate both behaviors before and after route conversion so any behavior change
 ### Server Strict Mode Boundary
 
 - Keep database migrations and seeds in JavaScript for now (`server/db/migrations/**/*.js`, `server/db/seeds/**/*.js`, `server/db/utils.js`, `server/db/index.js`).
-- Scope strict-mode completion to runtime app modules (`server/index.ts`, `server/middleware`, `server/routes`, `server/services`, `server/types`).
+- Scope strict-mode completion to runtime app modules (`server/index.ts`, `server/middleware`, `server/routes`, `server/services`, `server/types`) with `server/services/bills.js` as the remaining runtime JS holdout.
 
 ## Next Execution Order
 
-1. Convert `server/routes/reports.js`, `server/routes/settings.js`, and `server/routes/taxRates.js` to TypeScript.
-2. Convert `server/services/reports.js` to TypeScript.
-3. Re-run behavior checks for `settings` PUT and `tax-rates` GET `all` handling.
-4. Decide whether to migrate `server/services/bills.js` now or keep as an explicit deferred item.
-5. Flip `server` to full strict mode for runtime modules (with DB JS boundary intact).
+1. Decide and execute migration of `server/services/bills.js` to TypeScript (or formally defer with rationale).
+2. Move server runtime modules to full strict mode (`"strict": true`) and resolve resulting type issues.
+3. Keep DB migrations/seeds JS boundary unchanged unless a separate migration effort is started.
