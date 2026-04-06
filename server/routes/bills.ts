@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import type { Knex } from 'knex';
 import express = require('express');
 
 import type {
@@ -41,8 +42,10 @@ const {
 const router = express.Router();
 router.use(auth);
 
-function applyBillFilters(q: any, filters: BillsQuery) {
-  // Knex query builders vary by chain shape, so we keep this helper flexible with `any`.
+function applyBillFilters<TRecord, TResult>(
+  q: Knex.QueryBuilder<TRecord & {}, TResult>,
+  filters: BillsQuery
+) {
   const { status, contact_id, from, to } = filters;
   if (status) {
     if (Array.isArray(status)) q.whereIn('b.status', status);
@@ -55,7 +58,7 @@ function applyBillFilters(q: any, filters: BillsQuery) {
 }
 
 function normaliseMutationTransaction(
-  transaction: TransactionRow | undefined
+  transaction: TransactionRow | null | undefined
 ): BillMutationResponse['transaction'] {
   if (!transaction) return undefined;
   return {

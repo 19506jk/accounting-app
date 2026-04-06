@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import type { Knex } from 'knex';
 import express = require('express');
 import Decimal from 'decimal.js';
 
@@ -143,7 +144,7 @@ router.get(
 
       const baseQuery = () => db('transactions as t')
         .leftJoin('users as u', 'u.id', 't.created_by')
-        .modify((q: any) => {
+        .modify((q: Knex.QueryBuilder) => {
           if (fund_id) q.where('t.fund_id', fund_id);
           if (from) q.where('t.date', '>=', from);
           if (to) q.where('t.date', '<=', to);
@@ -292,7 +293,7 @@ router.post(
       const errors = await validateTransaction(req.body);
       if (errors.length) return res.status(400).json({ errors });
 
-      const result = await db.transaction(async (trx: any) => {
+      const result: { transaction: TransactionRow; entries: JournalEntryRow[] } = await db.transaction(async (trx: Knex.Transaction) => {
         const firstEntry = entries[0];
         if (!firstEntry) throw new Error('At least one entry is required');
 

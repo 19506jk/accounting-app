@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import type { Knex } from 'knex';
 import express = require('express');
 import Decimal from 'decimal.js';
 
@@ -89,15 +90,16 @@ async function calcSummary(reconciliationId: number | string): Promise<Reconcili
 }
 
 async function loadItems(
-  trx: any,
+  trx: Knex.Transaction | null,
   reconciliationId: number,
   accountId: number,
   statementDate: string
 ): Promise<number> {
-  const entries = await (trx || db)('journal_entries as je')
+  const queryDb = trx ?? db;
+  const entries = await queryDb('journal_entries as je')
     .join('transactions as t', 't.id', 'je.transaction_id')
-    .leftJoin('rec_items as ri', function joinReconciliationItems() {
-      this.on('ri.journal_entry_id', '=', 'je.id')
+    .leftJoin('rec_items as ri', (join: Knex.JoinClause) => {
+      join.on('ri.journal_entry_id', '=', 'je.id')
         .andOn('ri.reconciliation_id', '=', db.raw('?', [reconciliationId]));
     })
     .where('je.account_id', accountId)
@@ -108,13 +110,13 @@ async function loadItems(
 
   if (entries.length === 0) return 0;
 
-  await (trx || db)('rec_items').insert(
+  await queryDb('rec_items').insert(
     entries.map((e) => ({
       reconciliation_id: reconciliationId,
       journal_entry_id: e.id,
       is_cleared: false,
-      created_at: (trx || db).fn.now(),
-      updated_at: (trx || db).fn.now(),
+      created_at: queryDb.fn.now(),
+      updated_at: queryDb.fn.now(),
     }))
   );
 
@@ -287,7 +289,7 @@ router.post(
         }
       }
 
-      const result = await db.transaction(async (trx: any) => {
+      const result = await db.transaction(async (trx: Knex.Transaction) => {
         const [recon] = await trx('reconciliations')
           .insert({
             account_id,
@@ -339,7 +341,7 @@ router.put(
         ? dec(statement_balance).toFixed(2)
         : recon.statement_balance;
 
-      await db.transaction(async (trx: any) => {
+      await db.transaction(async (trx: Knex.Transaction) => {
         await trx('reconciliations').where({ id }).update({
           statement_balance: newBalance,
           statement_date: newDate,
@@ -362,7 +364,8 @@ router.put(
         }
       });
 
-      const updated = await db('reconciliations').where({ id }).first() as ReconciliationRow;
+      const updated = await db('reconciliations').where({ id }).first() as ReconciliationRow | undefined;
+      if (!updated) return res.status(404).json({ error: 'Reconciliation not found' });
       res.json({ reconciliation: updated });
     } catch (err) {
       next(err);
@@ -402,7 +405,8 @@ router.post(
         .returning('*') as RecItemRow[];
       if (!updated) throw new Error('Failed to update reconciliation item');
 
-      const account = await db('accounts').where({ id: recon.account_id }).first() as AccountRow;
+      const account = await db('accounts').where({ id: recon.account_id }).first() as AccountRow | undefined;
+      if (!account) return res.status(404).json({ error: 'Account not found' });
       const clearedBalance = await calcBalance(id, recon.opening_balance, account.type);
       const difference = dec(recon.statement_balance).minus(clearedBalance);
 
@@ -439,7 +443,8 @@ router.post(
         return res.status(409).json({ error: 'Reconciliation is already closed' });
       }
 
-      const account = await db('accounts').where({ id: recon.account_id }).first() as AccountRow;
+      const account = await db('accounts').where({ id: recon.account_id }).first() as AccountRow | undefined;
+      if (!account) return res.status(404).json({ error: 'Account not found' });
       const clearedBalance = await calcBalance(id, recon.opening_balance, account.type);
       const difference = dec(recon.statement_balance).minus(clearedBalance);
 
@@ -450,7 +455,7 @@ router.post(
         } as ApiErrorResponse & { difference: number });
       }
 
-      await db.transaction(async (trx: any) => {
+      await db.transaction(async (trx: Knex.Transaction) => {
         await trx('reconciliations').where({ id }).update({
           is_closed: true,
           updated_at: trx.fn.now(),

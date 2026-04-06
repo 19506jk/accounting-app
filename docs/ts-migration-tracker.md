@@ -23,6 +23,12 @@
   - `server/routes/bills.ts`
 - Aligned shared bills contracts to runtime summary/aging shapes:
   - `shared/contracts.ts`
+- Completed server strict-mode hardening for runtime TypeScript modules:
+  - Set `server/tsconfig.json` to `"strict": true`
+  - Removed runtime JS include globs from server tsconfig (`routes/**/*.js`, `services/**/*.js`, `middleware/**/*.js`)
+  - Replaced Knex `this` callback usage with typed builder callbacks in strict-sensitive query paths
+  - Removed runtime `any` from `server/routes`, `server/services`, and `server/middleware`
+  - Added nullability guards for strict `.first()` handling in strict-sensitive mutation paths
 
 ## Behavior Changes Applied (Intentional)
 
@@ -53,16 +59,16 @@
 ## Strictness Rollout
 
 - `client` now runs with `"strict": true`, including `strictNullChecks` and `noUncheckedIndexedAccess`.
-- `server` keeps `"strict": false` during mixed JS/TS migration, but now enables `strictNullChecks` and `noUncheckedIndexedAccess`.
-- Planned follow-up: move `server` to full strict mode after route/service conversion and boundary cleanup.
+- `server` now runs with `"strict": true` for runtime TypeScript modules.
 
 ### Server Strict Mode Boundary
 
 - Keep database migrations and seeds in JavaScript for now (`server/db/migrations/**/*.js`, `server/db/seeds/**/*.js`, `server/db/utils.js`, `server/db/index.js`).
 - Runtime app modules in scope for strict completion: `server/index.ts`, `server/middleware`, `server/routes`, `server/services`, `server/types`.
+- Runtime strict boundary status: complete for current TypeScript runtime modules.
 
 ## Next Execution Order
 
-1. Flip `server` runtime modules to full strict mode (`"strict": true`) and resolve resulting issues.
-2. Keep DB JS boundary unchanged unless a dedicated DB-layer migration is started.
-3. Optional follow-up: decide whether to keep the `/api/bills/reports/aging` bug fix as-is (recommended) and add regression coverage for that endpoint.
+1. Keep DB JS boundary unchanged unless a dedicated DB-layer migration is started.
+2. Add regression coverage for `/api/bills/reports/aging` and auth-protected report/bill endpoints.
+3. Optional future phase: evaluate TypeScript migration for DB runtime boundary (`server/db/index.js`, `server/db/utils.js`) separately from migrations/seeds.

@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import type { Knex } from 'knex';
 import express = require('express');
 
 import type {
@@ -131,8 +132,8 @@ router.get(
 
       if (type) {
         // Include BOTH so mixed contacts still appear in DONOR/PAYEE filtered views.
-        query.where(function byType(this: any) {
-          this.where('type', type.toUpperCase()).orWhere('type', 'BOTH');
+        query.where((qb: Knex.QueryBuilder) => {
+          qb.where('type', type.toUpperCase()).orWhere('type', 'BOTH');
         });
       }
 
@@ -140,8 +141,8 @@ router.get(
 
       if (search?.trim()) {
         const term = `%${search.trim().toLowerCase()}%`;
-        query.where(function bySearch(this: any) {
-          this.whereRaw('LOWER(name) LIKE ?', [term])
+        query.where((qb: Knex.QueryBuilder) => {
+          qb.whereRaw('LOWER(name) LIKE ?', [term])
             .orWhereRaw('LOWER(first_name) LIKE ?', [term])
             .orWhereRaw('LOWER(last_name) LIKE ?', [term])
             .orWhereRaw('LOWER(email) LIKE ?', [term])

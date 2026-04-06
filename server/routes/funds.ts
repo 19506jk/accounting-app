@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import type { Knex } from 'knex';
 import express = require('express');
 
 import type {
@@ -111,7 +112,7 @@ router.post(
         return res.status(409).json({ error: 'An account with that code already exists' });
       }
 
-      const result = await db.transaction(async (trx: any) => {
+      const result = await db.transaction(async (trx: Knex.Transaction) => {
         const [equityAccount] = await trx('accounts')
           .insert({
             code,
@@ -177,7 +178,7 @@ router.put(
         }
       }
 
-      await db.transaction(async (trx: any) => {
+      await db.transaction(async (trx: Knex.Transaction) => {
         const newName = name?.trim() || fund.name;
 
         await trx('funds')
@@ -217,7 +218,10 @@ router.put(
         }
       });
 
-      const updatedFund = await db('funds').where({ id }).first() as FundRow;
+      const updatedFund = await db('funds').where({ id }).first() as FundRow | undefined;
+      if (!updatedFund) {
+        return res.status(404).json({ error: 'Fund not found' });
+      }
       res.json({ fund: updatedFund });
     } catch (err) {
       next(err);

@@ -120,7 +120,7 @@ interface DonationQueryRow {
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
 const asDateString = (value: string | Date) => (value instanceof Date ? value.toISOString() : String(value));
 
-function baseQuery({ from, to, asOf, fundId }: BaseQueryArgs = {}): Knex.QueryBuilder<any, any> {
+function baseQuery({ from, to, asOf, fundId }: BaseQueryArgs = {}): Knex.QueryBuilder {
   const query = db('journal_entries as je')
     .join('transactions as t', 't.id', 'je.transaction_id')
     .join('accounts as a', 'a.id', 'je.account_id')
@@ -478,7 +478,7 @@ async function getDonorDetail({ from, to, fundId, contactId }: DonorDetailArgs):
         'je.credit as amount',
         'je.memo'
       )
-      .orderBy('t.date', 'asc') as Knex.QueryBuilder<any, DonationQueryRow[]>;
+      .orderBy('t.date', 'asc') as Knex.QueryBuilder<DonationQueryRow, DonationQueryRow[]>;
 
   if (contactId) {
     const contact = await db('contacts').where({ id: contactId }).first() as ContactRow | undefined;

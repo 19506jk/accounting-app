@@ -34,8 +34,8 @@ function auth(req: Request, res: Response, next: NextFunction) {
 
     req.user = user;
     next();
-  } catch (err: any) {
-    if (err.name === 'TokenExpiredError') {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired — please sign in again' });
     }
     return res.status(401).json({ error: 'Invalid token' });

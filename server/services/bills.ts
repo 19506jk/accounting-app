@@ -10,6 +10,7 @@ import type {
   PayBillInput,
   UpdateBillInput,
 } from '@shared/contracts';
+import type { BillRow, TransactionRow } from '../types/db';
 
 const db = require('../db') as Knex;
 
@@ -21,7 +22,7 @@ type PaymentBillInput = PayBillInput & {
 };
 
 type BillServiceResult = { errors: string[]; outstanding?: number } | { errors?: undefined };
-type BillMutationResult = BillServiceResult & { bill?: BillDetail | null; transaction?: any };
+type BillMutationResult = BillServiceResult & { bill?: BillDetail | null; transaction?: TransactionRow | null };
 
 interface BillJoinedRow {
   id: number;
@@ -540,7 +541,8 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
         created_at: trx.fn.now(),
         updated_at: trx.fn.now(),
       })
-      .returning('*');
+      .returning('*') as BillRow[];
+    if (!bill) throw new Error('Failed to create bill');
 
     const [transaction] = await trx('transactions')
       .insert({
@@ -552,7 +554,8 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
         created_at: trx.fn.now(),
         updated_at: trx.fn.now(),
       })
-      .returning('*');
+      .returning('*') as TransactionRow[];
+    if (!transaction) throw new Error('Failed to create bill transaction');
 
     await trx('bills')
       .where({ id: bill.id })
@@ -579,7 +582,7 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
 }
 
 async function updateBill(id: string, payload: UpdateBillInput, userId: number): Promise<BillMutationResult> {
-  const bill = await db('bills').where({ id }).first() as any;
+  const bill = await db('bills').where({ id }).first() as BillRow | undefined;
   if (!bill) {
     return { errors: ['Bill not found'] };
   }
@@ -629,7 +632,7 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
     ? newLineItems.reduce((sum, li) => sum + dec(li.amount).toNumber(), 0)
     : dec(bill.amount).toNumber();
 
-  if (payload.line_items !== undefined || (payload as any).created_transaction_id) {
+  if (payload.line_items !== undefined || Boolean(bill.created_transaction_id)) {
     await db.transaction(async (trx: Knex.Transaction) => {
       await trx('bill_line_items')
         .where({ bill_id: id })
@@ -647,18 +650,20 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
         const apAccount = await trx('accounts')
           .where({ code: AP_ACCOUNT_CODE })
           .first() as AccountRow | undefined;
+        if (!apAccount) throw new Error(`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`);
 
         const contact = await trx('contacts')
           .where({ id: payload.contact_id || bill.contact_id })
-          .first();
+          .first() as ContactRow | undefined;
+        if (!contact) throw new Error('Vendor not found');
 
         await createMultiLineJournalEntries(
           bill.created_transaction_id,
           id,
           newLineItems,
           payload.fund_id || bill.fund_id,
-          apAccount?.id || 0,
-          contact?.name || '',
+          apAccount.id,
+          contact.name,
           bill.bill_number || '',
           trx
         );
@@ -677,7 +682,7 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
     updated_at: db.fn.now(),
   };
 
-  const [updated] = await db('bills')
+  await db('bills')
     .where({ id })
     .update(updateData)
     .returning('*');
@@ -747,7 +752,8 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
         created_at: trx.fn.now(),
         updated_at: trx.fn.now(),
       })
-      .returning('*');
+      .returning('*') as TransactionRow[];
+    if (!transaction) throw new Error('Failed to create payment transaction');
 
     const amount = outstanding.toFixed(2);
     await trx('journal_entries').insert([
@@ -785,7 +791,8 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
         paid_at: trx.fn.now(),
         updated_at: trx.fn.now(),
       })
-      .returning('*');
+      .returning('*') as BillRow[];
+    if (!updatedBill) throw new Error('Failed to mark bill paid');
 
     return { transaction, bill: updatedBill };
   });
@@ -834,7 +841,8 @@ async function voidBill(id: string, userId: number): Promise<BillMutationResult>
         status: 'VOID',
         updated_at: trx.fn.now(),
       })
-      .returning('*');
+      .returning('*') as BillRow[];
+    if (!updatedBill) throw new Error('Failed to void bill');
 
     return { bill: updatedBill };
   });
