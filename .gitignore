@@ -4,3 +4,4 @@ ecosystem.config.js
 server/db/seeds/data/*
 server/dist/
 client/dist/
+shared/contracts.js
