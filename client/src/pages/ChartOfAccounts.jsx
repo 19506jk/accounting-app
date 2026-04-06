@@ -12,6 +12,7 @@ import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
 import DateRangePicker from '../components/ui/DateRangePicker';
 import * as XLSX from 'xlsx';
+import { currentMonthRange } from '../utils/date';
 
 const TYPE_OPTIONS = [
   { value: 'ASSET',     label: 'Asset' },
@@ -33,11 +34,7 @@ function fmt(n) {
 }
 
 function currentMonth() {
-  const n = new Date();
-  return {
-    from: new Date(n.getFullYear(), n.getMonth(), 1).toISOString().split('T')[0],
-    to:   n.toISOString().split('T')[0],
-  };
+  return currentMonthRange();
 }
 
 // ── Account Ledger Drawer ────────────────────────────────────────────────────

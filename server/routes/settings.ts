@@ -8,6 +8,8 @@ import type {
   SettingsValues,
   UpdateSettingsInput,
 } from '@shared/contracts';
+import { isValidTimeZone } from '../utils/date.js';
+import { setChurchTimeZone } from '../services/churchTimeZone.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth');
@@ -64,6 +66,13 @@ router.put(
       const existingKeys = await db('settings').select('key') as Array<{ key: string }>;
       const validKeys = new Set(existingKeys.map((row) => row.key));
 
+      if ('church_timezone' in updates) {
+        const timezoneValue = updates.church_timezone;
+        if (timezoneValue !== null && timezoneValue !== undefined && !isValidTimeZone(timezoneValue)) {
+          return res.status(400).json({ error: 'church_timezone must be a valid IANA timezone (e.g., America/Toronto)' });
+        }
+      }
+
       const updatePromises = Object.entries(updates)
         .filter(([key]) => validKeys.has(key))
         .map(([key, value]) =>
@@ -73,6 +82,10 @@ router.put(
         );
 
       await Promise.all(updatePromises);
+
+      if ('church_timezone' in updates) {
+        setChurchTimeZone(updates.church_timezone ?? null);
+      }
 
       const rows = await db('settings').orderBy('id', 'asc') as SettingRow[];
       const values = toValuesMap(rows);

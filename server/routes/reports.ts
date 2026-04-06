@@ -16,6 +16,7 @@ import type {
 
 const auth = require('../middleware/auth');
 import reports = require('../services/reports');
+import { isValidDateOnly } from '../utils/date.js';
 
 const { getPL, getBalanceSheet, getLedger, getTrialBalance, getDonorSummary, getDonorDetail } = reports;
 
@@ -103,11 +104,10 @@ function envelope<TType extends ReportType, TFilters, TData>(
 
 function validateDates({ from, to, asOf }: { from?: string; to?: string; asOf?: string } = {}) {
   const errors: string[] = [];
-  const isValidDate = (value?: string) => Boolean(value) && !Number.isNaN(new Date(value as string).getTime());
 
-  if (from && !isValidDate(from)) errors.push('from is not a valid date (YYYY-MM-DD)');
-  if (to && !isValidDate(to)) errors.push('to is not a valid date (YYYY-MM-DD)');
-  if (asOf && !isValidDate(asOf)) errors.push('as_of is not a valid date (YYYY-MM-DD)');
+  if (from && !isValidDateOnly(from)) errors.push('from is not a valid date (YYYY-MM-DD)');
+  if (to && !isValidDateOnly(to)) errors.push('to is not a valid date (YYYY-MM-DD)');
+  if (asOf && !isValidDateOnly(asOf)) errors.push('as_of is not a valid date (YYYY-MM-DD)');
   if (from && to && from > to) errors.push('from must be before or equal to to');
 
   return errors;

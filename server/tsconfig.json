@@ -32,6 +32,7 @@
     "middleware/**/*.ts",
     "routes/**/*.ts",
     "services/**/*.ts",
+    "utils/**/*.ts",
     "db/**/*.js"
   ]
 }

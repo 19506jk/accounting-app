@@ -18,6 +18,7 @@ import reconciliationRoutes from './routes/reconciliation.js';
 import reportRoutes from './routes/reports.js';
 import billRoutes from './routes/bills.js';
 import taxRatesRouter from './routes/taxRates.js';
+import { initializeChurchTimeZoneCache } from './services/churchTimeZone.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +34,7 @@ app.use(helmet({
       'script-src': ['\'self\'', 'https://accounts.google.com'],
       'frame-src': ['\'self\'', 'https://accounts.google.com'],
       'connect-src': ['\'self\'', 'https://accounts.google.com'],
+      'img-src': ['\'self\'', 'data:', 'https://lh3.googleusercontent.com'],
     },
   },
 }));
@@ -84,6 +86,12 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(status).json({ error: message });
 });
 
-app.listen(PORT, () => {
-  console.log(`Church Accounting API running on port ${PORT}`);
-});
+async function start() {
+  await initializeChurchTimeZoneCache();
+
+  app.listen(PORT, () => {
+    console.log(`Church Accounting API running on port ${PORT}`);
+  });
+}
+
+void start();

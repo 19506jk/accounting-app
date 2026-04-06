@@ -14,19 +14,21 @@ import Select  from '../components/ui/Select';
 import Combobox from '../components/ui/Combobox';
 import DateRangePicker from '../components/ui/DateRangePicker';
 import Badge   from '../components/ui/Badge';
+import {
+  currentMonthRange,
+  currentYearValue,
+  formatDateOnlyForDisplay,
+  getChurchToday,
+} from '../utils/date';
 
 // PDF receipt
 import { PDFDownloadLink, Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 
 const fmt  = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
-const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-CA') : '';
+const fmtD = (d) => formatDateOnlyForDisplay(d);
 
 function currentMonth() {
-  const n = new Date();
-  return {
-    from: new Date(n.getFullYear(), n.getMonth(), 1).toISOString().split('T')[0],
-    to:   n.toISOString().split('T')[0],
-  };
+  return currentMonthRange();
 }
 
 const REPORT_TYPES = [
@@ -258,7 +260,7 @@ function ReceiptPDF({ receipt }) {
         </View>
 
         <Text style={receiptStyles.footer}>
-          Generated: {new Date().toLocaleDateString('en-CA')} — This is an official receipt for income tax purposes.
+          Generated: {getChurchToday()} — This is an official receipt for income tax purposes.
         </Text>
       </Page>
     </Document>
@@ -463,7 +465,7 @@ function DonorDetailReport({ data, settings }) {
                   registration_no: settings?.church_registration_no || '',
                 },
                 donor: d,   // d now includes donor_id from the API response
-                year:         new Date().getFullYear(),
+                year:         currentYearValue(),
                 donations:    d.transactions || [],
                 total:        d.total,
                 eligible_amount: d.total,
@@ -569,7 +571,7 @@ function LineItem({ label, value, bold, valueColor }) {
 export default function Reports() {
   const [type,    setType]    = useState('pl');
   const [range,   setRange]   = useState(currentMonth());
-  const [asOf,    setAsOf]    = useState(new Date().toISOString().split('T')[0]);
+  const [asOf,    setAsOf]    = useState(getChurchToday());
   const [fundId,  setFundId]  = useState('');
   const [acctId,  setAcctId]  = useState('');
   const [ctcId,   setCtcId]   = useState('');

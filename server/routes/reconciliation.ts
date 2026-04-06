@@ -27,6 +27,7 @@ import type {
   ReconciliationRow,
   ReconciliationSummaryRow,
 } from '../types/db';
+import { compareDateOnly, isValidDateOnly } from '../utils/date.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth');
@@ -245,6 +246,9 @@ router.post(
           error: 'account_id, statement_date, and statement_balance are required',
         });
       }
+      if (!isValidDateOnly(statement_date)) {
+        return res.status(400).json({ error: 'statement_date is not a valid date (YYYY-MM-DD)' });
+      }
 
       const account = await db('accounts').where({ id: account_id, is_active: true }).first() as AccountRow | undefined;
       if (!account) {
@@ -272,7 +276,7 @@ router.post(
         .orderBy('statement_date', 'desc')
         .first() as ReconciliationRow | undefined;
 
-      if (lastClosed && new Date(statement_date) <= new Date(lastClosed.statement_date)) {
+      if (lastClosed && compareDateOnly(statement_date, String(lastClosed.statement_date)) <= 0) {
         return res.status(400).json({
           error: `Statement date must be after the last closed reconciliation (${lastClosed.statement_date})`,
         });
@@ -337,6 +341,9 @@ router.put(
       }
 
       const newDate = statement_date || String(recon.statement_date);
+      if (statement_date && !isValidDateOnly(statement_date)) {
+        return res.status(400).json({ error: 'statement_date is not a valid date (YYYY-MM-DD)' });
+      }
       const newBalance = statement_balance !== undefined
         ? dec(statement_balance).toFixed(2)
         : recon.statement_balance;

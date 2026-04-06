@@ -1,6 +1,7 @@
 import { usePLSummary, useBalanceSheet, useRecentTransactions } from '../api/useDashboard';
 import Card  from '../components/ui/Card';
 import Table from '../components/ui/Table';
+import { formatDateOnlyForDisplay, monthLabelInChurchZone } from '../utils/date';
 
 function fmt(n) {
   return typeof n === 'number'
@@ -9,7 +10,7 @@ function fmt(n) {
 }
 
 function currentMonthLabel() {
-  return new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+  return monthLabelInChurchZone();
 }
 
 function SummaryCard({ label, value, isLoading, color, sub }) {
@@ -35,7 +36,7 @@ function SummaryCard({ label, value, isLoading, color, sub }) {
 
 const TXN_COLUMNS = [
   { key: 'date', label: 'Date',
-    render: (r) => new Date(r.date).toLocaleDateString('en-CA') },
+    render: (r) => formatDateOnlyForDisplay(r.date) },
   { key: 'description', label: 'Description', wrap: true },
   { key: 'contact_name', label: 'Contact',
     render: (r) => r.contact_name || '—' },

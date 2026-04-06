@@ -16,15 +16,18 @@ import Select from '../components/ui/Select';
 import Combobox from '../components/ui/Combobox';
 import Badge from '../components/ui/Badge';
 import DateRangePicker from '../components/ui/DateRangePicker';
+import {
+  currentMonthRange,
+  formatDateOnlyForDisplay,
+  getChurchToday,
+  isDateOnlyBefore,
+  toDateOnly,
+} from '../utils/date';
 
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 
 function currentMonth() {
-  const n = new Date();
-  return {
-    from: new Date(n.getFullYear(), n.getMonth(), 1).toISOString().split('T')[0],
-    to: n.toISOString().split('T')[0],
-  };
+  return currentMonthRange();
 }
 
 function createEmptyLineItem(tempId) {
@@ -37,15 +40,17 @@ function createEmptyLineItem(tempId) {
   };
 }
 
-const EMPTY_FORM = {
-  contact_id: '',
-  date: new Date().toISOString().split('T')[0],
-  due_date: '',
-  bill_number: '',
-  description: '',
-  fund_id: '',
-  line_items: [createEmptyLineItem('temp-1')],
-};
+function createEmptyForm() {
+  return {
+    contact_id: '',
+    date: getChurchToday(),
+    due_date: '',
+    bill_number: '',
+    description: '',
+    fund_id: '',
+    line_items: [createEmptyLineItem('temp-1')],
+  };
+}
 
 let tempIdCounter = 1;
 
@@ -60,8 +65,8 @@ function BillForm({ bill, onClose, onSaved }) {
 
   const [form, setForm] = useState(bill ? {
     contact_id: String(bill.contact_id),
-    date: bill.date ? String(bill.date).split('T')[0] : '',
-    due_date: bill.due_date ? String(bill.due_date).split('T')[0] : '',
+    date: toDateOnly(String(bill.date)),
+    due_date: toDateOnly(String(bill.due_date)),
     bill_number: bill.bill_number || '',
     description: bill.description || '',
     fund_id: String(bill.fund_id),
@@ -72,7 +77,7 @@ function BillForm({ bill, onClose, onSaved }) {
       amount: li.amount,
       tax_rate_id: li.tax_rate_id ? String(li.tax_rate_id) : '',
     })) || [createEmptyLineItem('temp-1')],
-  } : EMPTY_FORM);
+  } : createEmptyForm());
 
   useEffect(() => {
     if (!bill && funds && funds.length > 0 && !form.fund_id) {
@@ -451,7 +456,7 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
   const { data: accounts } = useAccounts();
 
   const [payment, setPayment] = useState({
-    payment_date: new Date().toISOString().split('T')[0],
+    payment_date: getChurchToday(),
     amount: bill ? parseFloat(bill.amount) - parseFloat(bill.amount_paid) : 0,
     bank_account_id: '',
     reference_no: '',
@@ -641,7 +646,7 @@ export default function Bills() {
     {
       key: 'date',
       label: 'Date',
-      render: (b) => new Date(b.date).toLocaleDateString('en-CA'),
+      render: (b) => formatDateOnlyForDisplay(b.date),
     },
     {
       key: 'vendor_name',
@@ -664,10 +669,10 @@ export default function Bills() {
       label: 'Due Date',
       render: (b) => {
         if (!b.due_date) return <span style={{ color: '#6b7280' }}>—</span>;
-        const isOverdue = b.status === 'UNPAID' && new Date(b.due_date) < new Date();
+        const isOverdue = b.status === 'UNPAID' && isDateOnlyBefore(b.due_date, getChurchToday());
         return (
           <span style={{ color: isOverdue ? '#dc2626' : 'inherit', fontWeight: isOverdue ? 600 : 400 }}>
-            {new Date(b.due_date).toLocaleDateString('en-CA')}
+            {formatDateOnlyForDisplay(b.due_date)}
           </span>
         );
       },
@@ -745,7 +750,7 @@ export default function Bills() {
 
   const unpaidBills = (bills || []).filter(b => b.status === 'UNPAID');
   const totalUnpaid = unpaidBills.reduce((sum, b) => sum + (parseFloat(b.amount) - parseFloat(b.amount_paid)), 0);
-  const overdueBills = unpaidBills.filter(b => b.due_date && new Date(b.due_date) < new Date());
+  const overdueBills = unpaidBills.filter((b) => b.due_date && isDateOnlyBefore(b.due_date, getChurchToday()));
   const totalOverdue = overdueBills.reduce((sum, b) => sum + (parseFloat(b.amount) - parseFloat(b.amount_paid)), 0);
 
   return (

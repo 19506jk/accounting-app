@@ -3,6 +3,7 @@ import { createRoot }         from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GoogleOAuthProvider }              from '@react-oauth/google';
 import { AuthProvider }                     from './context/AuthContext';
+import { DateProvider }                     from './context/DateContext';
 import { ToastProvider }                    from './components/ui/Toast';
 import App                                  from './App';
 
@@ -23,9 +24,11 @@ createRoot(document.getElementById('root')).render(
     <QueryClientProvider client={queryClient}>
       <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
         <AuthProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
+          <DateProvider>
+            <ToastProvider>
+              <App />
+            </ToastProvider>
+          </DateProvider>
         </AuthProvider>
       </GoogleOAuthProvider>
     </QueryClientProvider>

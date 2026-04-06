@@ -28,6 +28,8 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/roles');
 import billService = require('../services/bills');
+import { getChurchToday, isValidDateOnly } from '../utils/date.js';
+import { getChurchTimeZone } from '../services/churchTimeZone.js';
 
 const {
   createBill,
@@ -72,12 +74,21 @@ function normaliseMutationTransaction(
 router.get(
   '/',
   async (
-    req: Request<{}, BillsListResponse, unknown, BillsQuery>,
-    res: Response<BillsListResponse>,
+    req: Request<{}, BillsListResponse | ApiErrorResponse, unknown, BillsQuery>,
+    res: Response<BillsListResponse | ApiErrorResponse>,
     next: NextFunction
   ) => {
     try {
       const { status, contact_id, from, to, limit = 100, offset = 0 } = req.query;
+      if (from && !isValidDateOnly(from)) {
+        return res.status(400).json({ error: 'from is not a valid date (YYYY-MM-DD)' });
+      }
+      if (to && !isValidDateOnly(to)) {
+        return res.status(400).json({ error: 'to is not a valid date (YYYY-MM-DD)' });
+      }
+      if (from && to && from > to) {
+        return res.status(400).json({ error: 'from must be before or equal to to' });
+      }
 
       const query = applyBillFilters(db('bills as b'), { status, contact_id, from, to })
         .leftJoin('contacts as c', 'c.id', 'b.contact_id')
@@ -161,13 +172,16 @@ router.get('/summary', async (_req: Request, res: Response<BillSummaryResponse>,
 router.get(
   '/reports/aging',
   async (
-    req: Request<{}, BillAgingReportResponse, unknown, { as_of?: string }>,
-    res: Response<BillAgingReportResponse>,
+    req: Request<{}, BillAgingReportResponse | ApiErrorResponse, unknown, { as_of?: string }>,
+    res: Response<BillAgingReportResponse | ApiErrorResponse>,
     next: NextFunction
   ) => {
     try {
       const { as_of } = req.query;
-      const asOfDate = as_of || new Date().toISOString().slice(0, 10);
+      if (as_of && !isValidDateOnly(as_of)) {
+        return res.status(400).json({ error: 'as_of is not a valid date (YYYY-MM-DD)' });
+      }
+      const asOfDate = as_of || getChurchToday(getChurchTimeZone());
 
       const report = await getAgingReport(asOfDate);
       res.json({ report });

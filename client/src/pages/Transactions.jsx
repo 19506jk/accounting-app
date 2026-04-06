@@ -13,16 +13,13 @@ import Input       from '../components/ui/Input';
 import Combobox    from '../components/ui/Combobox';
 import SummaryBar  from '../components/ui/SummaryBar';
 import DateRangePicker from '../components/ui/DateRangePicker';
+import { currentMonthRange, formatDateOnlyForDisplay, getChurchToday } from '../utils/date';
 
 const dec = (v) => new Decimal(v || 0);
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 
 function currentMonth() {
-  const n = new Date();
-  return {
-    from: new Date(n.getFullYear(), n.getMonth(), 1).toISOString().split('T')[0],
-    to:   n.toISOString().split('T')[0],
-  };
+  return currentMonthRange();
 }
 
 const EMPTY_ENTRY = { account_id: '', fund_id: '', debit: '', credit: '', contact_id: '', memo: '' };
@@ -120,7 +117,7 @@ function TransactionForm({ onClose, onSaved }) {
   const { data: contacts  } = useContacts({ type: 'DONOR' });
   const createTx = useCreateTransaction();
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getChurchToday();
   const [form, setForm] = useState({ date: today, description: '', reference_no: '' });
   const [entries, setEntries] = useState([{ ...EMPTY_ENTRY }, { ...EMPTY_ENTRY }]);
   const [errors, setErrors] = useState([]);
@@ -378,7 +375,7 @@ export default function Transactions() {
 
   const COLUMNS = [
     { key: 'date', label: 'Date',
-      render: (r) => new Date(r.date).toLocaleDateString('en-CA') },
+      render: (r) => formatDateOnlyForDisplay(r.date) },
     { key: 'description', label: 'Description', wrap: true },
     { key: 'reference_no', label: 'Ref',
       render: (r) => r.reference_no || <span style={{ color: '#d1d5db' }}>—</span> },

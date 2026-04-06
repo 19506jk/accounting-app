@@ -3,13 +3,14 @@ import client from './client'
 
 import type { SettingsResponse, SettingsValues, UpdateSettingsInput } from '@shared/contracts'
 
-export function useSettings() {
+export function useSettings(enabled = true) {
   return useQuery<SettingsValues>({
     queryKey: ['settings'],
     queryFn: async () => {
       const { data } = await client.get<SettingsResponse>('/settings')
       return data.values
     },
+    enabled,
     staleTime: 5 * 60 * 1000,
   })
 }

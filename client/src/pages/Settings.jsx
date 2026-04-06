@@ -6,6 +6,7 @@ import Card    from '../components/ui/Card';
 import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
 import Button  from '../components/ui/Button';
+import { DEFAULT_CHURCH_TIMEZONE } from '../utils/date';
 
 const PROVINCES = [
   'AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT',
@@ -15,6 +16,16 @@ const MONTHS = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ].map((m, i) => ({ value: String(i + 1), label: m }));
+
+const TIMEZONES = [
+  'America/Toronto',
+  'America/Vancouver',
+  'America/Edmonton',
+  'America/Winnipeg',
+  'America/Halifax',
+  'America/St_Johns',
+  'UTC',
+].map((zone) => ({ value: zone, label: zone }));
 
 export default function Settings() {
   const { data: settings, isLoading } = useSettings();
@@ -169,6 +180,14 @@ export default function Settings() {
             value={form.currency || 'CAD'}
             onChange={handleChange('currency')}
             options={[{ value: 'CAD', label: 'CAD — Canadian Dollar' }]}
+          />
+        </div>
+        <div style={{ marginTop: '1rem', maxWidth: '320px' }}>
+          <Select
+            label="Church Timezone"
+            value={form.church_timezone || DEFAULT_CHURCH_TIMEZONE}
+            onChange={handleChange('church_timezone')}
+            options={TIMEZONES}
           />
         </div>
       </Card>

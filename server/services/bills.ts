@@ -11,6 +11,15 @@ import type {
   UpdateBillInput,
 } from '@shared/contracts';
 import type { BillRow, TransactionRow } from '../types/db';
+import {
+  compareDateOnly,
+  getChurchToday,
+  isValidDateOnly,
+  normalizeDateOnly,
+  parseDateOnlyStrict,
+  toUtcIsoString,
+} from '../utils/date.js';
+import { getChurchTimeZone } from './churchTimeZone.js';
 
 const db = require('../db') as Knex;
 
@@ -100,7 +109,7 @@ interface AgingSourceBillRow {
   description: string;
   amount: Numeric;
   amount_paid: Numeric;
-  due_date: string | Date;
+  due_date: string | Date | null;
 }
 
 interface JournalEntryInsertRow {
@@ -143,7 +152,8 @@ type VendorAgingItem = {
 };
 
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
-const asDateString = (value: string | Date) => (value instanceof Date ? value.toISOString() : String(value));
+const asDateOnlyString = (value: string | Date) => normalizeDateOnly(value);
+const asDateTimeString = (value: string | Date) => toUtcIsoString(value);
 
 const ROUNDING_ACCOUNT_CODE = '59999';
 const AP_ACCOUNT_CODE = '20000';
@@ -158,6 +168,7 @@ function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = fa
 
   if (!isUpdate || data.date !== undefined) {
     if (!data.date) errors.push('date is required');
+    else if (!isValidDateOnly(data.date)) errors.push('date must be a valid date (YYYY-MM-DD)');
   }
 
   // due_date is now optional - no validation needed
@@ -209,9 +220,9 @@ function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = fa
   }
 
   if (data.date && data.due_date) {
-    const billDate = new Date(data.date);
-    const dueDate = new Date(data.due_date);
-    if (dueDate < billDate) {
+    if (!isValidDateOnly(data.due_date)) {
+      errors.push('due_date must be a valid date (YYYY-MM-DD)');
+    } else if (compareDateOnly(data.due_date, data.date) < 0) {
       errors.push('due_date cannot be before bill date');
     }
   }
@@ -253,11 +264,11 @@ async function getBillWithLineItems(billId: string | number): Promise<BillDetail
 
   return {
     ...bill,
-    date: asDateString(bill.date),
-    due_date: bill.due_date ? asDateString(bill.due_date) : null,
-    paid_at: bill.paid_at ? asDateString(bill.paid_at) : null,
-    created_at: asDateString(bill.created_at),
-    updated_at: asDateString(bill.updated_at),
+    date: asDateOnlyString(bill.date),
+    due_date: bill.due_date ? asDateOnlyString(bill.due_date) : null,
+    paid_at: bill.paid_at ? asDateTimeString(bill.paid_at) : null,
+    created_at: asDateTimeString(bill.created_at),
+    updated_at: asDateTimeString(bill.updated_at),
     amount: parseFloat(String(bill.amount)),
     amount_paid: parseFloat(String(bill.amount_paid)),
     line_items: lineItems.map(li => ({
@@ -851,8 +862,16 @@ async function voidBill(id: string, userId: number): Promise<BillMutationResult>
   return { bill: billWithLineItems, transaction: null };
 }
 
-async function getAgingReport(asOfDate: string | Date = new Date()): Promise<BillAgingReportResponse['report']> {
-  const asOf = new Date(asOfDate);
+function dayNumberFromDateOnly(dateOnly: string) {
+  const [year, month, day] = dateOnly.split('-').map((n) => parseInt(n, 10));
+  return Date.UTC(year || 0, (month || 1) - 1, day || 1);
+}
+
+async function getAgingReport(asOfDate: string | Date = getChurchToday(getChurchTimeZone())): Promise<BillAgingReportResponse['report']> {
+  const asOfInput = typeof asOfDate === 'string' ? asOfDate : normalizeDateOnly(asOfDate);
+  const asOf = parseDateOnlyStrict(asOfInput)
+    ? asOfInput
+    : getChurchToday(getChurchTimeZone());
   
   const bills = await db('bills as b')
     .join('contacts as c', 'c.id', 'b.contact_id')
@@ -870,18 +889,16 @@ async function getAgingReport(asOfDate: string | Date = new Date()): Promise<Bil
 
   const aging: AgingBucket = { current: [], days31_60: [], days61_90: [], days90_plus: [] };
 
-  const today = new Date(asOf).setHours(0, 0, 0, 0);
-
   bills.forEach(bill => {
-    const dueDate = new Date(bill.due_date).setHours(0, 0, 0, 0);
-    const daysOverdue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+    const dueDate = normalizeDateOnly(bill.due_date) || asOf;
+    const daysOverdue = Math.floor((dayNumberFromDateOnly(asOf) - dayNumberFromDateOnly(dueDate)) / (1000 * 60 * 60 * 24));
     const outstanding = parseFloat(dec(bill.amount).minus(dec(bill.amount_paid)).toFixed(2));
 
     const billData: AgingBill = {
       ...bill,
       amount: parseFloat(String(bill.amount)),
       amount_paid: parseFloat(String(bill.amount_paid)),
-      due_date: String(bill.due_date),
+      due_date: dueDate,
       outstanding,
       days_overdue: daysOverdue,
     };
@@ -943,7 +960,7 @@ async function getAgingReport(asOfDate: string | Date = new Date()): Promise<Bil
   totals.total = totals.current + totals.days31_60 + totals.days61_90 + totals.days90_plus;
 
   return {
-    as_of_date: asOf.toISOString().slice(0, 10),
+    as_of_date: asOf,
     vendor_aging: vendorAging,
     totals,
     buckets: {

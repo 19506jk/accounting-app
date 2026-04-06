@@ -14,6 +14,7 @@ import Button  from '../components/ui/Button';
 import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
 import SummaryBar from '../components/ui/SummaryBar';
+import { formatDateOnlyForDisplay } from '../utils/date';
 
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 
@@ -151,7 +152,7 @@ function Workspace({ id, onBack }) {
                     onChange={() => {}} readOnly style={{ cursor: 'pointer' }} />
                 </td>
                 <td style={{ padding: '0.6rem 0.75rem', whiteSpace: 'nowrap', color: '#6b7280' }}>
-                  {new Date(item.date).toLocaleDateString('en-CA')}
+                  {formatDateOnlyForDisplay(item.date)}
                 </td>
                 <td style={{ padding: '0.6rem 0.75rem' }}>{item.description}</td>
                 <td style={{ padding: '0.6rem 0.75rem', color: '#6b7280' }}>{item.fund_name}</td>

@@ -25,6 +25,8 @@ import type {
   TransactionListRow,
   TransactionRow,
 } from '../types/db';
+import { addDaysDateOnly, compareDateOnly, getChurchToday, parseDateOnlyStrict } from '../utils/date.js';
+import { getChurchTimeZone } from '../services/churchTimeZone.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth');
@@ -97,10 +99,16 @@ async function validateTransaction(body: CreateTransactionInput): Promise<string
   if (errors.length) return errors;
 
   if (date) {
-    const txDate = new Date(date);
-    const maxDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    if (Number.isNaN(txDate.getTime())) errors.push('date is not a valid date');
-    else if (txDate > maxDate) errors.push('Transaction date cannot be more than 1 day in the future');
+    if (!parseDateOnlyStrict(date)) {
+      errors.push('date is not a valid date (YYYY-MM-DD)');
+    } else {
+      const timezone = getChurchTimeZone();
+      const churchToday = getChurchToday(timezone);
+      const maxAllowedDate = addDaysDateOnly(churchToday, 1, timezone);
+      if (compareDateOnly(date, maxAllowedDate) > 0) {
+        errors.push('Transaction date cannot be more than 1 day in the future');
+      }
+    }
   }
 
   const accountIds = [...new Set(entries.map((e) => e.account_id))];
@@ -138,6 +146,15 @@ router.get(
   ) => {
     try {
       const { fund_id, account_id, contact_id, from, to, limit = 50, offset = 0 } = req.query;
+      if (from && !parseDateOnlyStrict(String(from))) {
+        return res.status(400).json({ error: 'from is not a valid date (YYYY-MM-DD)' });
+      }
+      if (to && !parseDateOnlyStrict(String(to))) {
+        return res.status(400).json({ error: 'to is not a valid date (YYYY-MM-DD)' });
+      }
+      if (from && to && String(from) > String(to)) {
+        return res.status(400).json({ error: 'from must be before or equal to to' });
+      }
 
       const cap = Math.min(parseInt(String(limit), 10) || 50, 200);
       const off = parseInt(String(offset), 10) || 0;
@@ -364,10 +381,15 @@ router.put(
       if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
 
       if (date) {
-        const txDate = new Date(date);
-        const maxDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        if (Number.isNaN(txDate.getTime())) return res.status(400).json({ error: 'date is not a valid date' });
-        if (txDate > maxDate) return res.status(400).json({ error: 'Transaction date cannot be more than 1 day in the future' });
+        if (!parseDateOnlyStrict(date)) {
+          return res.status(400).json({ error: 'date is not a valid date (YYYY-MM-DD)' });
+        }
+        const timezone = getChurchTimeZone();
+        const today = getChurchToday(timezone);
+        const maxDate = addDaysDateOnly(today, 1, timezone);
+        if (compareDateOnly(date, maxDate) > 0) {
+          return res.status(400).json({ error: 'Transaction date cannot be more than 1 day in the future' });
+        }
       }
 
       const [updated] = await db('transactions')

@@ -17,6 +17,7 @@ const SETTINGS = [
   { key: 'church_email',           label: 'Email' },
   { key: 'church_registration_no', label: 'CRA Charitable Registration #' },
   { key: 'church_signature_url',  label: 'Authorized Signature Image URL' },
+  { key: 'church_timezone',        label: 'Church Timezone',          value: 'America/Toronto' },
   { key: 'fiscal_year_start',      label: 'Fiscal Year Start Month', value: '1' },
   { key: 'currency',               label: 'Currency',                value: 'CAD' },
 ];

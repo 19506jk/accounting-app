@@ -9,6 +9,7 @@ import Card        from '../components/ui/Card';
 import Button      from '../components/ui/Button';
 import Input       from '../components/ui/Input';
 import Combobox    from '../components/ui/Combobox';
+import { getChurchToday } from '../utils/date';
 
 const dec = (v) => new Decimal(v || 0);
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
@@ -22,7 +23,7 @@ export default function DepositEntry() {
   const { data: contacts  } = useContacts({ type: 'DONOR' });
   const createTx = useCreateTransaction();
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getChurchToday();
 
   // -- Options & Derived Data --
   const assetAccounts = (accounts || []).filter(a => a.type === 'ASSET').map((a) => ({

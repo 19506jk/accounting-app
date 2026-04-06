@@ -8,15 +8,10 @@ import type {
   PLReportResponse,
   TransactionListItem,
 } from '@shared/contracts'
-
-function fmt(date: Date) {
-  return date.toISOString().split('T')[0]
-}
+import { currentMonthRange, getChurchToday } from '../utils/date'
 
 function currentMonth() {
-  const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), 1)
-  return { from: fmt(start), to: fmt(now) }
+  return currentMonthRange()
 }
 
 export function usePLSummary() {
@@ -34,7 +29,7 @@ export function usePLSummary() {
 }
 
 export function useBalanceSheet() {
-  const today = fmt(new Date())
+  const today = getChurchToday()
 
   return useQuery<BalanceSheetReportData>({
     queryKey: ['reports', 'balance-sheet', today],

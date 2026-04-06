@@ -11,6 +11,7 @@ import type {
   PLReportData,
   TrialBalanceReportData,
 } from '@shared/contracts';
+import { normalizeDateOnly } from '../utils/date.js';
 
 const db = require('../db') as Knex;
 
@@ -118,7 +119,7 @@ interface DonationQueryRow {
 }
 
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
-const asDateString = (value: string | Date) => (value instanceof Date ? value.toISOString() : String(value));
+const asDateString = (value: string | Date) => normalizeDateOnly(value);
 
 function baseQuery({ from, to, asOf, fundId }: BaseQueryArgs = {}): Knex.QueryBuilder {
   const query = db('journal_entries as je')

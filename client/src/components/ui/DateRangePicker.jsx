@@ -1,37 +1,31 @@
 /**
  * DateRangePicker — from/to inputs with quick preset buttons.
  */
-function fmt(d) { return d.toISOString().split('T')[0]; }
+import { currentMonthRange, currentYearRange, currentYearValue, lastMonthRange } from '../../utils/date';
 
 const PRESETS = [
   {
     label: 'This Month',
     get() {
-      const n = new Date();
-      return { from: fmt(new Date(n.getFullYear(), n.getMonth(), 1)), to: fmt(n) };
+      return currentMonthRange();
     },
   },
   {
     label: 'Last Month',
     get() {
-      const n = new Date();
-      const s = new Date(n.getFullYear(), n.getMonth() - 1, 1);
-      const e = new Date(n.getFullYear(), n.getMonth(), 0);
-      return { from: fmt(s), to: fmt(e) };
+      return lastMonthRange();
     },
   },
   {
     label: 'This Year',
     get() {
-      const n = new Date();
-      return { from: fmt(new Date(n.getFullYear(), 0, 1)), to: fmt(n) };
+      return currentYearRange();
     },
   },
   {
     label: 'Last Year',
     get() {
-      const n = new Date();
-      const y = n.getFullYear() - 1;
+      const y = currentYearValue() - 1;
       return { from: `${y}-01-01`, to: `${y}-12-31` };
     },
   },
