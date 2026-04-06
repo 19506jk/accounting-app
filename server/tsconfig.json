@@ -16,9 +16,14 @@
     "index.ts",
     "knexfile.ts",
     "env.d.ts",
+    "types/**/*.d.ts",
+    "types/**/*.ts",
+    "middleware/**/*.ts",
     "routes/**/*.js",
+    "routes/**/*.ts",
     "middleware/**/*.js",
     "services/**/*.js",
+    "services/**/*.ts",
     "db/**/*.js"
   ]
 }
