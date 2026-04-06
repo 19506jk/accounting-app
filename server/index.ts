@@ -1,5 +1,6 @@
 import 'dotenv/config';
 
+import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import helmet from 'helmet';
@@ -61,11 +62,24 @@ app.use('/api/bills', billRoutes);
 app.use('/api/tax-rates', taxRatesRouter);
 
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/dist')));
+  const clientDistCandidates = [
+    path.resolve(__dirname, '../client/dist'),
+    path.resolve(__dirname, '../../client/dist'),
+    path.resolve(process.cwd(), '../client/dist'),
+    path.resolve(process.cwd(), 'client/dist'),
+  ];
+
+  const clientDistPath = clientDistCandidates.find((candidate) => fs.existsSync(candidate));
+
+  if (!clientDistPath) {
+    throw new Error(`Unable to locate client build directory. Tried: ${clientDistCandidates.join(', ')}`);
+  }
+
+  app.use(express.static(clientDistPath));
 
   app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
-      res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+      res.sendFile(path.join(clientDistPath, 'index.html'));
     }
   });
 }
