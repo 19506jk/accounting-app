@@ -2,7 +2,12 @@
 
 ## Remaining JavaScript Modules
 
-- `server/services/bills.js` (intentional hold; only remaining runtime JS module)
+- Runtime app modules: none (all `server/routes` and `server/services` are now TypeScript).
+- Intentional JavaScript boundary remains in DB layer only:
+  - `server/db/index.js`
+  - `server/db/utils.js`
+  - `server/db/migrations/**/*.js`
+  - `server/db/seeds/**/*.js`
 
 ## Completed In This Session
 
@@ -12,6 +17,12 @@
   - `server/routes/taxRates.ts`
 - Converted reports service to TypeScript:
   - `server/services/reports.ts`
+- Converted bills service to TypeScript:
+  - `server/services/bills.ts`
+- Updated bills route to consume typed service directly:
+  - `server/routes/bills.ts`
+- Aligned shared bills contracts to runtime summary/aging shapes:
+  - `shared/contracts.ts`
 
 ## Behavior Changes Applied (Intentional)
 
@@ -30,6 +41,15 @@
 - Normalized diff result: all report responses matched post-conversion.
 - Unauthorized smoke check (`/api/reports/pl`): status/body matched pre-conversion.
 
+- Captured authenticated pre/post API snapshots for:
+  - `/api/bills`
+  - `/api/bills/:id`
+  - `/api/bills/summary`
+  - `/api/bills/reports/aging`
+- Diff results:
+  - `bills-list`, `bill-detail`, `summary`, and unauthorized checks matched.
+  - `aging` differed because pre-conversion returned an error payload (`vendor_aging is not defined`) and post-conversion now returns the intended report structure.
+
 ## Strictness Rollout
 
 - `client` now runs with `"strict": true`, including `strictNullChecks` and `noUncheckedIndexedAccess`.
@@ -39,10 +59,10 @@
 ### Server Strict Mode Boundary
 
 - Keep database migrations and seeds in JavaScript for now (`server/db/migrations/**/*.js`, `server/db/seeds/**/*.js`, `server/db/utils.js`, `server/db/index.js`).
-- Scope strict-mode completion to runtime app modules (`server/index.ts`, `server/middleware`, `server/routes`, `server/services`, `server/types`) with `server/services/bills.js` as the remaining runtime JS holdout.
+- Runtime app modules in scope for strict completion: `server/index.ts`, `server/middleware`, `server/routes`, `server/services`, `server/types`.
 
 ## Next Execution Order
 
-1. Decide and execute migration of `server/services/bills.js` to TypeScript (or formally defer with rationale).
-2. Move server runtime modules to full strict mode (`"strict": true`) and resolve resulting type issues.
-3. Keep DB migrations/seeds JS boundary unchanged unless a separate migration effort is started.
+1. Flip `server` runtime modules to full strict mode (`"strict": true`) and resolve resulting issues.
+2. Keep DB JS boundary unchanged unless a dedicated DB-layer migration is started.
+3. Optional follow-up: decide whether to keep the `/api/bills/reports/aging` bug fix as-is (recommended) and add regression coverage for that endpoint.
