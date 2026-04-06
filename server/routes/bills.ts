@@ -15,7 +15,7 @@ import type {
   CreateBillInput,
   PayBillInput,
   UpdateBillInput,
-} from '../../shared/contracts';
+} from '@shared/contracts';
 import type {
   BillLineItemRow,
   BillListRow,
@@ -110,7 +110,7 @@ router.get(
         countQuery.where('b.date', '<=', to);
       }
 
-      const [{ count }] = await countQuery as Array<{ count: string }>;
+      const [countRow] = await countQuery as Array<{ count: string }>;
 
       const cap = Math.min(parseInt(String(limit), 10), 200);
       const off = parseInt(String(offset), 10) || 0;
@@ -147,9 +147,10 @@ router.get(
           updated_at: String(b.updated_at),
           amount: parseFloat(String(b.amount)),
           amount_paid: parseFloat(String(b.amount_paid)),
+          is_voided: b.is_voided ?? false,
           line_items: lineItemsMap[b.id] || [],
         })),
-        total: parseInt(count, 10),
+        total: parseInt(countRow?.count || '0', 10),
         limit: cap,
         offset: off,
       });
@@ -213,9 +214,9 @@ router.get(
         is_voided = transaction?.is_voided || false;
       }
 
-      let paymentTransaction = null;
+      let paymentTransaction: BillDetail['payment_transaction'] = null;
       if (bill.transaction_id) {
-        paymentTransaction = await db('transactions as t')
+        const found = await db('transactions as t')
           .leftJoin('users as u', 'u.id', 't.created_by')
           .where('t.id', bill.transaction_id)
           .select(
@@ -225,7 +226,8 @@ router.get(
             't.reference_no',
             'u.name as created_by_name'
           )
-          .first() as BillDetail['payment_transaction'];
+          .first() as NonNullable<BillDetail['payment_transaction']> | undefined;
+        paymentTransaction = found ?? null;
       }
 
       res.json({
@@ -250,7 +252,7 @@ router.post(
     next: NextFunction
   ) => {
     try {
-      const result = await createBill(req.body, req.user.id);
+      const result = await createBill(req.body, req.user!.id);
 
       if (result.errors) {
         return res.status(400).json({ errors: result.errors });
@@ -273,7 +275,7 @@ router.put(
   ) => {
     try {
       const { id } = req.params;
-      const result = await updateBill(id, req.body, req.user.id);
+      const result = await updateBill(id, req.body, req.user!.id);
 
       if (result.errors) {
         return res.status(400).json({ errors: result.errors });
@@ -296,7 +298,7 @@ router.post(
   ) => {
     try {
       const { id } = req.params;
-      const result = await payBill(id, req.body, req.user.id);
+      const result = await payBill(id, req.body, req.user!.id);
 
       if (result.errors) {
         return res.status(400).json({
@@ -322,7 +324,7 @@ router.post(
   ) => {
     try {
       const { id } = req.params;
-      const result = await voidBill(id, req.user.id);
+      const result = await voidBill(id, req.user!.id);
 
       if (result.errors) {
         return res.status(400).json({ errors: result.errors });

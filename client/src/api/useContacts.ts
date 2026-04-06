@@ -10,7 +10,7 @@ import type {
   ContactsQuery,
   CreateContactInput,
   UpdateContactInput,
-} from '../../../shared/contracts'
+} from '@shared/contracts'
 
 interface UpdateContactPayload extends UpdateContactInput {
   id: number

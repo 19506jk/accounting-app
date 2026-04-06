@@ -7,7 +7,7 @@ import type {
   AccountsListResponse,
   CreateAccountInput,
   UpdateAccountInput,
-} from '../../../shared/contracts'
+} from '@shared/contracts'
 
 interface UseAccountsParams {
   type?: AccountType
@@ -24,7 +24,7 @@ export function useAccounts(params: UseAccountsParams = {}) {
   if (params.include_inactive) query.set('include_inactive', 'true')
 
   return useQuery<AccountSummary[]>({
-    queryKey: ['accounts', params],
+    queryKey: ['accounts', params.type ?? null, params.include_inactive ?? false],
     queryFn: async () => {
       const { data } = await client.get<AccountsListResponse>(`/accounts?${query}`)
       return data.accounts

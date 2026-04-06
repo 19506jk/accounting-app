@@ -7,7 +7,7 @@ import type {
   UpdateUserActiveInput,
   UpdateUserRoleInput,
   UserSummary,
-} from '../../../shared/contracts'
+} from '@shared/contracts'
 
 interface UserIdPayload {
   id: number

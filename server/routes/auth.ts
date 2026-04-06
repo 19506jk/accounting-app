@@ -9,7 +9,7 @@ import type {
   GoogleAuthRequest,
   GoogleAuthResponse,
   Role,
-} from '../../shared/contracts';
+} from '@shared/contracts';
 import type { UserRow } from '../types/db';
 
 const db = require('../db');
@@ -73,8 +73,8 @@ router.post('/google', async (req: GoogleAuthReq, res: Response, next: NextFunct
         user = updated as UserRow;
         console.log(`Pre-registered user signed in: ${email} (${user.role})`);
       } else {
-        const [{ count }] = await db('users').count('id as count') as Array<{ count: string }>;
-        const isFirstUser = parseInt(count, 10) === 0;
+        const [countRow] = await db('users').count('id as count') as Array<{ count: string }>;
+        const isFirstUser = parseInt(countRow?.count || '0', 10) === 0;
 
         if (isFirstUser) {
           const [newUser] = await db('users')

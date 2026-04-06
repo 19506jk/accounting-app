@@ -15,7 +15,7 @@ import type {
   TransactionsListResponse,
   TransactionsQuery,
   UpdateTransactionInput,
-} from '../../shared/contracts';
+} from '@shared/contracts';
 import type {
   AccountRow,
   FundRow,
@@ -48,6 +48,7 @@ async function validateTransaction(body: CreateTransactionInput): Promise<string
 
   for (let i = 0; i < entries.length; i += 1) {
     const e = entries[i];
+    if (!e) continue;
     const prefix = `Entry ${i + 1}:`;
 
     if (!e.account_id) errors.push(`${prefix} account_id is required`);
@@ -292,17 +293,21 @@ router.post(
       if (errors.length) return res.status(400).json({ errors });
 
       const result = await db.transaction(async (trx: any) => {
+        const firstEntry = entries[0];
+        if (!firstEntry) throw new Error('At least one entry is required');
+
         const [transaction] = await trx('transactions')
           .insert({
             date,
             description: description.trim(),
             reference_no: reference_no?.trim() || null,
-            fund_id: entries[0].fund_id,
-            created_by: req.user.id,
+            fund_id: firstEntry.fund_id,
+            created_by: req.user!.id,
             created_at: trx.fn.now(),
             updated_at: trx.fn.now(),
           })
           .returning('*') as TransactionRow[];
+        if (!transaction) throw new Error('Failed to create transaction');
 
         const entryRows = entries.map((e) => ({
           transaction_id: transaction.id,
@@ -373,6 +378,7 @@ router.put(
           updated_at: db.fn.now(),
         })
         .returning('*') as TransactionRow[];
+      if (!updated) throw new Error('Failed to update transaction');
 
       res.json({
         transaction: {

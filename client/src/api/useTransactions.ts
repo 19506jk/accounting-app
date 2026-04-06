@@ -8,7 +8,7 @@ import type {
   TransactionsListResponse,
   TransactionsQuery,
   UpdateTransactionInput,
-} from '../../../shared/contracts'
+} from '@shared/contracts'
 
 interface UpdateTransactionPayload extends UpdateTransactionInput {
   id: number

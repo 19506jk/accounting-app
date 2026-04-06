@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import client from '../api/client'
 
-import type { AuthMeResponse, AuthUser } from '../../../shared/contracts'
+import type { AuthMeResponse, AuthUser } from '@shared/contracts'
 
 interface AuthContextValue {
   user: AuthUser | null

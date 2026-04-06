@@ -4,9 +4,17 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": [
+        "../shared/*"
+      ]
+    },
     "allowJs": true,
     "checkJs": false,
-    "strict": false,
+    "strict": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -17,6 +25,7 @@
   },
   "include": [
     "src",
+    "../shared/**/*.ts",
     "vite.config.js"
   ]
 }

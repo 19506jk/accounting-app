@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 
-import type { Role } from '../../shared/contracts';
+import type { Role } from '@shared/contracts';
 
 function requireRole(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {

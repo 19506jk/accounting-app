@@ -10,7 +10,7 @@ import type {
   CreateBillInput,
   PayBillInput,
   UpdateBillInput,
-} from '../../../shared/contracts'
+} from '@shared/contracts'
 
 interface UpdateBillPayload extends UpdateBillInput {
   id: number

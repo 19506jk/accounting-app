@@ -15,7 +15,7 @@ import type {
   CreateContactInput,
   MessageResponse,
   UpdateContactInput,
-} from '../../shared/contracts';
+} from '@shared/contracts';
 import type {
   ContactDonationRow,
   ContactDonationSummaryRow,

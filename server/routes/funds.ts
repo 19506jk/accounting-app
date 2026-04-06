@@ -6,7 +6,7 @@ import type {
   FundSummary,
   NetAssetAccountSummary,
   UpdateFundInput,
-} from '../../shared/contracts';
+} from '@shared/contracts';
 import type { AccountRow, FundRow } from '../types/db';
 
 const db = require('../db');

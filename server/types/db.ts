@@ -1,4 +1,4 @@
-import type { AccountType, Role } from '../../shared/contracts.js';
+import type { AccountType, Role } from '@shared/contracts';
 
 export interface UserRow {
   id: number;

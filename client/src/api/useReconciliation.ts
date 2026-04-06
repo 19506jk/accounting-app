@@ -9,7 +9,7 @@ import type {
   ReconciliationItemToggleResponse,
   ReconciliationSummary,
   UpdateReconciliationInput,
-} from '../../../shared/contracts'
+} from '@shared/contracts'
 
 interface UpdateReconciliationPayload extends UpdateReconciliationInput {
   id: number

@@ -6,7 +6,7 @@ import type {
   FundSummary,
   NetAssetAccountSummary,
   UpdateFundInput,
-} from '../../../shared/contracts'
+} from '@shared/contracts'
 
 interface UseFundsParams {
   include_inactive?: boolean

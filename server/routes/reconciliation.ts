@@ -17,7 +17,7 @@ import type {
   ReconciliationSummary,
   ReconciliationSummaryCounts,
   UpdateReconciliationInput,
-} from '../../shared/contracts';
+} from '@shared/contracts';
 import type {
   AccountRow,
   RecItemRow,
@@ -295,11 +295,12 @@ router.post(
             statement_balance: dec(statement_balance).toFixed(2),
             opening_balance: dec(opening_balance ?? 0).toFixed(2),
             is_closed: false,
-            created_by: req.user.id,
+            created_by: req.user!.id,
             created_at: trx.fn.now(),
             updated_at: trx.fn.now(),
           })
           .returning('*') as ReconciliationRow[];
+        if (!recon) throw new Error('Failed to create reconciliation');
 
         const loaded = await loadItems(trx, recon.id, account_id, statement_date);
         return { recon, loaded };
@@ -399,6 +400,7 @@ router.post(
           updated_at: db.fn.now(),
         })
         .returning('*') as RecItemRow[];
+      if (!updated) throw new Error('Failed to update reconciliation item');
 
       const account = await db('accounts').where({ id: recon.account_id }).first() as AccountRow;
       const clearedBalance = await calcBalance(id, recon.opening_balance, account.type);

@@ -7,7 +7,7 @@ import type {
   UpdateUserActiveInput,
   UpdateUserRoleInput,
   UserSummary,
-} from '../../shared/contracts';
+} from '@shared/contracts';
 import type { UserRow } from '../types/db';
 
 const db = require('../db');

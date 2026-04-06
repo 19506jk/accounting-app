@@ -11,7 +11,7 @@ import type {
   CreateAccountInput,
   MessageResponse,
   UpdateAccountInput,
-} from '../../shared/contracts';
+} from '@shared/contracts';
 import type { AccountListRow, AccountRow } from '../types/db';
 
 const db = require('../db');

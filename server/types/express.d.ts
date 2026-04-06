@@ -1,4 +1,4 @@
-import type { AuthUser } from '../../shared/contracts';
+import type { AuthUser } from '@shared/contracts';
 
 declare global {
   namespace Express {

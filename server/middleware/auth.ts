@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt = require('jsonwebtoken');
 
-import type { AuthUser, Role } from '../../shared/contracts';
+import type { AuthUser, Role } from '@shared/contracts';
 
 interface AuthJwtPayload extends jwt.JwtPayload {
   id: number;
