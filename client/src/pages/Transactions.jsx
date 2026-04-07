@@ -23,7 +23,7 @@ function currentMonth() {
 }
 
 const EMPTY_ENTRY = { account_id: '', fund_id: '', debit: '', credit: '', contact_id: '', memo: '' };
-const JOURNAL_GRID_TEMPLATE = 'minmax(260px, 2fr) minmax(150px, 1fr) 110px 110px minmax(240px, 1.5fr) 28px';
+const JOURNAL_GRID_TEMPLATE = 'minmax(250px, 2fr) minmax(150px, 1fr) 110px 110px minmax(220px, 1.2fr) minmax(280px, 1.6fr) 28px';
 
 // ── Shared Journal Entry Form Fields ────────────────────────────────────────
 // Used by both TransactionForm (create) and TransactionEditForm (edit)
@@ -64,7 +64,9 @@ function JournalEntryLines({
             <span>Account</span><span>Fund</span>
             <span style={{ textAlign: 'right' }}>Debit</span>
             <span style={{ textAlign: 'right' }}>Credit</span>
-            <span>Donor / Payee</span><span />
+            <span>Donor / Payee</span>
+            <span>Description</span>
+            <span />
           </div>
 
           {entries.map((e, i) => (
@@ -108,6 +110,11 @@ function JournalEntryLines({
                   borderRadius: '6px', fontSize: '0.8rem', textAlign: 'right', width: '100%', boxSizing: 'border-box' }} />
               <Combobox options={contactOptions} value={e.contact_id}
                 onChange={(v) => setEntry(i, 'contact_id', v)} placeholder="Anonymous" />
+              <input type="text" value={e.memo}
+                onChange={(ev) => setEntry(i, 'memo', ev.target.value)}
+                placeholder="Line description"
+                style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
+                  borderRadius: '6px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box' }} />
               <button onClick={() => removeLine(i)}
                 disabled={entries.length <= 2}
                 style={{ background: 'none', border: 'none', cursor: entries.length > 2 ? 'pointer' : 'not-allowed',
@@ -465,13 +472,13 @@ export default function Transactions() {
 
       {/* New Transaction Modal */}
       <Modal isOpen={showForm} onClose={() => setShowForm(false)}
-        title="New Transaction" width="1100px" adaptiveOnMobile className="tx-modal-shell" bodyStyle={{ padding: 0, overflow: 'hidden' }}>
+        title="New Transaction" width="1280px" adaptiveOnMobile className="tx-modal-shell" bodyStyle={{ padding: 0, overflow: 'hidden' }}>
         <TransactionForm onClose={() => setShowForm(false)} />
       </Modal>
 
       {/* Edit Transaction Modal */}
       <Modal isOpen={!!editingTx} onClose={() => setEditingTx(null)}
-        title="Edit Transaction" width="1100px" adaptiveOnMobile className="tx-modal-shell" bodyStyle={{ padding: 0, overflow: 'hidden' }}>
+        title="Edit Transaction" width="1280px" adaptiveOnMobile className="tx-modal-shell" bodyStyle={{ padding: 0, overflow: 'hidden' }}>
         {editingTx && (
           <TransactionEditForm
             transaction={editingTx}
@@ -509,6 +516,7 @@ function TransactionDetail({ id, onEdit }) {
             <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Account</th>
             <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Fund</th>
             <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Contact</th>
+            <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Description</th>
             <th style={{ textAlign: 'right', padding: '0.25rem 0.5rem', fontWeight: 600 }}>Debit</th>
             <th style={{ textAlign: 'right', padding: '0.25rem 0.5rem', fontWeight: 600 }}>Credit</th>
           </tr>
@@ -519,6 +527,7 @@ function TransactionDetail({ id, onEdit }) {
               <td style={{ padding: '0.3rem 0.5rem' }}>{e.account_code} {e.account_name}</td>
               <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{e.fund_name}</td>
               <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{e.contact_name || '—'}</td>
+              <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{e.memo || '—'}</td>
               <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#15803d' }}>
                 {e.debit  > 0 ? fmt(e.debit)  : ''}
               </td>
