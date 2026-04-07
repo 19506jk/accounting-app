@@ -179,7 +179,7 @@ export default function DepositEntry() {
           <Combobox label="Deposit To (Bank)" options={assetAccounts} value={header.bank_account_id}
             onChange={(v) => setHeader({ ...header, bank_account_id: v })} placeholder="Select bank..." />
 
-          <Input label="Reference / Slip No" value={header.reference_no}
+          <Input label="Reference No" value={header.reference_no}
             onChange={(e) => setHeader({ ...header, reference_no: e.target.value })} placeholder="DEP-001" />
 
           <Input label="Total Deposit Amount" required type="number" min="0" step="0.01" value={header.total_amount}

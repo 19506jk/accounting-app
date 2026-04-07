@@ -83,18 +83,24 @@ function exportBalanceSheet(data, filters) {
 }
 
 function exportLedger(data, filters) {
-  const headers = ['Date', 'Description', 'Contact', 'Fund', 'Debit', 'Credit', 'Balance']
+  const formatReferenceForExport = (referenceNo) => {
+    if (referenceNo === null || referenceNo === undefined || referenceNo === '') return '-'
+    return `'${String(referenceNo)}`
+  }
+
+  const headers = ['Date', 'Reference No', 'Description', 'Contact', 'Fund', 'Debit', 'Credit', 'Balance']
   const rows = [
-    ['General Ledger', '', '', '', '', '', ''],
-    [`Period: ${filters.from} to ${filters.to}`, '', '', '', '', '', ''],
+    ['General Ledger', '', '', '', '', '', '', ''],
+    [`Period: ${filters.from} to ${filters.to}`, '', '', '', '', '', '', ''],
     [],
   ];
   (data.ledger || []).forEach((acct) => {
-    rows.push([`${acct.account.code} — ${acct.account.name}`, '', '', '', '', '', '']);
+    rows.push([`${acct.account.code} — ${acct.account.name}`, '', '', '', '', '', '', '']);
     rows.push(headers);
-    rows.push(['Opening Balance', '', '', '', '', '', acct.opening_balance]);
+    rows.push(['Opening Balance', '', '', '', '', '', '', acct.opening_balance]);
     acct.rows.forEach((r) => rows.push([
       r.date,
+      formatReferenceForExport(r.reference_no),
       r.description,
       r.contact_name || 'Unassigned',
       r.fund_name,
@@ -102,11 +108,12 @@ function exportLedger(data, filters) {
       r.credit || '',
       r.balance,
     ]));
-    rows.push(['Closing Balance', '', '', '', '', '', acct.closing_balance]);
+    rows.push(['Closing Balance', '', '', '', '', '', '', acct.closing_balance]);
     rows.push([]);
   });
   const cols = [
     { wch: 12 },
+    { wch: 18 },
     { wch: 28 },
     { wch: 26 },
     { wch: 18 },
@@ -333,9 +340,9 @@ function BalanceSheetReport({ data }) {
 }
 
 function LedgerReport({ data }) {
-  const headers = ['Date', 'Description', 'Contact', 'Fund', 'Debit', 'Credit', 'Balance']
+  const headers = ['Date', 'Reference No', 'Description', 'Contact', 'Fund', 'Debit', 'Credit', 'Balance']
   const labelSpan = headers.length - 1
-  const isLeftAlignedHeader = (header) => ['Date', 'Description', 'Contact', 'Fund'].includes(header)
+  const isLeftAlignedHeader = (header) => ['Date', 'Reference No', 'Description', 'Contact', 'Fund'].includes(header)
 
   return (
     <div>
@@ -345,45 +352,54 @@ function LedgerReport({ data }) {
             fontSize: '0.9rem', borderBottom: '1px solid #e5e7eb', paddingBottom: '0.35rem' }}>
             {acct.account.code} — {acct.account.name}
           </div>
-          <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ color: '#6b7280' }}>
-                {headers.map((h) => (
-                  <th key={h} style={{ textAlign: isLeftAlignedHeader(h) ? 'left' : 'right',
-                    padding: '0.3rem 0.5rem', fontWeight: 600, fontSize: '0.72rem',
-                    textTransform: 'uppercase' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td colSpan={labelSpan} style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>Opening Balance</td>
-                <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', fontWeight: 500 }}>{fmt(acct.opening_balance)}</td>
-              </tr>
-              {acct.rows.map((r, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '0.3rem 0.5rem', whiteSpace: 'nowrap' }}>{fmtD(r.date)}</td>
-                  <td style={{ padding: '0.3rem 0.5rem' }}>{r.description}</td>
-                  <td style={{ padding: '0.3rem 0.5rem', color: r.contact_name ? '#111827' : '#9ca3af' }}>
-                    {r.contact_name || 'Unassigned'}
-                  </td>
-                  <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{r.fund_name}</td>
-                  <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#15803d' }}>
-                    {r.debit > 0 ? fmt(r.debit) : ''}
-                  </td>
-                  <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#b91c1c' }}>
-                    {r.credit > 0 ? fmt(r.credit) : ''}
-                  </td>
-                  <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', fontWeight: 500 }}>
-                    {fmt(r.balance)}
-                  </td>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ color: '#6b7280' }}>
+                  {headers.map((h) => (
+                    <th key={h} style={{ textAlign: isLeftAlignedHeader(h) ? 'left' : 'right',
+                      padding: '0.3rem 0.5rem', fontWeight: 600, fontSize: '0.72rem',
+                      textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-              <tr style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td colSpan={labelSpan} style={{ padding: '0.3rem 0.5rem', fontWeight: 600 }}>Closing Balance</td>
-                <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', fontWeight: 700 }}>{fmt(acct.closing_balance)}</td>
-              </tr>
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                <tr><td colSpan={labelSpan} style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>Opening Balance</td>
+                  <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', fontWeight: 500 }}>{fmt(acct.opening_balance)}</td>
+                </tr>
+                {acct.rows.map((r, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '0.3rem 0.5rem', whiteSpace: 'nowrap' }}>{fmtD(r.date)}</td>
+                    <td
+                      title={r.reference_no || '-'}
+                      style={{ padding: '0.3rem 0.5rem', width: '120px', minWidth: '120px', maxWidth: '120px',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    >
+                      {r.reference_no || '-'}
+                    </td>
+                    <td style={{ padding: '0.3rem 0.5rem' }}>{r.description}</td>
+                    <td style={{ padding: '0.3rem 0.5rem', color: r.contact_name ? '#111827' : '#9ca3af' }}>
+                      {r.contact_name || 'Unassigned'}
+                    </td>
+                    <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{r.fund_name}</td>
+                    <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#15803d' }}>
+                      {r.debit > 0 ? fmt(r.debit) : ''}
+                    </td>
+                    <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#b91c1c' }}>
+                      {r.credit > 0 ? fmt(r.credit) : ''}
+                    </td>
+                    <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', fontWeight: 500 }}>
+                      {fmt(r.balance)}
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '1px solid #e5e7eb' }}>
+                  <td colSpan={labelSpan} style={{ padding: '0.3rem 0.5rem', fontWeight: 600 }}>Closing Balance</td>
+                  <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', fontWeight: 700 }}>{fmt(acct.closing_balance)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       ))}
     </div>

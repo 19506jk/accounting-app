@@ -51,18 +51,40 @@ function AccountLedgerDrawer({ account, onClose }) {
 
   function exportExcel() {
     if (!ledger) return;
+    const formatReferenceForExport = (referenceNo) => {
+      if (referenceNo === null || referenceNo === undefined || referenceNo === '') return '-';
+      return `'${String(referenceNo)}`;
+    };
+
     const rows = [
-      [`${account.code} — ${account.name}`, '', '', '', ''],
-      [`From: ${range.from}`, `To: ${range.to}`, '', '', ''],
+      [`${account.code} — ${account.name}`, '', '', '', '', '', ''],
+      [`From: ${range.from}`, `To: ${range.to}`, '', '', '', '', ''],
       [],
-      ['Date', 'Description', 'Fund', 'Debit', 'Credit', 'Balance'],
-      [`Opening Balance`, '', '', '', '', ledger.opening_balance],
-      ...ledger.rows.map((r) => [r.date, r.description, r.fund_name, r.debit || '', r.credit || '', r.balance]),
+      ['Date', 'Reference No', 'Description', 'Fund', 'Debit', 'Credit', 'Balance'],
+      [`Opening Balance`, '', '', '', '', '', ledger.opening_balance],
+      ...ledger.rows.map((r) => [
+        r.date,
+        formatReferenceForExport(r.reference_no),
+        r.description,
+        r.fund_name,
+        r.debit || '',
+        r.credit || '',
+        r.balance,
+      ]),
       [],
-      ['Closing Balance', '', '', '', '', ledger.closing_balance],
+      ['Closing Balance', '', '', '', '', '', ledger.closing_balance],
     ];
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 12 },
+      { wch: 18 },
+      { wch: 28 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+    ];
     XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
     XLSX.writeFile(wb, `ledger_${account.code}_${range.from}_${range.to}.xlsx`);
   }
@@ -91,8 +113,8 @@ function AccountLedgerDrawer({ account, onClose }) {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
-                  {['Date','Description','Fund','Debit','Credit','Balance'].map((h) => (
-                    <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: h === 'Description' || h === 'Fund' ? 'left' : 'right',
+                  {['Date','Reference No','Description','Fund','Debit','Credit','Balance'].map((h) => (
+                    <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: h === 'Description' || h === 'Fund' || h === 'Reference No' ? 'left' : 'right',
                       fontWeight: 600, color: '#6b7280', fontSize: '0.72rem',
                       textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                       {h}
@@ -102,11 +124,18 @@ function AccountLedgerDrawer({ account, onClose }) {
               </thead>
               <tbody>
                 {ledger.rows.length === 0 ? (
-                  <tr><td colSpan={6} style={{ padding: '1.5rem', textAlign: 'center',
+                  <tr><td colSpan={7} style={{ padding: '1.5rem', textAlign: 'center',
                     color: '#9ca3af' }}>No entries in this date range.</td></tr>
                 ) : ledger.rows.map((r, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
                     <td style={{ padding: '0.45rem 0.75rem', whiteSpace: 'nowrap' }}>{r.date}</td>
+                    <td
+                      title={r.reference_no || '-'}
+                      style={{ padding: '0.45rem 0.75rem', width: '120px', minWidth: '120px', maxWidth: '120px',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {r.reference_no || '-'}
+                    </td>
                     <td style={{ padding: '0.45rem 0.75rem', maxWidth: '180px',
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.description}
