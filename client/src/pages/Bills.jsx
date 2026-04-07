@@ -114,14 +114,14 @@ function BillForm({ bill, onClose, onSaved }) {
     return Object.fromEntries(taxRates.map(tr => [String(tr.id), tr]));
   }, [taxRates]);
 
-  // Per-line tax breakdown using the internal tax formula: net = gross / (1 + rate), tax = gross - net
+  // Per-line tax breakdown using the internal tax formula: gross = net * (1 + rate)
   const lineTotals = useMemo(() => {
     return form.line_items.map(li => {
-      const gross = parseFloat(li.amount) || 0;
+      const net = parseFloat(li.amount) || 0;
       const taxRate = li.tax_rate_id ? taxRateMap[li.tax_rate_id] : null;
-      if (!taxRate || gross === 0) return { gross, net: gross, tax: 0, taxName: null };
-      const net  = Math.round((gross / (1 + taxRate.rate)) * 100) / 100;
-      const tax  = Math.round((gross - net) * 100) / 100;
+      if (!taxRate || net === 0) return { gross: net, net, tax: 0, taxName: null };
+      const tax = Math.round(net * taxRate.rate * 100) / 100;
+      const gross = Math.round((net + tax) * 100) / 100;
       return { gross, net, tax, taxName: taxRate.name };
     });
   }, [form.line_items, taxRateMap]);
@@ -275,7 +275,7 @@ function BillForm({ bill, onClose, onSaved }) {
                 <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '30%', fontWeight: 500, color: '#6b7280' }}>Account</th>
                 <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '24%', fontWeight: 500, color: '#6b7280' }}>Description</th>
                 <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '16%', fontWeight: 500, color: '#6b7280' }}>Tax</th>
-                <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', width: '18%', fontWeight: 500, color: '#6b7280' }}>Gross Amount</th>
+                <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', width: '18%', fontWeight: 500, color: '#6b7280' }}>Amount (before tax)</th>
                 <th style={{ textAlign: 'center', padding: '0.5rem 0.75rem', width: '8%', fontWeight: 500, color: '#6b7280' }}></th>
               </tr>
             </thead>
@@ -332,7 +332,7 @@ function BillForm({ bill, onClose, onSaved }) {
                       />
                       {tax > 0 && (
                         <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.2rem', textAlign: 'right' }}>
-                          Net: {fmt(net)}
+                          Total incl. tax: {fmt(gross)}
                         </div>
                       )}
                     </td>
