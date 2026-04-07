@@ -38,10 +38,7 @@ export default function DepositEntry() {
     value: f.id, label: f.name,
   }));
 
-  const contactOptions = [
-    { value: '', label: 'Anonymous / Loose Cash' },
-    ...(contacts || []).map((c) => ({ value: c.id, label: c.name })),
-  ];
+  const contactOptions = (contacts || []).map((c) => ({ value: c.id, label: c.name }));
 
   const defaultIncomeAccountId = incomeAccounts.length > 0 ? incomeAccounts[0].value : '';
 
