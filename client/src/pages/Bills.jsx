@@ -133,6 +133,8 @@ function BillForm({ bill, onClose, onSaved }) {
   const totalGST    = useMemo(() => lineTotals.filter(l => l.taxName === 'GST').reduce((sum, l) => sum + l.tax, 0), [lineTotals]);
   const totalTax    = totalHST + totalGST;
   const totalNet    = lineTotal - totalTax;
+  const amountDelta = bill ? Math.abs(lineTotal - (parseFloat(bill.amount) || 0)) : 0;
+  const willRecalculateAmount = Boolean(bill && amountDelta > 0.01);
 
   function addLineItem() {
     tempIdCounter++;
@@ -377,6 +379,11 @@ function BillForm({ bill, onClose, onSaved }) {
           gap: '0.3rem',
           fontSize: '0.85rem',
         }}>
+          {willRecalculateAmount && (
+            <div style={{ color: '#92400e', fontWeight: 600 }}>
+              Saving this bill will update stored amount from {fmt(bill.amount)} to {fmt(lineTotal)}.
+            </div>
+          )}
           {totalTax > 0 && (
             <>
               <div style={{ color: '#6b7280' }}>

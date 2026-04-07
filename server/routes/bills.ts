@@ -124,7 +124,7 @@ router.get(
         // Intentionally minimal payload for list view; detail endpoint returns tax/account enrichment.
         const lineItemsResult = await db('bill_line_items')
           .whereIn('bill_id', billIds)
-          .select('bill_id', 'id', 'expense_account_id', 'amount', 'description') as Array<BillLineItemRow & { bill_id: number }>;
+          .select('bill_id', 'id', 'expense_account_id', 'amount', 'description', 'tax_rate_id') as Array<BillLineItemRow & { bill_id: number }>;
 
         lineItemsResult.forEach((li) => {
           if (!lineItemsMap[li.bill_id]) lineItemsMap[li.bill_id] = [];
@@ -133,6 +133,7 @@ router.get(
             expense_account_id: li.expense_account_id,
             amount: parseFloat(String(li.amount)),
             description: li.description,
+            tax_rate_id: li.tax_rate_id ?? null,
           });
         });
       }

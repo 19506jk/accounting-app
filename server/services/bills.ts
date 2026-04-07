@@ -304,6 +304,32 @@ async function createBillLineItems(
   return trx('bill_line_items').insert(lineItemRecords).returning('*');
 }
 
+async function resolveTaxRateMap(
+  lineItems: BillLineItemInput[],
+  executor: Knex | Knex.Transaction
+): Promise<Record<number, TaxRateRow>> {
+  const taxRateIds = [...new Set(lineItems.map((li) => li.tax_rate_id).filter((v): v is number => Boolean(v)))];
+  if (taxRateIds.length === 0) return {};
+
+  const taxRates = await executor('tax_rates').whereIn('id', taxRateIds) as TaxRateRow[];
+  return Object.fromEntries(taxRates.map((tr) => [tr.id, tr]));
+}
+
+function calculateGrossTotalFromLineItems(
+  lineItems: BillLineItemInput[],
+  taxRateMap: Record<number, TaxRateRow>
+) {
+  return lineItems.reduce((sum, line) => {
+    const net = dec(line.amount);
+    const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null;
+
+    if (!taxRate) return sum.plus(net);
+
+    const tax = net.times(dec(taxRate.rate)).toDecimalPlaces(2);
+    return sum.plus(net.plus(tax));
+  }, dec(0));
+}
+
 async function createMultiLineJournalEntries(
   transactionId: number,
   billId: number | string,
@@ -526,7 +552,8 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
     return { errors: [`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`] };
   }
 
-  const totalAmount = payload.line_items.reduce((sum, li) => sum + dec(li.amount).toNumber(), 0);
+  const taxRateMap = await resolveTaxRateMap(payload.line_items, db);
+  const totalAmount = calculateGrossTotalFromLineItems(payload.line_items, taxRateMap);
 
   const result = await db.transaction(async (trx: Knex.Transaction) => {
     const [bill] = await trx('bills')
@@ -536,7 +563,7 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
         due_date: payload.due_date || null,
         bill_number: payload.bill_number?.trim() || null,
         description: payload.description.trim(),
-        amount: dec(totalAmount).toFixed(2),
+        amount: totalAmount.toFixed(2),
         fund_id: payload.fund_id,
         amount_paid: 0,
         status: 'UNPAID',
@@ -631,9 +658,10 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
   }
 
   const newLineItems = payload.line_items || [];
-  const newTotalAmount = newLineItems.length > 0 
-    ? newLineItems.reduce((sum, li) => sum + dec(li.amount).toNumber(), 0)
-    : dec(bill.amount).toNumber();
+  const taxRateMap = newLineItems.length > 0 ? await resolveTaxRateMap(newLineItems, db) : {};
+  const newTotalAmount = newLineItems.length > 0
+    ? calculateGrossTotalFromLineItems(newLineItems, taxRateMap)
+    : dec(bill.amount);
 
   if (payload.line_items !== undefined || Boolean(bill.created_transaction_id)) {
     await db.transaction(async (trx: Knex.Transaction) => {
@@ -680,7 +708,7 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
     due_date: payload.due_date !== undefined ? (payload.due_date || null) : bill.due_date,
     bill_number: payload.bill_number !== undefined ? payload.bill_number?.trim() || null : bill.bill_number,
     description: payload.description !== undefined ? payload.description.trim() : bill.description,
-    amount: dec(newTotalAmount).toFixed(2),
+    amount: newTotalAmount.toFixed(2),
     fund_id: payload.fund_id !== undefined ? payload.fund_id : bill.fund_id,
     updated_at: db.fn.now(),
   };

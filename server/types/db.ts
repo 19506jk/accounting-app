@@ -218,4 +218,5 @@ export interface BillLineItemRow {
   expense_account_id: number;
   amount: string | number;
   description: string | null;
+  tax_rate_id: number | null;
 }
