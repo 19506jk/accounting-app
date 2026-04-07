@@ -54,7 +54,7 @@ function createEmptyForm() {
 
 let tempIdCounter = 1;
 
-function BillForm({ bill, onClose, onSaved }) {
+function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding = false, readOnly = false }) {
   const { addToast } = useToast();
   const { data: contacts } = useContacts({ type: 'PAYEE' });
   const { data: accounts } = useAccounts();
@@ -197,6 +197,7 @@ function BillForm({ bill, onClose, onSaved }) {
   }
 
   async function handleSave(andPay = false) {
+    if (readOnly) return;
     if (!validate()) return;
 
     try {
@@ -244,25 +245,25 @@ function BillForm({ bill, onClose, onSaved }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
           <Combobox label="Vendor" required options={vendorOptions} value={form.contact_id}
             onChange={(v) => setForm((f) => ({ ...f, contact_id: v }))} placeholder="Select vendor…"
-            error={errors.contact_id} />
+            error={errors.contact_id} disabled={readOnly} />
           <Input label="Bill Number" value={form.bill_number} onChange={set('bill_number')}
-            placeholder="e.g., INV-001" />
+            placeholder="e.g., INV-001" disabled={readOnly} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
           <Input label="Bill Date" required type="date" value={form.date} onChange={set('date')}
-            error={errors.date} />
+            error={errors.date} disabled={readOnly} />
           <Input label="Due Date" type="date" value={form.due_date} onChange={set('due_date')}
-            error={errors.due_date} />
+            error={errors.due_date} disabled={readOnly} />
         </div>
 
         <Input label="Description" value={form.description} onChange={set('description')}
           placeholder="e.g., Office supplies" error={errors.description}
-          style={{ marginBottom: '1rem' }} />
+          style={{ marginBottom: '1rem' }} disabled={readOnly} />
 
         <Combobox label="Fund" required options={fundOptions} value={form.fund_id}
           onChange={(v) => setForm((f) => ({ ...f, fund_id: v }))} placeholder="Select fund…"
-          error={errors.fund_id} style={{ marginBottom: '1.5rem' }} />
+          error={errors.fund_id} style={{ marginBottom: '1.5rem' }} disabled={readOnly} />
 
         <div style={{ marginBottom: '0.5rem' }}>
           <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '0.5rem' }}>
@@ -296,6 +297,7 @@ function BillForm({ bill, onClose, onSaved }) {
                         onChange={(v) => updateLineItem(idx, 'expense_account_id', v)}
                         placeholder="Select..."
                         error={errors.line_items?.[idx]?.expense_account_id}
+                        disabled={readOnly}
                       />
                     </td>
                     <td style={{ padding: '0.5rem' }}>
@@ -304,6 +306,7 @@ function BillForm({ bill, onClose, onSaved }) {
                         onChange={(e) => updateLineItem(idx, 'description', e.target.value)}
                         placeholder="Description"
                         error={errors.line_items?.[idx]?.description}
+                        disabled={readOnly}
                       />
                     </td>
                     <td style={{ padding: '0.5rem' }}>
@@ -312,7 +315,7 @@ function BillForm({ bill, onClose, onSaved }) {
                           options={taxRateOptions}
                           value={line.tax_rate_id}
                           onChange={(e) => updateLineItem(idx, 'tax_rate_id', e.target.value)}
-                          disabled={taxDisabled}
+                          disabled={readOnly || taxDisabled}
                           style={{ opacity: taxDisabled ? 0.5 : 1 }}
                         />
                         {tax > 0 && (
@@ -331,6 +334,7 @@ function BillForm({ bill, onClose, onSaved }) {
                         placeholder="0.00"
                         error={errors.line_items?.[idx]?.amount}
                         style={{ textAlign: 'right' }}
+                        disabled={readOnly}
                       />
                       {tax > 0 && (
                         <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.2rem', textAlign: 'right' }}>
@@ -339,7 +343,7 @@ function BillForm({ bill, onClose, onSaved }) {
                       )}
                     </td>
                     <td style={{ padding: '0.5rem', textAlign: 'center' }}>
-                      {form.line_items.length > 1 && (
+                      {form.line_items.length > 1 && !readOnly && (
                         <button
                           type="button"
                           onClick={() => removeLineItem(idx)}
@@ -364,9 +368,11 @@ function BillForm({ bill, onClose, onSaved }) {
           </table>
         </div>
 
-        <Button variant="secondary" size="sm" onClick={addLineItem} style={{ marginBottom: '1.5rem' }}>
-          + Add Expense Line
-        </Button>
+        {!readOnly && (
+          <Button variant="secondary" size="sm" onClick={addLineItem} style={{ marginBottom: '1.5rem' }}>
+            + Add Expense Line
+          </Button>
+        )}
 
         <div style={{ 
           padding: '0.75rem 1rem', 
@@ -444,16 +450,32 @@ function BillForm({ bill, onClose, onSaved }) {
         )}
       </div>
 
-      <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        {!bill && (
-          <Button variant="secondary" onClick={() => handleSave(true)} isLoading={isSaving}>
-            Save & Pay
-          </Button>
-        )}
-        <Button onClick={() => handleSave(false)} isLoading={isSaving}>
-          {bill ? 'Update' : 'Save'}
-        </Button>
+      <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+        <div>
+          {bill && !readOnly && canVoid && bill.status === 'UNPAID' && !bill.is_voided && (
+            <Button
+              variant="ghost"
+              onClick={() => onVoid?.(bill)}
+              isLoading={isVoiding}
+              style={{ color: '#dc2626' }}
+            >
+              Void Bill
+            </Button>
+          )}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+          <Button variant="secondary" onClick={onClose}>{readOnly ? 'Close' : 'Cancel'}</Button>
+          {!readOnly && !bill && (
+            <Button variant="secondary" onClick={() => handleSave(true)} isLoading={isSaving}>
+              Save & Pay
+            </Button>
+          )}
+          {!readOnly && (
+            <Button onClick={() => handleSave(false)} isLoading={isSaving}>
+              {bill ? 'Update' : 'Save'}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -581,6 +603,7 @@ export default function Bills() {
   const [range, setRange] = useState(currentMonth());
   const [statusFilter, setStatusFilter] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
+  const [showVoided, setShowVoided] = useState(false);
   const [drawer, setDrawer] = useState(null);
   const [paymentBill, setPaymentBill] = useState(null);
 
@@ -612,20 +635,27 @@ export default function Bills() {
 
   const canEdit = ['admin', 'editor'].includes(user?.role);
   const canVoid = user?.role === 'admin';
+  const isAddDrawer = drawer?.type === 'add';
+  const isViewDrawer = drawer?.type === 'view';
+  const activeBill = drawer?.bill || null;
 
   function handleAdd() {
-    setDrawer('add');
+    setDrawer({ type: 'add' });
   }
 
   function handleEdit(bill) {
-    setDrawer(bill);
+    setDrawer({ type: 'edit', bill });
+  }
+
+  function handleView(bill) {
+    setDrawer({ type: 'view', bill });
   }
 
   function handlePay(bill) {
     setPaymentBill(bill);
   }
 
-  async function handleVoid(bill) {
+  async function handleVoid(bill, { closeDrawer = false } = {}) {
     const confirmed = window.confirm(
       `Are you sure you want to void this bill? This action cannot be undone and will be recorded in the audit history.\n\n` +
       `Vendor: ${bill.vendor_name}\n` +
@@ -638,9 +668,22 @@ export default function Bills() {
     try {
       await voidBill.mutateAsync(bill.id);
       addToast('Bill voided successfully.', 'success');
+      if (closeDrawer) setDrawer(null);
       refetch();
     } catch (err) {
       addToast(err.response?.data?.errors?.[0] || 'Cannot void bill.', 'error');
+    }
+  }
+
+  function handleRowClick(bill) {
+    const isVoided = bill.status === 'VOID' || bill.is_voided;
+    if (isVoided) return;
+    if (bill.status === 'PAID') {
+      handleView(bill);
+      return;
+    }
+    if (bill.status === 'UNPAID') {
+      handleEdit(bill);
     }
   }
 
@@ -714,26 +757,15 @@ export default function Bills() {
     {
       key: 'status',
       label: 'Status',
-      render: (b) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      render: (b) => {
+        const displayStatus = b.status === 'VOID' || b.is_voided ? 'VOID' : b.status;
+        return (
           <Badge
-            label={b.status}
-            variant={b.status === 'PAID' ? 'success' : b.status === 'VOID' ? 'secondary' : 'warning'}
+            label={displayStatus}
+            variant={displayStatus === 'PAID' ? 'success' : displayStatus === 'VOID' ? 'secondary' : 'warning'}
           />
-          {b.is_voided && (
-            <Badge 
-              label="VOID" 
-              variant="secondary" 
-              style={{ 
-                background: '#f3f4f6', 
-                color: '#6b7280',
-                border: '1px dashed #d1d5db',
-                fontSize: '0.75rem'
-              }} 
-            />
-          )}
-        </div>
-      ),
+        );
+      },
     },
     {
       key: 'actions',
@@ -742,14 +774,15 @@ export default function Bills() {
       render: (b) => (
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
           {!b.is_voided && b.status === 'UNPAID' && canEdit && (
-            <>
-              <Button variant="secondary" size="sm" onClick={() => handlePay(b)}>Pay</Button>
-              <Button variant="secondary" size="sm" onClick={() => handleEdit(b)}>Edit</Button>
-            </>
-          )}
-          {!b.is_voided && b.status === 'UNPAID' && canVoid && (
-            <Button variant="ghost" size="sm" style={{ color: '#dc2626' }} onClick={() => handleVoid(b)}>
-              Void
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePay(b);
+              }}
+            >
+              Pay
             </Button>
           )}
         </div>
@@ -757,7 +790,13 @@ export default function Bills() {
     },
   ];
 
-  const unpaidBills = (bills || []).filter(b => b.status === 'UNPAID');
+  const visibleBills = (bills || []).filter((b) => {
+    if (showVoided) return true;
+    const isVoided = b.status === 'VOID' || b.is_voided;
+    return !isVoided;
+  });
+
+  const unpaidBills = visibleBills.filter(b => b.status === 'UNPAID');
   const totalUnpaid = unpaidBills.reduce((sum, b) => sum + (parseFloat(b.amount) - parseFloat(b.amount_paid)), 0);
   const overdueBills = unpaidBills.filter((b) => b.due_date && isDateOnlyBefore(b.due_date, getChurchToday()));
   const totalOverdue = overdueBills.reduce((sum, b) => sum + (parseFloat(b.amount) - parseFloat(b.amount_paid)), 0);
@@ -781,6 +820,25 @@ export default function Bills() {
         
         <Combobox label="" options={vendorOptions} value={vendorFilter}
           onChange={setVendorFilter} placeholder="Filter by vendor…" style={{ minWidth: '140px' }} />
+
+        <label style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.45rem',
+          fontSize: '0.85rem',
+          color: '#374151',
+          fontWeight: 500,
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}>
+          <input
+            type="checkbox"
+            checked={showVoided}
+            onChange={(e) => setShowVoided(e.target.checked)}
+            style={{ cursor: 'pointer' }}
+          />
+          Show voided
+        </label>
       </div>
 
       {(totalUnpaid > 0 || totalOverdue > 0) && (
@@ -801,8 +859,9 @@ export default function Bills() {
       )}
 
        <Card>
-        <Table columns={COLUMNS} rows={bills || []} isLoading={isLoading}
+        <Table columns={COLUMNS} rows={visibleBills} isLoading={isLoading}
           emptyText="No bills found."
+          onRowClick={handleRowClick}
           rowStyle={(bill) => bill.is_voided ? { 
             opacity: 0.6, 
             textDecoration: 'line-through' 
@@ -810,11 +869,19 @@ export default function Bills() {
       </Card>
 
       <Drawer isOpen={!!drawer} onClose={() => setDrawer(null)}
-        title={drawer === 'add' ? 'New Bill' : 'Edit Bill'} width="750px">
-        {drawer && drawer !== 'add' && (
-          <BillForm bill={drawer} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); refetch(); }} />
+        title={isAddDrawer ? 'New Bill' : isViewDrawer ? 'Bill Details' : 'Edit Bill'} width="750px">
+        {activeBill && (
+          <BillForm
+            bill={activeBill}
+            onClose={() => setDrawer(null)}
+            onSaved={() => { setDrawer(null); refetch(); }}
+            onVoid={(bill) => handleVoid(bill, { closeDrawer: true })}
+            canVoid={canVoid}
+            isVoiding={voidBill.isPending}
+            readOnly={isViewDrawer}
+          />
         )}
-        {drawer === 'add' && (
+        {isAddDrawer && (
           <BillForm onClose={() => setDrawer(null)} onSaved={handleDrawerSaved} />
         )}
       </Drawer>
