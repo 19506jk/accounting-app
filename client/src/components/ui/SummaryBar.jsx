@@ -14,12 +14,13 @@ export default function SummaryBar({ totalDebit, totalCredit, fundStatuses = [],
       padding:      '0.75rem 1.25rem',
       display:      'flex',
       alignItems:   'center',
+      justifyContent: 'space-between',
       gap:          '1.5rem',
       flexWrap:     'wrap',
       borderTop:    '2px solid #334155',
       ...style,
     }}>
-      <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.875rem' }}>
+      <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.875rem', flexWrap: 'wrap', flex: '1 1 320px', minWidth: 0 }}>
         <span>
           <span style={{ color: '#94a3b8' }}>Debits: </span>
           <span style={{ fontWeight: 600 }}>${totalDebit.toFixed(2)}</span>
@@ -40,7 +41,14 @@ export default function SummaryBar({ totalDebit, totalCredit, fundStatuses = [],
       </div>
 
       {fundStatuses.length > 0 && (
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginLeft: 'auto' }}>
+        <div style={{
+          display: 'flex',
+          gap: '0.5rem',
+          flexWrap: 'wrap',
+          justifyContent: 'flex-end',
+          flex: '1 1 320px',
+          minWidth: 0,
+        }}>
           {fundStatuses.map((f) => (
             <span key={f.name} style={{
               padding:      '0.2rem 0.65rem',
@@ -50,6 +58,8 @@ export default function SummaryBar({ totalDebit, totalCredit, fundStatuses = [],
               background:   f.balanced ? 'rgba(74,222,128,0.15)' : 'rgba(248,113,113,0.15)',
               color:        f.balanced ? '#4ade80' : '#f87171',
               border:       `1px solid ${f.balanced ? 'rgba(74,222,128,0.3)' : 'rgba(248,113,113,0.3)'}`,
+              whiteSpace:   'normal',
+              wordBreak:    'break-word',
             }}>
               {f.balanced ? '✓' : '✗'} {f.name}
               {!f.balanced && ` ($${Math.abs(f.debit - f.credit).toFixed(2)} off)`}

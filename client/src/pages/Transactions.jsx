@@ -23,6 +23,7 @@ function currentMonth() {
 }
 
 const EMPTY_ENTRY = { account_id: '', fund_id: '', debit: '', credit: '', contact_id: '', memo: '' };
+const JOURNAL_GRID_TEMPLATE = 'minmax(260px, 2fr) minmax(150px, 1fr) 110px 110px minmax(240px, 1.5fr) 28px';
 
 // ── Shared Journal Entry Form Fields ────────────────────────────────────────
 // Used by both TransactionForm (create) and TransactionEditForm (edit)
@@ -57,74 +58,70 @@ function JournalEntryLines({
         Journal Entries
       </div>
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'visible', marginBottom: '0.75rem' }}>
-        <div style={{ display: 'grid',
-          gridTemplateColumns: '2fr 1fr 90px 90px 1.5fr 28px',
-          gap: '0.5rem', padding: '0.5rem 0.75rem',
-          background: '#f8fafc', borderBottom: '1px solid #e5e7eb',
-          fontSize: '0.72rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>
-          <span>Account</span><span>Fund</span>
-          <span style={{ textAlign: 'right' }}>Debit</span>
-          <span style={{ textAlign: 'right' }}>Credit</span>
-          <span>Donor / Payee</span><span />
-        </div>
-
-        {entries.map((e, i) => (
-          <div key={i} style={{ display: 'grid',
-            gridTemplateColumns: '2fr 1fr 90px 90px 1.5fr 28px',
-            gap: '0.5rem', padding: '0.5rem 0.75rem',
-            borderBottom: i < entries.length - 1 ? '1px solid #f3f4f6' : 'none',
-            alignItems: 'center' }}>
-            <Combobox options={accountOptions} value={e.account_id}
-              onChange={(v) => setEntry(i, 'account_id', v)} placeholder="Account…" />
-            <Combobox options={fundOptions} value={e.fund_id}
-              onChange={(v) => setEntry(i, 'fund_id', v)} placeholder="Fund…" />
-            <input type="number" min="0" step="0.01" value={e.debit}
-              onChange={(ev) => {
-                const value = ev.target.value;
-                setEntries((prev) => {
-                  const next = [...prev];
-                  const previousDebit = prev[i]?.debit || '';
-                  next[i] = { ...next[i], debit: value };
-
-                  if (value) {
-                    next[i] = { ...next[i], credit: '' };
-                  }
-
-                  const nextIndex = i + 1;
-                  const nextCredit = prev[nextIndex]?.credit || '';
-                  const canAutofillNextCredit = !nextCredit || nextCredit === previousDebit;
-                  if (enableDebitAutofill && value && nextIndex < next.length && canAutofillNextCredit) {
-                    next[nextIndex] = { ...next[nextIndex], credit: value };
-                  }
-
-                  return next;
-                });
-              }}
-              placeholder="0.00"
-              style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
-                borderRadius: '6px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }} />
-            <input type="number" min="0" step="0.01" value={e.credit}
-              onChange={(ev) => {
-                setEntry(i, 'credit', ev.target.value);
-                if (ev.target.value) setEntry(i, 'debit', '');
-              }}
-              placeholder="0.00"
-              style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
-                borderRadius: '6px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }} />
-            <Combobox options={contactOptions} value={e.contact_id}
-              onChange={(v) => setEntry(i, 'contact_id', v)} placeholder="Anonymous" />
-            <button onClick={() => removeLine(i)}
-              disabled={entries.length <= 2}
-              style={{ background: 'none', border: 'none', cursor: entries.length > 2 ? 'pointer' : 'not-allowed',
-                color: entries.length > 2 ? '#ef4444' : '#e5e7eb', fontSize: '1rem', padding: 0 }}>
-              ×
-            </button>
+      <div className="journal-scroll-container">
+        <div className="journal-table">
+          <div className="journal-grid journal-grid-header" style={{ gridTemplateColumns: JOURNAL_GRID_TEMPLATE }}>
+            <span>Account</span><span>Fund</span>
+            <span style={{ textAlign: 'right' }}>Debit</span>
+            <span style={{ textAlign: 'right' }}>Credit</span>
+            <span>Donor / Payee</span><span />
           </div>
-        ))}
+
+          {entries.map((e, i) => (
+            <div key={i} className="journal-grid journal-grid-row" style={{ gridTemplateColumns: JOURNAL_GRID_TEMPLATE }}>
+              <Combobox options={accountOptions} value={e.account_id}
+                onChange={(v) => setEntry(i, 'account_id', v)} placeholder="Account…" />
+              <Combobox options={fundOptions} value={e.fund_id}
+                onChange={(v) => setEntry(i, 'fund_id', v)} placeholder="Fund…" />
+              <input type="number" min="0" step="0.01" value={e.debit}
+                onChange={(ev) => {
+                  const value = ev.target.value;
+                  setEntries((prev) => {
+                    const next = [...prev];
+                    const previousDebit = prev[i]?.debit || '';
+                    next[i] = { ...next[i], debit: value };
+
+                    if (value) {
+                      next[i] = { ...next[i], credit: '' };
+                    }
+
+                    const nextIndex = i + 1;
+                    const nextCredit = prev[nextIndex]?.credit || '';
+                    const canAutofillNextCredit = !nextCredit || nextCredit === previousDebit;
+                    if (enableDebitAutofill && value && nextIndex < next.length && canAutofillNextCredit) {
+                      next[nextIndex] = { ...next[nextIndex], credit: value };
+                    }
+
+                    return next;
+                  });
+                }}
+                placeholder="0.00"
+                style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
+                  borderRadius: '6px', fontSize: '0.8rem', textAlign: 'right', width: '100%', boxSizing: 'border-box' }} />
+              <input type="number" min="0" step="0.01" value={e.credit}
+                onChange={(ev) => {
+                  setEntry(i, 'credit', ev.target.value);
+                  if (ev.target.value) setEntry(i, 'debit', '');
+                }}
+                placeholder="0.00"
+                style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
+                  borderRadius: '6px', fontSize: '0.8rem', textAlign: 'right', width: '100%', boxSizing: 'border-box' }} />
+              <Combobox options={contactOptions} value={e.contact_id}
+                onChange={(v) => setEntry(i, 'contact_id', v)} placeholder="Anonymous" />
+              <button onClick={() => removeLine(i)}
+                disabled={entries.length <= 2}
+                style={{ background: 'none', border: 'none', cursor: entries.length > 2 ? 'pointer' : 'not-allowed',
+                  color: entries.length > 2 ? '#ef4444' : '#e5e7eb', fontSize: '1rem', padding: 0 }}>
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <Button variant="secondary" size="sm" onClick={addLine}>+ Add Line</Button>
+      <Button variant="secondary" size="sm" onClick={addLine} style={{ alignSelf: 'flex-start' }}>
+        + Add Line
+      </Button>
     </>
   );
 }
@@ -206,25 +203,30 @@ function TransactionForm({ onClose, onSaved }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-      <div style={{ flex: 1, padding: '1.5rem', overflowY: 'auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 160px', gap: '1rem', marginBottom: '1.5rem' }}>
+    <div className="tx-modal-layout">
+      <div className="tx-form-main">
+        <div className="tx-top-fields">
           <Input label="Date" required type="date" value={form.date}
+            style={{ flex: '1 1 160px', minWidth: '160px' }}
             onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
           <Input label="Description" required value={form.description}
+            style={{ flex: '2 1 320px', minWidth: '280px' }}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             placeholder="Sunday Offering" />
           <Input label="Reference No" value={form.reference_no}
+            style={{ flex: '1 1 160px', minWidth: '160px' }}
             onChange={(e) => setForm((f) => ({ ...f, reference_no: e.target.value }))}
             placeholder="DEP-001" />
         </div>
 
-        <JournalEntryLines
-          entries={entries} setEntries={setEntries}
-          accountOptions={accountOptions} fundOptions={fundOptions} contactOptions={contactOptions}
-          enableDebitAutofill
-          defaultFundId={defaultFundId}
-        />
+        <div className="tx-journal-section">
+          <JournalEntryLines
+            entries={entries} setEntries={setEntries}
+            accountOptions={accountOptions} fundOptions={fundOptions} contactOptions={contactOptions}
+            enableDebitAutofill
+            defaultFundId={defaultFundId}
+          />
+        </div>
 
         {errors.length > 0 && (
           <div style={{ marginTop: '1rem', background: '#fef2f2', border: '1px solid #fecaca',
@@ -236,10 +238,16 @@ function TransactionForm({ onClose, onSaved }) {
         )}
       </div>
 
-      <SummaryBar totalDebit={totalDebit} totalCredit={totalCredit} fundStatuses={fundStatuses} />
+      <div className="tx-summary-shell">
+        <SummaryBar
+          totalDebit={totalDebit}
+          totalCredit={totalCredit}
+          fundStatuses={fundStatuses}
+          style={{ position: 'relative', bottom: 'auto' }}
+        />
+      </div>
 
-      <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e5e7eb',
-        display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+      <div className="tx-actions">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button onClick={handleSubmit} isLoading={createTx.isPending} disabled={!allBalanced}>
           Save Transaction
@@ -326,23 +334,28 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-      <div style={{ flex: 1, padding: '1.5rem', overflowY: 'auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 160px', gap: '1rem', marginBottom: '1.5rem' }}>
+    <div className="tx-modal-layout">
+      <div className="tx-form-main">
+        <div className="tx-top-fields">
           <Input label="Date" required type="date" value={form.date}
+            style={{ flex: '1 1 160px', minWidth: '160px' }}
             onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
           <Input label="Description" required value={form.description}
+            style={{ flex: '2 1 320px', minWidth: '280px' }}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             placeholder="Sunday Offering" />
           <Input label="Reference No" value={form.reference_no}
+            style={{ flex: '1 1 160px', minWidth: '160px' }}
             onChange={(e) => setForm((f) => ({ ...f, reference_no: e.target.value }))}
             placeholder="DEP-001" />
         </div>
 
-        <JournalEntryLines
-          entries={entries} setEntries={setEntries}
-          accountOptions={accountOptions} fundOptions={fundOptions} contactOptions={contactOptions}
-        />
+        <div className="tx-journal-section">
+          <JournalEntryLines
+            entries={entries} setEntries={setEntries}
+            accountOptions={accountOptions} fundOptions={fundOptions} contactOptions={contactOptions}
+          />
+        </div>
 
         {errors.length > 0 && (
           <div style={{ marginTop: '1rem', background: '#fef2f2', border: '1px solid #fecaca',
@@ -354,10 +367,16 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
         )}
       </div>
 
-      <SummaryBar totalDebit={totalDebit} totalCredit={totalCredit} fundStatuses={fundStatuses} />
+      <div className="tx-summary-shell">
+        <SummaryBar
+          totalDebit={totalDebit}
+          totalCredit={totalCredit}
+          fundStatuses={fundStatuses}
+          style={{ position: 'relative', bottom: 'auto' }}
+        />
+      </div>
 
-      <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e5e7eb',
-        display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+      <div className="tx-actions">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button onClick={handleSubmit} isLoading={updateTx.isPending} disabled={!allBalanced}>
           Save Changes
@@ -446,23 +465,19 @@ export default function Transactions() {
 
       {/* New Transaction Modal */}
       <Modal isOpen={showForm} onClose={() => setShowForm(false)}
-        title="New Transaction" width="900px">
-        <div style={{ margin: '-1.5rem' }}>
-          <TransactionForm onClose={() => setShowForm(false)} />
-        </div>
+        title="New Transaction" width="1100px" adaptiveOnMobile className="tx-modal-shell" bodyStyle={{ padding: 0, overflow: 'hidden' }}>
+        <TransactionForm onClose={() => setShowForm(false)} />
       </Modal>
 
       {/* Edit Transaction Modal */}
       <Modal isOpen={!!editingTx} onClose={() => setEditingTx(null)}
-        title="Edit Transaction" width="900px">
+        title="Edit Transaction" width="1100px" adaptiveOnMobile className="tx-modal-shell" bodyStyle={{ padding: 0, overflow: 'hidden' }}>
         {editingTx && (
-          <div style={{ margin: '-1.5rem' }}>
-            <TransactionEditForm
-              transaction={editingTx}
-              onClose={() => setEditingTx(null)}
-              onSaved={() => setExpanded(null)}
-            />
-          </div>
+          <TransactionEditForm
+            transaction={editingTx}
+            onClose={() => setEditingTx(null)}
+            onSaved={() => setExpanded(null)}
+          />
         )}
       </Modal>
     </div>

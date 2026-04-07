@@ -1,6 +1,16 @@
 import { useEffect, useRef } from 'react';
 
-export default function Modal({ isOpen, onClose, title, children, width = '480px' }) {
+export default function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  width = '480px',
+  className = '',
+  bodyClassName = '',
+  bodyStyle = {},
+  adaptiveOnMobile = false,
+}) {
   const modalRef = useRef(null);
 
   // Close on Escape key
@@ -31,6 +41,7 @@ export default function Modal({ isOpen, onClose, title, children, width = '480px
   return (
     <div
       onClick={onClose}
+      className={adaptiveOnMobile ? 'ui-modal-overlay ui-modal-overlay-adaptive' : 'ui-modal-overlay'}
       style={{
         position:       'fixed',
         inset:          0,
@@ -45,6 +56,7 @@ export default function Modal({ isOpen, onClose, title, children, width = '480px
       <div
         ref={modalRef}
         onClick={(e) => e.stopPropagation()}
+        className={`ui-modal-panel ${adaptiveOnMobile ? 'ui-modal-panel-adaptive' : ''} ${className}`.trim()}
         style={{
           background:   'white',
           borderRadius: '12px',
@@ -85,7 +97,7 @@ export default function Modal({ isOpen, onClose, title, children, width = '480px
         </div>
 
         {/* Body */}
-        <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+        <div className={bodyClassName} style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, ...bodyStyle }}>
           {children}
         </div>
       </div>
