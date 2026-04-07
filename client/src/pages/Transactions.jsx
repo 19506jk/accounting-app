@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Decimal from 'decimal.js';
 import { useTransactions, useCreateTransaction, useUpdateTransaction, useDeleteTransaction } from '../api/useTransactions';
 import { useAccounts }  from '../api/useAccounts';
@@ -26,7 +26,15 @@ const EMPTY_ENTRY = { account_id: '', fund_id: '', debit: '', credit: '', contac
 
 // ── Shared Journal Entry Form Fields ────────────────────────────────────────
 // Used by both TransactionForm (create) and TransactionEditForm (edit)
-function JournalEntryLines({ entries, setEntries, accountOptions, fundOptions, contactOptions, headerContact, onHeaderContactChange }) {
+function JournalEntryLines({
+  entries,
+  setEntries,
+  accountOptions,
+  fundOptions,
+  contactOptions,
+  enableDebitAutofill = false,
+  defaultFundId = '',
+}) {
   function setEntry(i, key, val) {
     setEntries((prev) => {
       const next = [...prev];
@@ -34,7 +42,9 @@ function JournalEntryLines({ entries, setEntries, accountOptions, fundOptions, c
       return next;
     });
   }
-  function addLine() { setEntries((prev) => [...prev, { ...EMPTY_ENTRY }]); }
+  function addLine() {
+    setEntries((prev) => [...prev, { ...EMPTY_ENTRY, fund_id: defaultFundId || '' }]);
+  }
   function removeLine(i) {
     if (entries.length <= 2) return;
     setEntries((prev) => prev.filter((_, idx) => idx !== i));
@@ -42,12 +52,6 @@ function JournalEntryLines({ entries, setEntries, accountOptions, fundOptions, c
 
   return (
     <>
-      <div style={{ marginBottom: '1.25rem', maxWidth: '320px' }}>
-        <Combobox label="Payee / Vendor (auto-fills expense lines)"
-          options={contactOptions} value={headerContact}
-          onChange={onHeaderContactChange} placeholder="Select payee…" />
-      </div>
-
       <div style={{ fontSize: '0.775rem', fontWeight: 600, color: '#6b7280',
         textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
         Journal Entries
@@ -77,9 +81,25 @@ function JournalEntryLines({ entries, setEntries, accountOptions, fundOptions, c
               onChange={(v) => setEntry(i, 'fund_id', v)} placeholder="Fund…" />
             <input type="number" min="0" step="0.01" value={e.debit}
               onChange={(ev) => {
-                setEntry(i, 'debit', ev.target.value);
-                if (ev.target.value) setEntry(i, 'credit', '');
-                if (ev.target.value && headerContact) setEntry(i, 'contact_id', headerContact);
+                const value = ev.target.value;
+                setEntries((prev) => {
+                  const next = [...prev];
+                  const previousDebit = prev[i]?.debit || '';
+                  next[i] = { ...next[i], debit: value };
+
+                  if (value) {
+                    next[i] = { ...next[i], credit: '' };
+                  }
+
+                  const nextIndex = i + 1;
+                  const nextCredit = prev[nextIndex]?.credit || '';
+                  const canAutofillNextCredit = !nextCredit || nextCredit === previousDebit;
+                  if (enableDebitAutofill && value && nextIndex < next.length && canAutofillNextCredit) {
+                    next[nextIndex] = { ...next[nextIndex], credit: value };
+                  }
+
+                  return next;
+                });
               }}
               placeholder="0.00"
               style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
@@ -121,16 +141,24 @@ function TransactionForm({ onClose, onSaved }) {
   const [form, setForm] = useState({ date: today, description: '', reference_no: '' });
   const [entries, setEntries] = useState([{ ...EMPTY_ENTRY }, { ...EMPTY_ENTRY }]);
   const [errors, setErrors] = useState([]);
-  const [headerContact, setHeaderContact] = useState('');
 
   const accountOptions = (accounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
   const fundOptions    = (funds    || []).filter((f) => f.is_active).map((f) => ({ value: f.id, label: f.name }));
   const contactOptions = [{ value: '', label: 'Anonymous' }, ...(contacts || []).map((c) => ({ value: c.id, label: c.name }))];
+  const defaultFundId = fundOptions.length > 0 ? fundOptions[0].value : '';
 
-  function handleHeaderContactChange(val) {
-    setHeaderContact(val);
-    setEntries((prev) => prev.map((e) => dec(e.debit).gt(0) ? { ...e, contact_id: val } : e));
-  }
+  useEffect(() => {
+    if (!defaultFundId) return;
+    setEntries((prev) => {
+      let changed = false;
+      const next = prev.map((entry) => {
+        if (entry.fund_id !== '') return entry;
+        changed = true;
+        return { ...entry, fund_id: defaultFundId };
+      });
+      return changed ? next : prev;
+    });
+  }, [defaultFundId]);
 
   const fundStatuses = useMemo(() => {
     const totals = {};
@@ -194,7 +222,8 @@ function TransactionForm({ onClose, onSaved }) {
         <JournalEntryLines
           entries={entries} setEntries={setEntries}
           accountOptions={accountOptions} fundOptions={fundOptions} contactOptions={contactOptions}
-          headerContact={headerContact} onHeaderContactChange={handleHeaderContactChange}
+          enableDebitAutofill
+          defaultFundId={defaultFundId}
         />
 
         {errors.length > 0 && (
@@ -246,16 +275,10 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
   );
 
   const [errors, setErrors] = useState([]);
-  const [headerContact, setHeaderContact] = useState('');
 
   const accountOptions = (accounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
   const fundOptions    = (funds    || []).filter((f) => f.is_active).map((f) => ({ value: f.id, label: f.name }));
   const contactOptions = [{ value: '', label: 'Anonymous' }, ...(contacts || []).map((c) => ({ value: c.id, label: c.name }))];
-
-  function handleHeaderContactChange(val) {
-    setHeaderContact(val);
-    setEntries((prev) => prev.map((e) => dec(e.debit).gt(0) ? { ...e, contact_id: val } : e));
-  }
 
   const fundStatuses = useMemo(() => {
     const totals = {};
@@ -319,7 +342,6 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
         <JournalEntryLines
           entries={entries} setEntries={setEntries}
           accountOptions={accountOptions} fundOptions={fundOptions} contactOptions={contactOptions}
-          headerContact={headerContact} onHeaderContactChange={handleHeaderContactChange}
         />
 
         {errors.length > 0 && (

@@ -137,6 +137,60 @@ async function validateTransaction(body: CreateTransactionInput): Promise<string
   return errors;
 }
 
+async function getTransactionDetailById(id: string | number): Promise<TransactionDetail | null> {
+  const transaction = await db('transactions as t')
+    .leftJoin('users as u', 'u.id', 't.created_by')
+    .where('t.id', id)
+    .select(
+      't.id',
+      't.date',
+      't.description',
+      't.reference_no',
+      't.fund_id',
+      't.created_at',
+      'u.name as created_by_name'
+    )
+    .first() as (TransactionRow & { created_by_name: string | null }) | undefined;
+
+  if (!transaction) return null;
+
+  const entries = await db('journal_entries as je')
+    .join('accounts as a', 'a.id', 'je.account_id')
+    .join('funds as f', 'f.id', 'je.fund_id')
+    .leftJoin('contacts as c', 'c.id', 'je.contact_id')
+    .where('je.transaction_id', id)
+    .select(
+      'je.id',
+      'je.account_id',
+      'a.code as account_code',
+      'a.name as account_name',
+      'a.type as account_type',
+      'je.fund_id',
+      'f.name as fund_name',
+      'je.debit',
+      'je.credit',
+      'je.memo',
+      'je.is_reconciled',
+      'je.contact_id',
+      'c.name as contact_name'
+    )
+    .orderBy('je.id', 'asc') as TransactionEntryDetailRow[];
+
+  const totalAmount = entries.reduce((sum, e) => sum.plus(dec(e.debit)), dec(0));
+
+  return {
+    ...transaction,
+    date: normalizeDateOnly(transaction.date),
+    created_at: String(transaction.created_at),
+    total_amount: parseFloat(totalAmount.toFixed(2)),
+    entries: entries.map((e) => ({
+      ...e,
+      debit: parseFloat(String(e.debit)),
+      credit: parseFloat(String(e.credit)),
+    })) as TransactionEntryDetail[],
+  };
+}
+
 router.get(
   '/',
   async (
@@ -236,59 +290,8 @@ router.get(
   ) => {
     try {
       const { id } = req.params;
-
-      const transaction = await db('transactions as t')
-        .leftJoin('users as u', 'u.id', 't.created_by')
-        .where('t.id', id)
-        .select(
-          't.id',
-          't.date',
-          't.description',
-          't.reference_no',
-          't.fund_id',
-          't.created_at',
-          'u.name as created_by_name'
-        )
-        .first() as (TransactionRow & { created_by_name: string | null }) | undefined;
-
-      if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
-
-      const entries = await db('journal_entries as je')
-        .join('accounts as a', 'a.id', 'je.account_id')
-        .join('funds as f', 'f.id', 'je.fund_id')
-        .leftJoin('contacts as c', 'c.id', 'je.contact_id')
-        .where('je.transaction_id', id)
-        .select(
-          'je.id',
-          'je.account_id',
-          'a.code as account_code',
-          'a.name as account_name',
-          'a.type as account_type',
-          'je.fund_id',
-          'f.name as fund_name',
-          'je.debit',
-          'je.credit',
-          'je.memo',
-          'je.is_reconciled',
-          'je.contact_id',
-          'c.name as contact_name'
-        )
-        .orderBy('je.id', 'asc') as TransactionEntryDetailRow[];
-
-      const totalAmount = entries.reduce((sum, e) => sum.plus(dec(e.debit)), dec(0));
-
-      const detail: TransactionDetail = {
-        ...transaction,
-        date: normalizeDateOnly(transaction.date),
-        created_at: String(transaction.created_at),
-        total_amount: parseFloat(totalAmount.toFixed(2)),
-        entries: entries.map((e) => ({
-          ...e,
-          debit: parseFloat(String(e.debit)),
-          credit: parseFloat(String(e.credit)),
-        })) as TransactionEntryDetail[],
-      };
-
+      const detail = await getTransactionDetailById(id);
+      if (!detail) return res.status(404).json({ error: 'Transaction not found' });
       res.json({ transaction: detail });
     } catch (err) {
       next(err);
@@ -369,13 +372,13 @@ router.put(
   '/:id',
   requireRole('admin', 'editor'),
   async (
-    req: Request<{ id: string }, { transaction: TransactionDetail } | ApiErrorResponse, UpdateTransactionInput>,
-    res: Response<{ transaction: TransactionDetail } | ApiErrorResponse>,
+    req: Request<{ id: string }, { transaction: TransactionDetail } | ApiErrorResponse | ApiValidationErrorResponse, UpdateTransactionInput>,
+    res: Response<{ transaction: TransactionDetail } | ApiErrorResponse | ApiValidationErrorResponse>,
     next: NextFunction
   ) => {
     try {
       const { id } = req.params;
-      const { date, description, reference_no } = req.body || {};
+      const { date, description, reference_no, entries } = req.body || {};
 
       const transaction = await db('transactions').where({ id }).first() as TransactionRow | undefined;
       if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
@@ -392,25 +395,123 @@ router.put(
         }
       }
 
-      const [updated] = await db('transactions')
-        .where({ id })
-        .update({
-          date: date || transaction.date,
-          description: description?.trim() || transaction.description,
-          reference_no: reference_no !== undefined ? reference_no?.trim() || null : transaction.reference_no,
-          updated_at: db.fn.now(),
-        })
-        .returning('*') as TransactionRow[];
-      if (!updated) throw new Error('Failed to update transaction');
+      const nextDate = date || normalizeDateOnly(transaction.date);
+      const nextDescription = description?.trim() || transaction.description;
+      const nextReferenceNo = reference_no !== undefined ? reference_no?.trim() || null : transaction.reference_no;
+
+      await db.transaction(async (trx: Knex.Transaction) => {
+        if (entries !== undefined) {
+          const validationPayload: CreateTransactionInput = {
+            date: nextDate,
+            description: nextDescription,
+            reference_no: nextReferenceNo ?? undefined,
+            entries,
+          };
+          const errors = await validateTransaction(validationPayload);
+          if (errors.length) {
+            throw Object.assign(new Error('Validation failed'), { statusCode: 400, validationErrors: errors });
+          }
+
+          const existingEntries = await trx('journal_entries')
+            .where({ transaction_id: id })
+            .orderBy('id', 'asc') as JournalEntryRow[];
+
+          const isAnyReconciled = existingEntries.some((e) => e.is_reconciled);
+
+          if (isAnyReconciled) {
+            if (entries.length !== existingEntries.length) {
+              throw Object.assign(new Error('Cannot add/remove lines on reconciled transactions'), { statusCode: 400 });
+            }
+
+            for (let i = 0; i < entries.length; i += 1) {
+              const incoming = entries[i];
+              const current = existingEntries[i];
+              if (!incoming || !current) {
+                throw Object.assign(new Error('Invalid journal entry payload'), { statusCode: 400 });
+              }
+
+              const incomingDebit = dec(incoming.debit ?? 0).toFixed(2);
+              const currentDebit = dec(current.debit ?? 0).toFixed(2);
+              const incomingCredit = dec(incoming.credit ?? 0).toFixed(2);
+              const currentCredit = dec(current.credit ?? 0).toFixed(2);
+              const incomingMemo = incoming.memo?.trim() || null;
+              const currentMemo = current.memo || null;
+              const accountChanged = Number(incoming.account_id) !== Number(current.account_id);
+              const fundChanged = Number(incoming.fund_id) !== Number(current.fund_id);
+              const debitChanged = incomingDebit !== currentDebit;
+              const creditChanged = incomingCredit !== currentCredit;
+              const memoChanged = incomingMemo !== currentMemo;
+
+              if (accountChanged || fundChanged || debitChanged || creditChanged || memoChanged) {
+                throw Object.assign(new Error('Reconciled transactions only allow donor/payee changes'), { statusCode: 400 });
+              }
+            }
+
+            for (let i = 0; i < entries.length; i += 1) {
+              const incoming = entries[i];
+              const current = existingEntries[i];
+              if (!incoming || !current) continue;
+
+              const incomingContactId = incoming.contact_id ? Number(incoming.contact_id) : null;
+              const currentContactId = current.contact_id ? Number(current.contact_id) : null;
+              if (incomingContactId === currentContactId) continue;
+
+              await trx('journal_entries')
+                .where({ id: current.id })
+                .update({
+                  contact_id: incomingContactId,
+                  updated_at: trx.fn.now(),
+                });
+            }
+          } else {
+            await trx('journal_entries')
+              .where({ transaction_id: id })
+              .delete();
+
+            const entryRows = entries.map((e) => ({
+              transaction_id: Number(id),
+              account_id: e.account_id,
+              fund_id: e.fund_id,
+              contact_id: e.contact_id || null,
+              debit: dec(e.debit ?? 0).toFixed(2),
+              credit: dec(e.credit ?? 0).toFixed(2),
+              memo: e.memo?.trim() || null,
+              is_reconciled: false,
+              created_at: trx.fn.now(),
+              updated_at: trx.fn.now(),
+            }));
+            await trx('journal_entries').insert(entryRows);
+          }
+        }
+
+        const nextFundId = entries?.[0]?.fund_id ?? transaction.fund_id;
+
+        const [updated] = await trx('transactions')
+          .where({ id })
+          .update({
+            date: nextDate,
+            description: nextDescription,
+            reference_no: nextReferenceNo,
+            fund_id: nextFundId,
+            updated_at: trx.fn.now(),
+          })
+          .returning('*') as TransactionRow[];
+        if (!updated) throw new Error('Failed to update transaction');
+      });
+
+      const detail = await getTransactionDetailById(id);
+      if (!detail) return res.status(404).json({ error: 'Transaction not found' });
 
       res.json({
-        transaction: {
-          ...updated,
-          date: normalizeDateOnly(updated.date),
-          created_at: String(updated.created_at),
-        },
+        transaction: detail,
       });
     } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      const validationErrors = (err as { validationErrors?: string[] }).validationErrors;
+      if (statusCode === 400) {
+        if (validationErrors?.length) return res.status(400).json({ errors: validationErrors });
+        return res.status(400).json({ error: (err as Error).message || 'Invalid transaction update' });
+      }
       next(err);
     }
   }
