@@ -5,7 +5,6 @@ import { useAccounts }  from '../api/useAccounts';
 import { useFunds }     from '../api/useFunds';
 import { useContacts }  from '../api/useContacts';
 import { useToast }     from '../components/ui/Toast';
-import Card        from '../components/ui/Card';
 import Button      from '../components/ui/Button';
 import Input       from '../components/ui/Input';
 import Combobox    from '../components/ui/Combobox';
@@ -13,8 +12,9 @@ import { getChurchToday } from '../utils/date';
 
 const dec = (v) => new Decimal(v || 0);
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
+const DONATION_GRID_TEMPLATE = 'minmax(220px, 1.8fr) minmax(170px, 1.3fr) minmax(200px, 1.3fr) minmax(240px, 1.8fr) 132px 40px';
 
-const EMPTY_LINE = { contact_id: '', fund_id: '', account_id: '', amount: '' };
+const EMPTY_LINE = { contact_id: '', fund_id: '', account_id: '', amount: '', memo: '' };
 
 export default function DepositEntry() {
   const { addToast }  = useToast();
@@ -141,6 +141,7 @@ export default function DepositEntry() {
       debit:      0,
       credit:     parseFloat(l.amount),
       contact_id: l.contact_id ? Number(l.contact_id) : null,
+      memo:       l.memo || undefined,
     }));
 
     const payload = {
@@ -163,102 +164,113 @@ export default function DepositEntry() {
   }
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto', paddingBottom: '3rem' }}>
+    <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '0 1rem 3rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
           Make a Deposit
         </h1>
       </div>
 
-      <Card>
-        <div style={{ padding: '1.5rem' }}>
+      <div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+          <Input label="Date" required type="date" value={header.date}
+            onChange={(e) => setHeader({ ...header, date: e.target.value })} />
           
-          {/* --- HEADER --- */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
-            <Input label="Date" required type="date" value={header.date}
-              onChange={(e) => setHeader({ ...header, date: e.target.value })} />
-            
-            <Combobox label="Deposit To (Bank)" options={assetAccounts} value={header.bank_account_id}
-              onChange={(v) => setHeader({ ...header, bank_account_id: v })} placeholder="Select bank..." />
+          <Combobox label="Deposit To (Bank)" options={assetAccounts} value={header.bank_account_id}
+            onChange={(v) => setHeader({ ...header, bank_account_id: v })} placeholder="Select bank..." />
 
-            <Input label="Reference / Slip No" value={header.reference_no}
-              onChange={(e) => setHeader({ ...header, reference_no: e.target.value })} placeholder="DEP-001" />
+          <Input label="Reference / Slip No" value={header.reference_no}
+            onChange={(e) => setHeader({ ...header, reference_no: e.target.value })} placeholder="DEP-001" />
 
-            <Input label="Total Deposit Amount" required type="number" min="0" step="0.01" value={header.total_amount}
-              onChange={(e) => setHeader({ ...header, total_amount: e.target.value })}
-              placeholder="0.00" style={{ fontSize: '1.1rem', fontWeight: 600, color: '#15803d' }} />
+          <Input label="Total Deposit Amount" required type="number" min="0" step="0.01" value={header.total_amount}
+            onChange={(e) => setHeader({ ...header, total_amount: e.target.value })}
+            placeholder="0.00" style={{ fontSize: '1.1rem', fontWeight: 600, color: '#15803d' }} />
+        </div>
+
+        <Input label="Description" required value={header.description}
+          onChange={(e) => setHeader({ ...header, description: e.target.value })}
+          style={{ marginBottom: '2rem', maxWidth: '760px' }} />
+
+        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', marginBottom: '0.75rem' }}>
+          Donation Breakdown
+        </div>
+
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', marginBottom: '1rem', overflowX: 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: DONATION_GRID_TEMPLATE, minWidth: '1020px', gap: '0.75rem', padding: '0.5rem 0.75rem', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', fontSize: '0.75rem', fontWeight: 600, color: '#6b7280' }}>
+            <span>Donor</span><span>Fund</span><span>Income Account</span><span>Description</span><span style={{ textAlign: 'right' }}>Amount</span><span />
           </div>
 
-          <Input label="Description" required value={header.description}
-            onChange={(e) => setHeader({ ...header, description: e.target.value })}
-            style={{ marginBottom: '2rem' }} />
-
-          {/* --- LINES --- */}
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', marginBottom: '0.75rem' }}>
-            Donation Breakdown
-          </div>
-
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', marginBottom: '1rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1.5fr 120px 28px', gap: '0.5rem', padding: '0.5rem 0.75rem', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', fontSize: '0.75rem', fontWeight: 600, color: '#6b7280' }}>
-              <span>Donor</span><span>Fund</span><span>Income Account</span><span style={{ textAlign: 'right' }}>Amount</span><span />
-            </div>
-
-            {lines.map((l, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1.5fr 120px 28px', gap: '0.5rem', padding: '0.5rem 0.75rem', borderBottom: i < lines.length - 1 ? '1px solid #f3f4f6' : 'none', alignItems: 'center' }}>
+          {lines.map((l, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: DONATION_GRID_TEMPLATE, minWidth: '1020px', gap: '0.75rem', padding: '0.5rem 0.75rem', borderBottom: i < lines.length - 1 ? '1px solid #f3f4f6' : 'none', alignItems: 'center' }}>
+              <div>
                 <Combobox options={contactOptions} value={l.contact_id}
                   onChange={(v) => setLine(i, 'contact_id', v)} placeholder="Anonymous / Cash" />
-                
+              </div>
+              
+              <div>
                 <Combobox options={fundOptions} value={l.fund_id}
                   onChange={(v) => setLine(i, 'fund_id', v)} placeholder="Fund..." />
-                
+              </div>
+              
+              <div>
                 <Combobox options={incomeAccounts} value={l.account_id}
                   onChange={(v) => setLine(i, 'account_id', v)} placeholder="Account..." />
-                
+              </div>
+
+              <div style={{ paddingRight: '0.35rem' }}>
+                <input type="text" value={l.memo}
+                  onChange={(e) => setLine(i, 'memo', e.target.value)}
+                  placeholder="Line description"
+                  style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem', width: '100%' }} />
+              </div>
+              
+              <div style={{ paddingLeft: '0.35rem' }}>
                 <input type="number" min="0" step="0.01" value={l.amount}
                   onChange={(e) => setLine(i, 'amount', e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && i === lines.length - 1) addLine(); }}
                   placeholder="0.00"
                   style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'right', width: '100%' }} />
-                
+              </div>
+              
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
                 <button onClick={() => removeLine(i)} disabled={lines.length <= 1}
-                  style={{ background: 'none', border: 'none', cursor: lines.length > 1 ? 'pointer' : 'not-allowed', color: lines.length > 1 ? '#ef4444' : '#e5e7eb', fontSize: '1.2rem', padding: 0 }}>
+                  style={{ background: 'none', border: 'none', cursor: lines.length > 1 ? 'pointer' : 'not-allowed', color: lines.length > 1 ? '#ef4444' : '#e5e7eb', fontSize: '1.2rem', width: '28px', height: '28px', padding: 0, lineHeight: 1 }}>
                   ×
                 </button>
               </div>
-            ))}
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Button variant="secondary" size="sm" onClick={addLine}>+ Add Line</Button>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.9rem' }}>
-              <span style={{ color: '#6b7280' }}>Allocated: <strong style={{ color: '#1e293b' }}>{fmt(allocatedTotal.toFixed(2))}</strong></span>
-              <span style={{ color: remaining.equals(0) ? '#15803d' : '#b91c1c', fontWeight: 600 }}>
-                Remaining: {fmt(remaining.toFixed(2))}
-              </span>
-              
-              {remaining.gt(0) && (
-                <Button variant="secondary" size="sm" onClick={handleAllocateAnonymous}>
-                  Allocate to Anonymous
-                </Button>
-              )}
             </div>
-          </div>
-
-          {/* Errors */}
-          {errors.length > 0 && (
-            <div style={{ marginTop: '1.5rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem 1rem' }}>
-              {errors.map((err, i) => <div key={i} style={{ fontSize: '0.85rem', color: '#dc2626' }}>• {err}</div>)}
-            </div>
-          )}
+          ))}
         </div>
 
-        <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', background: '#f8fafc', borderRadius: '0 0 8px 8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Button variant="secondary" size="sm" onClick={addLine}>+ Add Line</Button>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.9rem' }}>
+            <span style={{ color: '#6b7280' }}>Allocated: <strong style={{ color: '#1e293b' }}>{fmt(allocatedTotal.toFixed(2))}</strong></span>
+            <span style={{ color: remaining.equals(0) ? '#15803d' : '#b91c1c', fontWeight: 600 }}>
+              Remaining: {fmt(remaining.toFixed(2))}
+            </span>
+            
+            {remaining.gt(0) && (
+              <Button variant="secondary" size="sm" onClick={handleAllocateAnonymous}>
+                Allocate to Anonymous
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {errors.length > 0 && (
+          <div style={{ marginTop: '1.5rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem 1rem' }}>
+            {errors.map((err, i) => <div key={i} style={{ fontSize: '0.85rem', color: '#dc2626' }}>• {err}</div>)}
+          </div>
+        )}
+
+        <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end' }}>
           <Button onClick={handleSubmit} isLoading={createTx.isPending} disabled={!isBalanced}>
             Save Deposit
           </Button>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }
