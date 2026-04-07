@@ -210,14 +210,9 @@ function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = fa
     }
   }
 
-  if (data.line_items && data.line_items.length > 0 && data.amount !== undefined) {
-    const lineItemTotal = data.line_items.reduce((sum, li) => sum + dec(li.amount).toNumber(), 0);
-    const billAmount = dec(data.amount).toNumber();
-    const diff = Math.abs(lineItemTotal - billAmount);
-    if (diff > TOLERANCE) {
-      errors.push(`Line item total ($${lineItemTotal.toFixed(2)}) must equal bill amount ($${billAmount.toFixed(2)})`);
-    }
-  }
+  // Note: line_items[].amount is net (before tax); bill.amount is gross (incl. tax).
+  // Cross-validation is handled inside createMultiLineJournalEntries which resolves
+  // tax rates from the DB. No cheap equality check is possible here.
 
   if (data.date && data.due_date) {
     if (!isValidDateOnly(data.due_date)) {
@@ -281,12 +276,10 @@ async function getBillWithLineItems(billId: string | number): Promise<BillDetail
       tax_rate_id: li.tax_rate_id || null,
       tax_rate_name: li.tax_rate_name || null,
       tax_rate_value: li.tax_rate_value ? parseFloat(String(li.tax_rate_value)) : null,
-      // tax_amount computed from gross: tax = gross - round(gross / (1 + rate), 2)
+      // tax_amount computed from net: tax = round(net * rate, 2)
       tax_amount: li.tax_rate_id
         ? parseFloat(
-            dec(li.amount)
-              .minus(dec(li.amount).dividedBy(dec(1).plus(dec(li.tax_rate_value))).toDecimalPlaces(2))
-              .toFixed(2)
+            dec(li.amount).times(dec(li.tax_rate_value)).toDecimalPlaces(2).toFixed(2)
           )
         : null,
     })),
@@ -332,13 +325,13 @@ async function createMultiLineJournalEntries(
   let apTotal = dec(0);
 
   for (const line of lineItems) {
-    const gross = dec(line.amount);
+    const net = dec(line.amount); // line.amount is net (before tax)
     const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null;
 
     if (taxRate) {
-      // Internal tax formula: net = round(gross / (1 + rate), 2), tax = gross - net
-      const net = gross.dividedBy(dec(1).plus(dec(taxRate.rate))).toDecimalPlaces(2);
-      const tax = gross.minus(net);
+      // gross = net + round(net * rate, 2)
+      const tax = net.times(dec(taxRate.rate)).toDecimalPlaces(2);
+      const gross = net.plus(tax);
 
       // Expense line — net amount only
       journalEntries.push({
@@ -372,14 +365,13 @@ async function createMultiLineJournalEntries(
 
       apTotal = apTotal.plus(gross); // AP credit = full gross
     } else {
-      // No tax — behaviour unchanged from original
-      const amount = dec(line.amount);
-      if (amount.gte(0)) {
+      // No tax — net === gross
+      if (net.gte(0)) {
         journalEntries.push({
           transaction_id: transactionId,
           account_id:     line.expense_account_id,
           fund_id:        fundId,
-          debit:          amount.toFixed(2),
+          debit:          net.toFixed(2),
           credit:         0,
           memo:           `Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
           is_reconciled:  false,
@@ -394,7 +386,7 @@ async function createMultiLineJournalEntries(
           account_id:     line.expense_account_id,
           fund_id:        fundId,
           debit:          0,
-          credit:         amount.abs().toFixed(2),
+          credit:         net.abs().toFixed(2),
           memo:           `Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
           is_reconciled:  false,
           tax_rate_id:    null,
@@ -403,7 +395,7 @@ async function createMultiLineJournalEntries(
           updated_at:     trx.fn.now(),
         });
       }
-      apTotal = apTotal.plus(amount);
+      apTotal = apTotal.plus(net);
     }
   }
 
