@@ -185,10 +185,11 @@ function TransactionForm({ onClose, onSaved }) {
 
   async function handleSubmit() {
     setErrors([]);
+    const nextReferenceNo = form.reference_no.trim()
     const payload = {
       date:         form.date,
       description:  form.description,
-      reference_no: form.reference_no || undefined,
+      reference_no: nextReferenceNo || null,
       entries: entries.map((e) => ({
         account_id: Number(e.account_id),
         fund_id:    Number(e.fund_id),
@@ -316,10 +317,11 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
 
   async function handleSubmit() {
     setErrors([]);
+    const nextReferenceNo = form.reference_no.trim()
     const payload = {
       date:         form.date,
       description:  form.description,
-      reference_no: form.reference_no || undefined,
+      reference_no: nextReferenceNo || null,
       entries: entries.map((e) => ({
         account_id: Number(e.account_id),
         fund_id:    Number(e.fund_id),
