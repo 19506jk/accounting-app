@@ -126,7 +126,9 @@ function BillForm({ bill, onClose, onSaved }) {
     });
   }, [form.line_items, taxRateMap]);
 
-  const lineTotal   = useMemo(() => lineTotals.reduce((sum, l) => sum + l.gross, 0), [lineTotals]);
+  const lineTotal   = useMemo(
+    () => Math.round(lineTotals.reduce((sum, l) => sum + l.gross, 0) * 100) / 100, [lineTotals]
+  );
   const totalHST    = useMemo(() => lineTotals.filter(l => l.taxName === 'HST').reduce((sum, l) => sum + l.tax, 0), [lineTotals]);
   const totalGST    = useMemo(() => lineTotals.filter(l => l.taxName === 'GST').reduce((sum, l) => sum + l.tax, 0), [lineTotals]);
   const totalTax    = totalHST + totalGST;
