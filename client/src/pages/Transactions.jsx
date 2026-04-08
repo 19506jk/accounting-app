@@ -138,7 +138,7 @@ function TransactionForm({ onClose, onSaved }) {
   const { addToast }  = useToast();
   const { data: accounts  } = useAccounts();
   const { data: funds     } = useFunds();
-  const { data: contacts  } = useContacts({ type: 'DONOR' });
+  const { data: contacts  } = useContacts();
   const createTx = useCreateTransaction();
 
   const today = getChurchToday();
@@ -270,7 +270,7 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
   const { addToast } = useToast();
   const { data: accounts } = useAccounts();
   const { data: funds     } = useFunds();
-  const { data: contacts  } = useContacts({ type: 'DONOR' });
+  const { data: contacts  } = useContacts();
   const updateTx = useUpdateTransaction();
 
   const [form, setForm] = useState({
