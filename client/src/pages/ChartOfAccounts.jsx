@@ -90,7 +90,7 @@ function AccountLedgerDrawer({ account, onClose }) {
   }
 
   return (
-    <Drawer isOpen={!!account} onClose={onClose} title={account ? `${account.code} — ${account.name}` : ''} width="600px">
+    <Drawer isOpen={!!account} onClose={onClose} title={account ? `${account.code} — ${account.name}` : ''} width="900px">
       <div style={{ marginBottom: '1rem' }}>
         <DateRangePicker from={range.from} to={range.to}
           onChange={(r) => { setRange(r); setEnabled(true); }} />
@@ -131,12 +131,12 @@ function AccountLedgerDrawer({ account, onClose }) {
                     <td style={{ padding: '0.45rem 0.75rem', whiteSpace: 'nowrap' }}>{r.date}</td>
                     <td
                       title={r.reference_no || '-'}
-                      style={{ padding: '0.45rem 0.75rem', width: '120px', minWidth: '120px', maxWidth: '120px',
+                      style={{ padding: '0.45rem 0.75rem', maxWidth: '160px',
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     >
                       {r.reference_no || '-'}
                     </td>
-                    <td style={{ padding: '0.45rem 0.75rem', maxWidth: '180px',
+                    <td style={{ padding: '0.45rem 0.75rem', maxWidth: '260px',
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.description}
                     </td>
