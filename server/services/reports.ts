@@ -273,6 +273,18 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
   }
 
   const accounts = await accountQuery.select('a.id', 'a.code', 'a.name', 'a.type') as AccountRow[];
+  const fiscalYearStartMonthRow = await db('settings')
+    .where({ key: 'fiscal_year_start' })
+    .select('value')
+    .first() as { value?: string | null } | undefined;
+  const fiscalStartMonth = Math.max(1, Math.min(12, parseInt(fiscalYearStartMonthRow?.value ?? '1', 10) || 1));
+  let fiscalYearStartForFrom: string | null = null;
+  if (from) {
+    const fromYear = Number(from.slice(0, 4));
+    const fromMonth = Number(from.slice(5, 7));
+    const fiscalYearStartYear = fromMonth >= fiscalStartMonth ? fromYear : fromYear - 1;
+    fiscalYearStartForFrom = `${fiscalYearStartYear}-${String(fiscalStartMonth).padStart(2, '0')}-01`;
+  }
   const ledger: LedgerReportData['ledger'] = [];
 
   for (const account of accounts) {
@@ -296,6 +308,7 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
 
     let openingBalance = dec(0);
     if (from) {
+      const isIncomeOrExpense = account.type === 'INCOME' || account.type === 'EXPENSE';
       const prior = await db('journal_entries as je')
         .join('transactions as t', 't.id', 'je.transaction_id')
         .where('je.account_id', account.id)
@@ -303,6 +316,7 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
         .where('t.date', '<', from)
         .modify((query) => {
           if (fundId) query.where('je.fund_id', fundId);
+          if (isIncomeOrExpense && fiscalYearStartForFrom) query.where('t.date', '>=', fiscalYearStartForFrom);
         })
         .select(
           db.raw('COALESCE(SUM(je.debit),  0) AS total_debit'),
