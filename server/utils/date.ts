@@ -56,7 +56,7 @@ export function compareDateOnly(left?: string | null, right?: string | null) {
 export function normalizeDateOnly(value: string | Date | null | undefined) {
   if (!value) return '';
   if (typeof value === 'string' && DATE_ONLY_RE.test(value)) return value;
-  const parsed = dayjs(value);
+  const parsed = dayjs.utc(value);
   return parsed.isValid() ? parsed.format(DATE_ONLY_FORMAT) : '';
 }
 
