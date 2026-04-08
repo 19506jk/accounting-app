@@ -126,7 +126,8 @@ function baseQuery({ from, to, asOf, fundId }: BaseQueryArgs = {}): Knex.QueryBu
   const query = db('journal_entries as je')
     .join('transactions as t', 't.id', 'je.transaction_id')
     .join('accounts as a', 'a.id', 'je.account_id')
-    .join('funds as f', 'f.id', 'je.fund_id');
+    .join('funds as f', 'f.id', 'je.fund_id')
+    .where('t.is_voided', false);
 
   if (from) query.where('t.date', '>=', from);
   if (to) query.where('t.date', '<=', to);
@@ -298,6 +299,7 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
       const prior = await db('journal_entries as je')
         .join('transactions as t', 't.id', 'je.transaction_id')
         .where('je.account_id', account.id)
+        .where('t.is_voided', false)
         .where('t.date', '<', from)
         .modify((query) => {
           if (fundId) query.where('je.fund_id', fundId);
@@ -400,6 +402,7 @@ async function getDonorSummary({ from, to, fundId }: DateRangeArgs): Promise<Don
     .join('journal_entries as je', 'je.transaction_id', 't.id')
     .join('accounts as a', 'a.id', 'je.account_id')
     .join('contacts as c', 'c.id', 'je.contact_id')
+    .where('t.is_voided', false)
     .where('a.type', 'INCOME')
     .where('je.credit', '>', 0)
     .whereNotNull('je.contact_id')
@@ -422,6 +425,7 @@ async function getDonorSummary({ from, to, fundId }: DateRangeArgs): Promise<Don
   const anonRow = await db('transactions as t')
     .join('journal_entries as je', 'je.transaction_id', 't.id')
     .join('accounts as a', 'a.id', 'je.account_id')
+    .where('t.is_voided', false)
     .where('a.type', 'INCOME')
     .where('je.credit', '>', 0)
     .whereNull('je.contact_id')
@@ -465,6 +469,7 @@ async function getDonorDetail({ from, to, fundId, contactId }: DonorDetailArgs):
       .join('journal_entries as je', 'je.transaction_id', 't.id')
       .join('accounts as a', 'a.id', 'je.account_id')
       .join('funds as f', 'f.id', 'je.fund_id')
+      .where('t.is_voided', false)
       .where('a.type', 'INCOME')
       .where('je.credit', '>', 0)
       .modify((query) => {
