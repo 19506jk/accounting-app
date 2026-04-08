@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useBills, useCreateBill, useUpdateBill, usePayBill, useVoidBill, useBillSummary } from '../api/useBills';
+import { useBills, useCreateBill, useUpdateBill, usePayBill, useVoidBill } from '../api/useBills';
 import { useTaxRates } from '../api/useTaxRates';
 import { useContacts } from '../api/useContacts';
 import { useAccounts } from '../api/useAccounts';
@@ -42,6 +42,7 @@ function createEmptyLineItem(tempId) {
 
 function createEmptyForm() {
   return {
+    bill_type: 'BILL',
     contact_id: '',
     date: getChurchToday(),
     due_date: '',
@@ -53,6 +54,17 @@ function createEmptyForm() {
 }
 
 let tempIdCounter = 1;
+const billTypeOptions = [
+  { value: 'BILL', label: 'Bill' },
+  { value: 'CREDIT', label: 'Credit' },
+];
+
+function normalizeLineAmount(value, billType) {
+  const parsed = parseFloat(value);
+  if (!Number.isFinite(parsed)) return 0;
+  const absolute = Math.abs(parsed);
+  return billType === 'CREDIT' ? absolute * -1 : absolute;
+}
 
 function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding = false, readOnly = false }) {
   const { addToast } = useToast();
@@ -64,9 +76,10 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
   const updateBill = useUpdateBill();
 
   const [form, setForm] = useState(bill ? {
+    bill_type: parseFloat(bill.amount) < 0 ? 'CREDIT' : 'BILL',
     contact_id: String(bill.contact_id),
     date: toDateOnly(String(bill.date)),
-    due_date: toDateOnly(String(bill.due_date)),
+    due_date: bill.due_date ? toDateOnly(String(bill.due_date)) : '',
     bill_number: bill.bill_number || '',
     description: bill.description || '',
     fund_id: String(bill.fund_id),
@@ -74,7 +87,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
       id: `existing-${li.id}`,
       expense_account_id: String(li.expense_account_id),
       description: li.description || '',
-      amount: li.amount,
+      amount: Math.abs(parseFloat(li.amount || 0)) || '',
       tax_rate_id: li.tax_rate_id ? String(li.tax_rate_id) : '',
     })) || [createEmptyLineItem('temp-1')],
   } : createEmptyForm());
@@ -117,14 +130,14 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
   // Per-line tax breakdown using the internal tax formula: gross = net * (1 + rate)
   const lineTotals = useMemo(() => {
     return form.line_items.map(li => {
-      const net = parseFloat(li.amount) || 0;
+      const net = normalizeLineAmount(li.amount, form.bill_type);
       const taxRate = li.tax_rate_id ? taxRateMap[li.tax_rate_id] : null;
       if (!taxRate || net === 0) return { gross: net, net, tax: 0, taxName: null };
       const tax = Math.round(net * taxRate.rate * 100) / 100;
       const gross = Math.round((net + tax) * 100) / 100;
       return { gross, net, tax, taxName: taxRate.name };
     });
-  }, [form.line_items, taxRateMap]);
+  }, [form.bill_type, form.line_items, taxRateMap]);
 
   const lineTotal   = useMemo(
     () => Math.round(lineTotals.reduce((sum, l) => sum + l.gross, 0) * 100) / 100, [lineTotals]
@@ -212,7 +225,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
         line_items: form.line_items.map(li => ({
           expense_account_id: parseInt(li.expense_account_id),
           description: li.description.trim(),
-          amount: parseFloat(li.amount),
+          amount: normalizeLineAmount(li.amount, form.bill_type),
           tax_rate_id: li.tax_rate_id ? parseInt(li.tax_rate_id) : null,
         })),
       };
@@ -257,6 +270,9 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
             error={errors.due_date} disabled={readOnly} />
         </div>
 
+        <Select label="Type" options={billTypeOptions} value={form.bill_type}
+          onChange={set('bill_type')} style={{ marginBottom: '1rem' }} disabled={readOnly} />
+
         <Input label="Description" value={form.description} onChange={set('description')}
           placeholder="e.g., Office supplies" error={errors.description}
           style={{ marginBottom: '1rem' }} disabled={readOnly} />
@@ -267,7 +283,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
 
         <div style={{ marginBottom: '0.5rem' }}>
           <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '0.5rem' }}>
-            Expense Lines
+            {form.bill_type === 'CREDIT' ? 'Credit Lines' : 'Expense Lines'}
           </label>
         </div>
 
@@ -318,7 +334,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
                           disabled={readOnly || taxDisabled}
                           style={{ opacity: taxDisabled ? 0.5 : 1 }}
                         />
-                        {tax > 0 && (
+                        {tax !== 0 && (
                           <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.2rem', textAlign: 'right' }}>
                             {taxName}: {fmt(tax)}
                           </div>
@@ -336,7 +352,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
                         style={{ textAlign: 'right' }}
                         disabled={readOnly}
                       />
-                      {tax > 0 && (
+                      {tax !== 0 && (
                         <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.2rem', textAlign: 'right' }}>
                           Total incl. tax: {fmt(gross)}
                         </div>
@@ -370,7 +386,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
 
         {!readOnly && (
           <Button variant="secondary" size="sm" onClick={addLineItem} style={{ marginBottom: '1.5rem' }}>
-            + Add Expense Line
+            + Add Line
           </Button>
         )}
 
@@ -390,17 +406,17 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
               Saving this bill will update stored amount from {fmt(bill.amount)} to {fmt(lineTotal)}.
             </div>
           )}
-          {totalTax > 0 && (
+          {totalTax !== 0 && (
             <>
               <div style={{ color: '#6b7280' }}>
                 Subtotal (net): <span style={{ fontWeight: 500, color: '#1e293b', marginLeft: '1rem' }}>{fmt(totalNet)}</span>
               </div>
-              {totalHST > 0 && (
+              {totalHST !== 0 && (
                 <div style={{ color: '#6b7280' }}>
                   HST: <span style={{ fontWeight: 500, color: '#1e293b', marginLeft: '1rem' }}>{fmt(totalHST)}</span>
                 </div>
               )}
-              {totalGST > 0 && (
+              {totalGST !== 0 && (
                 <div style={{ color: '#6b7280' }}>
                   GST: <span style={{ fontWeight: 500, color: '#1e293b', marginLeft: '1rem' }}>{fmt(totalGST)}</span>
                 </div>
@@ -429,21 +445,19 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
 
                 return (
                   <div key={idx}>
-                    {/* Expense line at net amount */}
-                    <div style={{ color: '#15803d' }}>
-                      Dr {account?.label || 'Expense'} — {fmt(tax > 0 ? net : gross)}
+                    <div style={{ color: net >= 0 ? '#15803d' : '#b91c1c' }}>
+                      {net >= 0 ? 'Dr' : 'Cr'} {account?.label || 'Expense'} — {fmt(Math.abs(tax !== 0 ? net : gross))}
                     </div>
-                    {/* Tax recoverable line if applicable */}
-                    {tax > 0 && taxRate && (
-                      <div style={{ color: '#15803d', paddingLeft: '1rem', fontSize: '0.8rem' }}>
-                        Dr {taxRate.recoverable_account_name || `${taxName} Recoverable`} — {fmt(tax)}
+                    {tax !== 0 && taxRate && (
+                      <div style={{ color: tax >= 0 ? '#15803d' : '#b91c1c', paddingLeft: '1rem', fontSize: '0.8rem' }}>
+                        {tax >= 0 ? 'Dr' : 'Cr'} {taxRate.recoverable_account_name || `${taxName} Recoverable`} — {fmt(Math.abs(tax))}
                       </div>
                     )}
                   </div>
                 );
               })}
-              <div style={{ color: '#b91c1c', marginTop: '0.25rem', fontWeight: 500 }}>
-                Cr Accounts Payable (20000) — {fmt(lineTotal)}
+              <div style={{ color: lineTotal >= 0 ? '#b91c1c' : '#15803d', marginTop: '0.25rem', fontWeight: 500 }}>
+                {lineTotal >= 0 ? 'Cr' : 'Dr'} Accounts Payable (20000) — {fmt(Math.abs(lineTotal))}
               </div>
             </div>
           </div>
@@ -499,8 +513,14 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
     .map(a => ({ value: a.id, label: `${a.code} — ${a.name}` }));
 
   const outstanding = bill ? parseFloat(bill.amount) - parseFloat(bill.amount_paid) : 0;
+  const outstandingColor = outstanding > 0 ? '#dc2626' : outstanding < 0 ? '#1d4ed8' : '#15803d';
 
   async function handlePay() {
+    if (outstanding <= 0) {
+      addToast('This bill has no payable balance.', 'error');
+      return;
+    }
+
     if (!payment.bank_account_id) {
       addToast('Please select a bank account.', 'error');
       return;
@@ -531,7 +551,7 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
               <div><strong>Vendor:</strong> {bill.vendor_name}</div>
               <div><strong>Bill #:</strong> {bill.bill_number || '—'}</div>
               <div><strong>Amount:</strong> {fmt(bill.amount)}</div>
-              <div><strong>Outstanding:</strong> <span style={{ color: '#dc2626', fontWeight: 600 }}>{fmt(outstanding)}</span></div>
+              <div><strong>Outstanding:</strong> <span style={{ color: outstandingColor, fontWeight: 600 }}>{fmt(outstanding)}</span></div>
               {bill.line_items && bill.line_items.length > 0 && (
                 <div style={{ marginTop: '0.5rem' }}>
                   <strong>Items:</strong> {bill.line_items.length}
@@ -576,12 +596,19 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
               Payment Journal Entry
             </div>
             <div style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>
-              <div style={{ color: '#15803d' }}>
-                Dr Accounts Payable (20000) — {fmt(outstanding)}
-              </div>
-              <div style={{ color: '#b91c1c' }}>
-                Cr {bankAccountOptions.find(a => a.value === payment.bank_account_id)?.label || 'Bank Account'} — {fmt(outstanding)}
-              </div>
+              {outstanding > 0 && (
+                <>
+                  <div style={{ color: '#15803d' }}>
+                    Dr Accounts Payable (20000) — {fmt(outstanding)}
+                  </div>
+                  <div style={{ color: '#b91c1c' }}>
+                    Cr {bankAccountOptions.find(a => a.value === payment.bank_account_id)?.label || 'Bank Account'} — {fmt(outstanding)}
+                  </div>
+                </>
+              )}
+              {outstanding <= 0 && (
+                <div style={{ color: '#64748b' }}>No payment journal entry because this bill has no payable balance.</div>
+              )}
             </div>
           </div>
 
@@ -638,6 +665,7 @@ export default function Bills() {
   const isAddDrawer = drawer?.type === 'add';
   const isViewDrawer = drawer?.type === 'view';
   const activeBill = drawer?.bill || null;
+  const getOutstanding = (b) => parseFloat(b.amount) - parseFloat(b.amount_paid);
 
   function handleAdd() {
     setDrawer({ type: 'add' });
@@ -750,7 +778,15 @@ export default function Bills() {
       label: 'Balance',
       align: 'right',
       render: (b) => {
-        const balance = parseFloat(b.amount) - parseFloat(b.amount_paid);
+        const balance = getOutstanding(b);
+        if (balance < 0) {
+          return (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.4rem' }}>
+              <span style={{ fontWeight: 500, color: '#1d4ed8' }}>{fmt(balance)}</span>
+              <Badge label="Vendor Credit" variant="secondary" />
+            </div>
+          );
+        }
         return <span style={{ fontWeight: 500, color: balance > 0 ? '#dc2626' : '#15803d' }}>{fmt(balance)}</span>;
       },
     },
@@ -773,7 +809,7 @@ export default function Bills() {
       align: 'right',
       render: (b) => (
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-          {!b.is_voided && b.status === 'UNPAID' && canEdit && (
+          {!b.is_voided && b.status === 'UNPAID' && canEdit && getOutstanding(b) > 0 && (
             <Button
               variant="secondary"
               size="sm"
@@ -797,9 +833,9 @@ export default function Bills() {
   });
 
   const unpaidBills = visibleBills.filter(b => b.status === 'UNPAID');
-  const totalUnpaid = unpaidBills.reduce((sum, b) => sum + (parseFloat(b.amount) - parseFloat(b.amount_paid)), 0);
-  const overdueBills = unpaidBills.filter((b) => b.due_date && isDateOnlyBefore(b.due_date, getChurchToday()));
-  const totalOverdue = overdueBills.reduce((sum, b) => sum + (parseFloat(b.amount) - parseFloat(b.amount_paid)), 0);
+  const totalUnpaid = unpaidBills.reduce((sum, b) => sum + Math.max(getOutstanding(b), 0), 0);
+  const overdueBills = unpaidBills.filter((b) => b.due_date && isDateOnlyBefore(b.due_date, getChurchToday()) && getOutstanding(b) > 0);
+  const totalOverdue = overdueBills.reduce((sum, b) => sum + Math.max(getOutstanding(b), 0), 0);
 
   return (
     <div>

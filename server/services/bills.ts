@@ -176,8 +176,7 @@ function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = fa
   // description is now optional - no validation needed
 
   if (!isUpdate || data.amount !== undefined) {
-    if (!data.amount) errors.push('amount is required');
-    else if (dec(data.amount).lte(0)) errors.push('amount must be greater than 0');
+    if (data.amount === undefined || data.amount === null) errors.push('amount is required');
     else if (dec(data.amount).decimalPlaces() > 2) errors.push('amount cannot have more than 2 decimal places');
   }
 
@@ -349,100 +348,69 @@ async function createMultiLineJournalEntries(
 
   const journalEntries: JournalEntryInsertRow[] = [];
   let apTotal = dec(0);
+  const pushSignedEntry = (
+    accountId: number,
+    amount: Decimal,
+    memo: string,
+    taxRateId: number | null,
+    isTaxLine: boolean
+  ) => {
+    if (amount.eq(0)) return;
+    journalEntries.push({
+      transaction_id: transactionId,
+      account_id: accountId,
+      fund_id: fundId,
+      debit: amount.gt(0) ? amount.toFixed(2) : 0,
+      credit: amount.lt(0) ? amount.abs().toFixed(2) : 0,
+      memo,
+      is_reconciled: false,
+      tax_rate_id: taxRateId,
+      is_tax_line: isTaxLine,
+      created_at: trx.fn.now(),
+      updated_at: trx.fn.now(),
+    });
+  };
 
   for (const line of lineItems) {
-    const net = dec(line.amount); // line.amount is net (before tax)
+    const net = dec(line.amount);
     const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null;
+    const lineMemo = `Bill ${billNumber || ''} - ${line.description || ''}`.trim();
 
     if (taxRate) {
-      // gross = net + round(net * rate, 2)
       const tax = net.times(dec(taxRate.rate)).toDecimalPlaces(2);
       const gross = net.plus(tax);
-
-      // Expense line — net amount only
-      journalEntries.push({
-        transaction_id: transactionId,
-        account_id:     line.expense_account_id,
-        fund_id:        fundId,
-        debit:          net.toFixed(2),
-        credit:         0,
-        memo:           `Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
-        is_reconciled:  false,
-        tax_rate_id:    line.tax_rate_id ?? null,
-        is_tax_line:    false,
-        created_at:     trx.fn.now(),
-        updated_at:     trx.fn.now(),
-      });
-
-      // Tax recoverable line — inherits fund and contact from parent
-      journalEntries.push({
-        transaction_id: transactionId,
-        account_id:     taxRate.recoverable_account_id,
-        fund_id:        fundId,
-        debit:          tax.toFixed(2),
-        credit:         0,
-        memo:           `${taxRate.name} on Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
-        is_reconciled:  false,
-        tax_rate_id:    line.tax_rate_id ?? null,
-        is_tax_line:    true,
-        created_at:     trx.fn.now(),
-        updated_at:     trx.fn.now(),
-      });
-
-      apTotal = apTotal.plus(gross); // AP credit = full gross
+      pushSignedEntry(
+        line.expense_account_id,
+        net,
+        lineMemo,
+        line.tax_rate_id ?? null,
+        false
+      );
+      pushSignedEntry(
+        taxRate.recoverable_account_id,
+        tax,
+        `${taxRate.name} on Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
+        line.tax_rate_id ?? null,
+        true
+      );
+      apTotal = apTotal.plus(gross);
     } else {
-      // No tax — net === gross
-      if (net.gte(0)) {
-        journalEntries.push({
-          transaction_id: transactionId,
-          account_id:     line.expense_account_id,
-          fund_id:        fundId,
-          debit:          net.toFixed(2),
-          credit:         0,
-          memo:           `Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
-          is_reconciled:  false,
-          tax_rate_id:    null,
-          is_tax_line:    false,
-          created_at:     trx.fn.now(),
-          updated_at:     trx.fn.now(),
-        });
-      } else {
-        journalEntries.push({
-          transaction_id: transactionId,
-          account_id:     line.expense_account_id,
-          fund_id:        fundId,
-          debit:          0,
-          credit:         net.abs().toFixed(2),
-          memo:           `Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
-          is_reconciled:  false,
-          tax_rate_id:    null,
-          is_tax_line:    false,
-          created_at:     trx.fn.now(),
-          updated_at:     trx.fn.now(),
-        });
-      }
+      pushSignedEntry(line.expense_account_id, net, lineMemo, null, false);
       apTotal = apTotal.plus(net);
     }
   }
 
-  // AP credit line — full gross total (tax-inclusive)
-  journalEntries.push({
-    transaction_id: transactionId,
-    account_id:     apAccountId,
-    fund_id:        fundId,
-    debit:          0,
-    credit:         apTotal.toFixed(2),
-    memo:           `Bill ${billNumber || ''} - ${contactName}`,
-    is_reconciled:  false,
-    tax_rate_id:    null,
-    is_tax_line:    false,
-    created_at:     trx.fn.now(),
-    updated_at:     trx.fn.now(),
-  });
+  pushSignedEntry(
+    apAccountId,
+    apTotal.negated(),
+    `Bill ${billNumber || ''} - ${contactName}`,
+    null,
+    false
+  );
 
-  // Rounding check: sum of all debits vs AP credit
   const totalDebits = journalEntries.reduce((sum, e) => sum.plus(dec(e.debit)), dec(0));
-  const diff = totalDebits.minus(apTotal).abs();
+  const totalCredits = journalEntries.reduce((sum, e) => sum.plus(dec(e.credit)), dec(0));
+  const diff = totalDebits.minus(totalCredits).abs();
   if (diff.gt(0) && diff.lte(TOLERANCE)) {
     const roundingAccount = await trx('accounts')
       .where({ code: ROUNDING_ACCOUNT_CODE })
@@ -452,8 +420,8 @@ async function createMultiLineJournalEntries(
         transaction_id: transactionId,
         account_id:     roundingAccount.id,
         fund_id:        fundId,
-        debit:          totalDebits.lt(apTotal) ? diff.toFixed(2) : 0,
-        credit:         totalDebits.gt(apTotal) ? diff.toFixed(2) : 0,
+        debit:          totalDebits.lt(totalCredits) ? diff.toFixed(2) : 0,
+        credit:         totalDebits.gt(totalCredits) ? diff.toFixed(2) : 0,
         memo:           'Rounding adjustment',
         is_reconciled:  false,
         tax_rate_id:    null,
@@ -492,10 +460,6 @@ async function validateLineItemAccounts(lineItems: BillLineItemInput[]): Promise
 
     if (account.type !== 'EXPENSE') {
       errors.push(`Line ${i + 1}: Selected account must be an EXPENSE type`);
-    }
-
-    if (dec(line.amount).lt(0) && account.code !== ROUNDING_ACCOUNT_CODE) {
-      errors.push(`Line ${i + 1}: Negative amounts only allowed in account ${ROUNDING_ACCOUNT_CODE} (Rounding & Adjustments)`);
     }
 
     // Tax validation: tax may only be applied to EXPENSE accounts
@@ -554,6 +518,7 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
 
   const taxRateMap = await resolveTaxRateMap(payload.line_items, db);
   const totalAmount = calculateGrossTotalFromLineItems(payload.line_items, taxRateMap);
+  const isSettledOnCreate = totalAmount.eq(0);
 
   const result = await db.transaction(async (trx: Knex.Transaction) => {
     const [bill] = await trx('bills')
@@ -565,9 +530,11 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
         description: payload.description.trim(),
         amount: totalAmount.toFixed(2),
         fund_id: payload.fund_id,
-        amount_paid: 0,
-        status: 'UNPAID',
+        amount_paid: isSettledOnCreate ? totalAmount.toFixed(2) : 0,
+        status: isSettledOnCreate ? 'PAID' : 'UNPAID',
         created_by: userId,
+        paid_by: isSettledOnCreate ? userId : null,
+        paid_at: isSettledOnCreate ? trx.fn.now() : null,
         created_at: trx.fn.now(),
         updated_at: trx.fn.now(),
       })
@@ -662,6 +629,7 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
   const newTotalAmount = newLineItems.length > 0
     ? calculateGrossTotalFromLineItems(newLineItems, taxRateMap)
     : dec(bill.amount);
+  const isSettledAfterUpdate = newTotalAmount.eq(0);
 
   if (payload.line_items !== undefined || Boolean(bill.created_transaction_id)) {
     await db.transaction(async (trx: Knex.Transaction) => {
@@ -709,6 +677,11 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
     bill_number: payload.bill_number !== undefined ? payload.bill_number?.trim() || null : bill.bill_number,
     description: payload.description !== undefined ? payload.description.trim() : bill.description,
     amount: newTotalAmount.toFixed(2),
+    amount_paid: isSettledAfterUpdate ? newTotalAmount.toFixed(2) : 0,
+    status: isSettledAfterUpdate ? 'PAID' : 'UNPAID',
+    paid_by: isSettledAfterUpdate ? userId : null,
+    paid_at: isSettledAfterUpdate ? db.fn.now() : null,
+    transaction_id: isSettledAfterUpdate ? bill.transaction_id : null,
     fund_id: payload.fund_id !== undefined ? payload.fund_id : bill.fund_id,
     updated_at: db.fn.now(),
   };
@@ -752,6 +725,9 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
   }
 
   const outstanding = dec(bill.amount).minus(dec(bill.amount_paid));
+  if (outstanding.lte(0)) {
+    return { errors: ['Bill has no payable balance'], outstanding: parseFloat(outstanding.toFixed(2)) };
+  }
   
   if (paymentData.amount !== undefined) {
     const paymentAmount = dec(paymentData.amount);
@@ -913,6 +889,7 @@ async function getAgingReport(asOfDate: string | Date = getChurchToday(getChurch
     const dueDate = normalizeDateOnly(bill.due_date) || asOf;
     const daysOverdue = Math.floor((dayNumberFromDateOnly(asOf) - dayNumberFromDateOnly(dueDate)) / (1000 * 60 * 60 * 24));
     const outstanding = parseFloat(dec(bill.amount).minus(dec(bill.amount_paid)).toFixed(2));
+    if (outstanding <= 0) return;
 
     const billData: AgingBill = {
       ...bill,
@@ -996,9 +973,9 @@ async function getUnpaidSummary(): Promise<BillSummaryResponse['summary']> {
   const summary = await db('bills')
     .where('status', 'UNPAID')
     .select(
-      db.raw('COUNT(*) as count'),
-      db.raw('SUM(amount - amount_paid) as total_outstanding'),
-      db.raw('MIN(due_date) as earliest_due'),
+      db.raw('SUM(CASE WHEN amount - amount_paid > 0 THEN 1 ELSE 0 END) as count'),
+      db.raw('SUM(CASE WHEN amount - amount_paid > 0 THEN amount - amount_paid ELSE 0 END) as total_outstanding'),
+      db.raw('MIN(CASE WHEN amount - amount_paid > 0 THEN due_date ELSE NULL END) as earliest_due'),
     )
     .first() as UnpaidSummaryRow | undefined;
 
