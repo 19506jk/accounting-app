@@ -3,6 +3,9 @@ import type { Knex } from 'knex';
 import express = require('express');
 
 import type {
+  ApplyBillCreditsInput,
+  ApplyBillCreditsResponse,
+  AvailableBillCreditsResponse,
   ApiErrorResponse,
   ApiValidationErrorResponse,
   BillAgingReportResponse,
@@ -14,6 +17,7 @@ import type {
   BillSummary,
   BillSummaryResponse,
   CreateBillInput,
+  UnapplyBillCreditsResponse,
   PayBillInput,
   UpdateBillInput,
 } from '@shared/contracts';
@@ -36,6 +40,9 @@ const {
   updateBill,
   payBill,
   voidBill,
+  getAvailableCreditsForBill,
+  applyBillCredits,
+  unapplyBillCredits,
   getAgingReport,
   getUnpaidSummary,
   getBillWithLineItems,
@@ -186,6 +193,74 @@ router.get(
 
       const report = await getAgingReport(asOfDate);
       res.json({ report });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  '/:id/available-credits',
+  async (
+    req: Request<{ id: string }>,
+    res: Response<AvailableBillCreditsResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const credits = await getAvailableCreditsForBill(req.params.id);
+      const target = await getBillWithLineItems(req.params.id);
+      if (!target) return res.status(404).json({ error: 'Bill not found' });
+      const targetOutstanding = parseFloat((target.amount - target.amount_paid).toFixed(2));
+      res.json({
+        credits,
+        target_bill_id: target.id,
+        target_outstanding: targetOutstanding,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/apply-credits',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }, ApplyBillCreditsResponse | ApiValidationErrorResponse, ApplyBillCreditsInput>,
+    res: Response<ApplyBillCreditsResponse | ApiValidationErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const result = await applyBillCredits(req.params.id, req.body, req.user!.id);
+      if (result.errors) return res.status(400).json({ errors: result.errors });
+      if (!result.bill) throw new Error('Unexpected missing bill after applyBillCredits');
+      res.json({
+        bill: result.bill,
+        applications: result.applications || [],
+        transaction: normaliseMutationTransaction(result.transaction),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/unapply-credits',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }>,
+    res: Response<UnapplyBillCreditsResponse | ApiValidationErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const result = await unapplyBillCredits(req.params.id, req.user!.id);
+      if (result.errors) return res.status(400).json({ errors: result.errors });
+      if (!result.bill) throw new Error('Unexpected missing bill after unapplyBillCredits');
+      res.json({
+        bill: result.bill,
+        unapplied_count: result.unapplied_count || 0,
+      });
     } catch (err) {
       next(err);
     }

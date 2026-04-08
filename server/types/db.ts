@@ -220,3 +220,15 @@ export interface BillLineItemRow {
   description: string | null;
   tax_rate_id: number | null;
 }
+
+export interface BillCreditApplicationRow {
+  id: number;
+  target_bill_id: number;
+  credit_bill_id: number;
+  amount: string | number;
+  apply_transaction_id: number | null;
+  applied_by: number;
+  applied_at: Date | string;
+  unapplied_by: number | null;
+  unapplied_at: Date | string | null;
+}

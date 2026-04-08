@@ -546,6 +546,8 @@ export interface BillDetail extends BillSummary {
   vendor_email?: string | null;
   vendor_phone?: string | null;
   paid_by_name?: string | null;
+  available_credit_total?: number;
+  applied_credits?: BillCreditApplication[];
   payment_transaction?: {
     id: number;
     date: string;
@@ -591,12 +593,73 @@ export interface UpdateBillInput {
   amount?: number;
   fund_id?: number;
   line_items?: BillLineItemInput[];
+  confirm_unapply_credits?: boolean;
 }
 
 export interface PayBillInput {
   payment_date?: string;
   bank_account_id?: number;
   memo?: string;
+}
+
+export interface BillCreditApplication {
+  id: number;
+  target_bill_id: number;
+  credit_bill_id: number;
+  amount: number;
+  apply_transaction_id: number | null;
+  applied_by: number;
+  applied_by_name?: string | null;
+  applied_at: string;
+  unapplied_at?: string | null;
+  credit_bill_number?: string | null;
+  credit_bill_date?: string;
+}
+
+export interface AvailableBillCredit {
+  bill_id: number;
+  bill_number: string | null;
+  date: string;
+  description: string;
+  original_amount: number;
+  amount_paid: number;
+  outstanding: number;
+  available_amount: number;
+}
+
+export interface BillCreditApplicationInput {
+  credit_bill_id: number;
+  amount: number;
+}
+
+export interface ApplyBillCreditsInput {
+  applications: BillCreditApplicationInput[];
+}
+
+export interface AvailableBillCreditsResponse {
+  credits: AvailableBillCredit[];
+  target_bill_id: number;
+  target_outstanding: number;
+}
+
+export interface ApplyBillCreditsResponse {
+  bill: BillDetail;
+  applications: BillCreditApplication[];
+  transaction?: {
+    id: number;
+    date: string;
+    description: string;
+    reference_no: string | null;
+    fund_id: number;
+    created_by: number;
+    created_at: string;
+    updated_at: string;
+  };
+}
+
+export interface UnapplyBillCreditsResponse {
+  bill: BillDetail;
+  unapplied_count: number;
 }
 
 export interface BillsListResponse {

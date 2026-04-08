@@ -2,6 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import client from './client'
 
 import type {
+  ApplyBillCreditsInput,
+  ApplyBillCreditsResponse,
+  AvailableBillCreditsResponse,
   BillAgingReportResponse,
   BillDetail,
   BillSummary,
@@ -18,6 +21,17 @@ interface UpdateBillPayload extends UpdateBillInput {
 
 interface PayBillPayload extends PayBillInput {
   id: number
+}
+
+export function useAvailableBillCredits(id: number | null | undefined) {
+  return useQuery<AvailableBillCreditsResponse>({
+    queryKey: ['bills', id, 'available-credits'],
+    queryFn: async () => {
+      const { data } = await client.get<AvailableBillCreditsResponse>(`/bills/${id}/available-credits`)
+      return data
+    },
+    enabled: !!id,
+  })
 }
 
 export function useBills(params: BillsQuery = {}) {
@@ -120,6 +134,38 @@ export function useVoidBill() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
+    },
+  })
+}
+
+export function useApplyBillCredits() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...payload }: { id: number } & ApplyBillCreditsInput) => {
+      const { data } = await client.post<ApplyBillCreditsResponse>(`/bills/${id}/apply-credits`, payload)
+      return data
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['bills', vars.id] })
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
+    },
+  })
+}
+
+export function useUnapplyBillCredits() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { data } = await client.post<{ bill: BillDetail; unapplied_count: number }>(`/bills/${id}/unapply-credits`)
+      return data
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['bills'] })
+      queryClient.invalidateQueries({ queryKey: ['bills', id] })
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
     },

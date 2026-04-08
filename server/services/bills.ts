@@ -2,7 +2,10 @@ import type { Knex } from 'knex';
 import Decimal from 'decimal.js';
 
 import type {
+  ApplyBillCreditsInput,
+  AvailableBillCredit,
   BillAgingReportResponse,
+  BillCreditApplication,
   BillDetail,
   BillLineItemInput,
   BillSummaryResponse,
@@ -10,7 +13,7 @@ import type {
   PayBillInput,
   UpdateBillInput,
 } from '@shared/contracts';
-import type { BillRow, TransactionRow } from '../types/db';
+import type { BillCreditApplicationRow, BillRow, TransactionRow } from '../types/db';
 import {
   compareDateOnly,
   getChurchToday,
@@ -151,6 +154,21 @@ type VendorAgingItem = {
   total: number;
 };
 
+interface ApplicationJoinedRow {
+  id: number;
+  target_bill_id: number;
+  credit_bill_id: number;
+  amount: Numeric;
+  apply_transaction_id: number | null;
+  applied_by: number;
+  applied_at: string | Date;
+  unapplied_by: number | null;
+  unapplied_at: string | Date | null;
+  applied_by_name: string | null;
+  credit_bill_number: string | null;
+  credit_bill_date: string | Date;
+}
+
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
 const asDateOnlyString = (value: string | Date) => normalizeDateOnly(value);
 const asDateTimeString = (value: string | Date) => toUtcIsoString(value);
@@ -158,6 +176,43 @@ const asDateTimeString = (value: string | Date) => toUtcIsoString(value);
 const ROUNDING_ACCOUNT_CODE = '59999';
 const AP_ACCOUNT_CODE = '20000';
 const TOLERANCE = 0.01;
+const SETTLEMENT_TOLERANCE = new Decimal('0.01');
+
+function getOutstanding(amount: Numeric, amountPaid: Numeric) {
+  return dec(amount).minus(dec(amountPaid));
+}
+
+function isSettledOutstanding(outstanding: Decimal) {
+  return outstanding.abs().lt(SETTLEMENT_TOLERANCE);
+}
+
+function toBillStatus(outstanding: Decimal): BillRow['status'] {
+  return isSettledOutstanding(outstanding) ? 'PAID' : 'UNPAID';
+}
+
+function getAmountPaidFromOutstanding(amount: Numeric, outstanding: Decimal) {
+  return dec(amount).minus(outstanding).toFixed(2);
+}
+
+function formatBillReference(bill: Pick<BillRow, 'id' | 'bill_number'>) {
+  return bill.bill_number ? `#${bill.bill_number}` : `#${bill.id}`;
+}
+
+function normaliseApplications(rows: ApplicationJoinedRow[]): BillCreditApplication[] {
+  return rows.map((row) => ({
+    id: row.id,
+    target_bill_id: row.target_bill_id,
+    credit_bill_id: row.credit_bill_id,
+    amount: parseFloat(String(row.amount)),
+    apply_transaction_id: row.apply_transaction_id,
+    applied_by: row.applied_by,
+    applied_by_name: row.applied_by_name,
+    applied_at: asDateTimeString(row.applied_at),
+    unapplied_at: row.unapplied_at ? asDateTimeString(row.unapplied_at) : null,
+    credit_bill_number: row.credit_bill_number,
+    credit_bill_date: asDateOnlyString(row.credit_bill_date),
+  }));
+}
 
 function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = false): string[] {
   const errors: string[] = [];
@@ -256,6 +311,35 @@ async function getBillWithLineItems(billId: string | number): Promise<BillDetail
       'tr.rate as tax_rate_value',
     ) as BillLineItemJoinedRow[];
 
+  const appliedCreditRows = await db('bill_credit_applications as bca')
+    .leftJoin('users as u', 'u.id', 'bca.applied_by')
+    .leftJoin('bills as cb', 'cb.id', 'bca.credit_bill_id')
+    .where('bca.target_bill_id', billId)
+    .whereNull('bca.unapplied_at')
+    .orderBy('bca.applied_at', 'asc')
+    .select(
+      'bca.*',
+      'u.name as applied_by_name',
+      'cb.bill_number as credit_bill_number',
+      'cb.date as credit_bill_date'
+    ) as ApplicationJoinedRow[];
+
+  const availableCreditRows = await db('bills as b')
+    .where({
+      contact_id: bill.contact_id,
+      fund_id: bill.fund_id,
+      status: 'UNPAID',
+    })
+    .where('b.amount', '<', 0)
+    .where('b.id', '<>', bill.id)
+    .select('b.amount', 'b.amount_paid') as Array<{ amount: Numeric; amount_paid: Numeric }>;
+
+  const availableCreditTotal = availableCreditRows.reduce((sum, row) => {
+    const outstanding = getOutstanding(row.amount, row.amount_paid);
+    if (outstanding.gte(0)) return sum;
+    return sum.plus(outstanding.abs());
+  }, dec(0));
+
   return {
     ...bill,
     date: asDateOnlyString(bill.date),
@@ -265,6 +349,8 @@ async function getBillWithLineItems(billId: string | number): Promise<BillDetail
     updated_at: asDateTimeString(bill.updated_at),
     amount: parseFloat(String(bill.amount)),
     amount_paid: parseFloat(String(bill.amount_paid)),
+    available_credit_total: parseFloat(availableCreditTotal.toFixed(2)),
+    applied_credits: normaliseApplications(appliedCreditRows),
     line_items: lineItems.map(li => ({
       id: li.id,
       expense_account_id: li.expense_account_id,
@@ -476,6 +562,387 @@ async function validateLineItemAccounts(lineItems: BillLineItemInput[]): Promise
   return errors;
 }
 
+async function getClosedBooksThrough(executor: Knex | Knex.Transaction) {
+  const row = await executor('settings')
+    .where({ key: 'books_closed_through' })
+    .select('value')
+    .first() as { value?: string | null } | undefined;
+  if (!row?.value) return null;
+  if (!isValidDateOnly(row.value)) return null;
+  return row.value;
+}
+
+async function getAvailableCreditsForBill(id: string | number): Promise<AvailableBillCredit[]> {
+  const target = await db('bills').where({ id }).first() as BillRow | undefined;
+  if (!target) return [];
+
+  const targetOutstanding = getOutstanding(target.amount, target.amount_paid);
+  if (targetOutstanding.lte(0)) return [];
+
+  const credits = await db('bills as b')
+    .where({
+      contact_id: target.contact_id,
+      fund_id: target.fund_id,
+      status: 'UNPAID',
+    })
+    .where('b.amount', '<', 0)
+    .where('b.id', '<>', target.id)
+    .orderBy('b.date', 'asc')
+    .orderBy('b.id', 'asc')
+    .select(
+      'b.id',
+      'b.bill_number',
+      'b.date',
+      'b.description',
+      'b.amount',
+      'b.amount_paid'
+    ) as Array<Pick<BillRow, 'id' | 'bill_number' | 'date' | 'description' | 'amount' | 'amount_paid'>>;
+
+  return credits
+    .map((credit) => {
+      const outstanding = getOutstanding(credit.amount, credit.amount_paid);
+      if (outstanding.gte(0)) return null;
+      return {
+        bill_id: credit.id,
+        bill_number: credit.bill_number,
+        date: asDateOnlyString(credit.date),
+        description: credit.description,
+        original_amount: parseFloat(String(credit.amount)),
+        amount_paid: parseFloat(String(credit.amount_paid)),
+        outstanding: parseFloat(outstanding.toFixed(2)),
+        available_amount: parseFloat(outstanding.abs().toFixed(2)),
+      } as AvailableBillCredit;
+    })
+    .filter((credit): credit is AvailableBillCredit => Boolean(credit));
+}
+
+async function unapplyBillCredits(
+  id: string,
+  userId: number
+): Promise<{ bill?: BillDetail | null; errors?: string[]; unapplied_count?: number }> {
+  const result = await db.transaction(async (trx: Knex.Transaction) => {
+    const targetBill = await trx('bills')
+      .where({ id })
+      .first()
+      .forUpdate() as BillRow | undefined;
+    if (!targetBill) return { errors: ['Bill not found'] };
+
+    const applications = await trx('bill_credit_applications')
+      .where({ target_bill_id: id })
+      .whereNull('unapplied_at')
+      .orderBy('applied_at', 'asc')
+      .forUpdate() as BillCreditApplicationRow[];
+
+    if (applications.length === 0) {
+      const bill = await getBillWithLineItems(id);
+      return { bill, unapplied_count: 0 };
+    }
+
+    const closedThrough = await getClosedBooksThrough(trx);
+    if (closedThrough) {
+      const hasClosedPeriodApplication = applications.some((app) => {
+        const appliedDate = normalizeDateOnly(app.applied_at) || '';
+        return appliedDate <= closedThrough;
+      });
+      if (hasClosedPeriodApplication) {
+        return { errors: [`Cannot unapply credits dated on or before closed period ${closedThrough}`] };
+      }
+    }
+
+    const creditIds = [...new Set(applications.map((app) => app.credit_bill_id))];
+    const credits = await trx('bills')
+      .whereIn('id', creditIds)
+      .forUpdate() as BillRow[];
+    const creditMap = new Map(credits.map((credit) => [credit.id, credit]));
+
+    let targetOutstanding = getOutstanding(targetBill.amount, targetBill.amount_paid);
+    for (const app of applications) {
+      const appAmount = dec(app.amount);
+      targetOutstanding = targetOutstanding.plus(appAmount);
+    }
+
+    await trx('bills')
+      .where({ id: targetBill.id })
+      .update({
+        amount_paid: getAmountPaidFromOutstanding(targetBill.amount, targetOutstanding),
+        status: toBillStatus(targetOutstanding),
+        paid_by: isSettledOutstanding(targetOutstanding) ? userId : null,
+        paid_at: isSettledOutstanding(targetOutstanding) ? trx.fn.now() : null,
+        updated_at: trx.fn.now(),
+      });
+
+    const updatesByCredit = new Map<number, Decimal>();
+    for (const app of applications) {
+      const current = updatesByCredit.get(app.credit_bill_id) || dec(0);
+      updatesByCredit.set(app.credit_bill_id, current.minus(dec(app.amount)));
+    }
+
+    for (const [creditId, delta] of updatesByCredit.entries()) {
+      const credit = creditMap.get(creditId);
+      if (!credit) {
+        return { errors: [`Credit bill ${creditId} not found`] };
+      }
+      const outstanding = getOutstanding(credit.amount, credit.amount_paid);
+      const nextOutstanding = outstanding.plus(delta);
+      await trx('bills')
+        .where({ id: credit.id })
+        .update({
+          amount_paid: getAmountPaidFromOutstanding(credit.amount, nextOutstanding),
+          status: toBillStatus(nextOutstanding),
+          paid_by: isSettledOutstanding(nextOutstanding) ? userId : null,
+          paid_at: isSettledOutstanding(nextOutstanding) ? trx.fn.now() : null,
+          updated_at: trx.fn.now(),
+        });
+    }
+
+    const transactionIds = [...new Set(applications.map((app) => app.apply_transaction_id).filter((id): id is number => Boolean(id)))];
+    if (transactionIds.length > 0) {
+      await trx('transactions')
+        .whereIn('id', transactionIds)
+        .update({
+          is_voided: true,
+          updated_at: trx.fn.now(),
+        });
+    }
+
+    await trx('bill_credit_applications')
+      .where({ target_bill_id: id })
+      .whereNull('unapplied_at')
+      .update({
+        unapplied_at: trx.fn.now(),
+        unapplied_by: userId,
+      });
+
+    const bill = await getBillWithLineItems(id);
+    return { bill, unapplied_count: applications.length };
+  });
+
+  return result;
+}
+
+async function applyBillCredits(
+  id: string,
+  payload: ApplyBillCreditsInput,
+  userId: number
+): Promise<{ bill?: BillDetail | null; errors?: string[]; applications?: BillCreditApplication[]; transaction?: TransactionRow | null }> {
+  if (!payload.applications || !Array.isArray(payload.applications) || payload.applications.length === 0) {
+    return { errors: ['applications is required'] };
+  }
+
+  const validated = payload.applications
+    .map((app) => ({
+      credit_bill_id: app.credit_bill_id,
+      amount: dec(app.amount || 0),
+    }))
+    .filter((app) => app.amount.gt(0));
+
+  if (validated.length === 0) {
+    return { errors: ['At least one positive application amount is required'] };
+  }
+
+  if (validated.some((app) => app.amount.decimalPlaces() > 2)) {
+    return { errors: ['Application amount cannot have more than 2 decimal places'] };
+  }
+
+  const duplicates = new Set<number>();
+  for (const app of validated) {
+    if (duplicates.has(app.credit_bill_id)) {
+      return { errors: ['Duplicate credit bill in applications is not allowed'] };
+    }
+    duplicates.add(app.credit_bill_id);
+  }
+
+  const result = await db.transaction(async (trx: Knex.Transaction) => {
+    const target = await trx('bills')
+      .where({ id })
+      .first()
+      .forUpdate() as BillRow | undefined;
+    if (!target) return { errors: ['Bill not found'] };
+
+    const targetOutstanding = getOutstanding(target.amount, target.amount_paid);
+    if (targetOutstanding.lte(0)) return { errors: ['Bill has no payable balance'] };
+    if (dec(target.amount).lte(0)) return { errors: ['Credits can only be applied to a positive bill'] };
+
+    const availableCredits = await trx('bills')
+      .where({
+        contact_id: target.contact_id,
+        fund_id: target.fund_id,
+        status: 'UNPAID',
+      })
+      .where('amount', '<', 0)
+      .where('id', '<>', target.id)
+      .orderBy('date', 'asc')
+      .orderBy('id', 'asc')
+      .forUpdate() as BillRow[];
+
+    const availableWithAmounts = availableCredits.map((bill) => {
+      const outstanding = getOutstanding(bill.amount, bill.amount_paid);
+      return {
+        bill,
+        available: outstanding.lt(0) ? outstanding.abs() : dec(0),
+      };
+    }).filter((entry) => entry.available.gt(0));
+
+    const selectedMap = new Map(validated.map((app) => [app.credit_bill_id, app.amount]));
+    const selectedInFifo = availableWithAmounts.filter((entry) => selectedMap.has(entry.bill.id));
+
+    if (selectedInFifo.length !== validated.length) {
+      return { errors: ['One or more selected credits are unavailable for this bill'] };
+    }
+
+    const fifoPrefixIds = availableWithAmounts.slice(0, selectedInFifo.length).map((entry) => entry.bill.id);
+    const selectedIds = selectedInFifo.map((entry) => entry.bill.id);
+    if (selectedIds.some((id, idx) => id !== fifoPrefixIds[idx])) {
+      return { errors: ['Credits must be applied in FIFO order'] };
+    }
+
+    for (const [i, entry] of selectedInFifo.entries()) {
+      const requested = selectedMap.get(entry.bill.id) || dec(0);
+      if (requested.gt(entry.available)) {
+        return { errors: [`Credit bill ${formatBillReference(entry.bill)} exceeds available balance`] };
+      }
+      if (i < selectedInFifo.length - 1 && requested.lt(entry.available)) {
+        return { errors: ['Cannot partially apply an earlier credit while applying a later one'] };
+      }
+    }
+
+    const totalApply = selectedInFifo.reduce((sum, entry) => sum.plus(selectedMap.get(entry.bill.id) || 0), dec(0));
+    if (totalApply.gt(targetOutstanding)) {
+      return { errors: [`Total application exceeds target outstanding ($${targetOutstanding.toFixed(2)})`] };
+    }
+
+    const apAccount = await trx('accounts')
+      .where({ code: AP_ACCOUNT_CODE })
+      .where('is_active', true)
+      .first() as AccountRow | undefined;
+    if (!apAccount) return { errors: [`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`] };
+
+    const [applyTransaction] = await trx('transactions')
+      .insert({
+        date: getChurchToday(getChurchTimeZone()),
+        description: `Apply vendor credit(s) to bill ${formatBillReference(target)}`,
+        reference_no: target.bill_number || null,
+        fund_id: target.fund_id,
+        created_by: userId,
+        created_at: trx.fn.now(),
+        updated_at: trx.fn.now(),
+      })
+      .returning('*') as TransactionRow[];
+    if (!applyTransaction) throw new Error('Failed to create credit application transaction');
+
+    const journalRows: JournalEntryInsertRow[] = [];
+    const appRows: Array<{
+      target_bill_id: number;
+      credit_bill_id: number;
+      amount: string;
+      apply_transaction_id: number;
+      applied_by: number;
+      applied_at: unknown;
+      unapplied_at: null;
+      unapplied_by: null;
+    }> = [];
+
+    let nextTargetOutstanding = targetOutstanding;
+    for (const entry of selectedInFifo) {
+      const amount = selectedMap.get(entry.bill.id) || dec(0);
+      if (amount.lte(0)) continue;
+
+      const sourceLabel = formatBillReference(entry.bill);
+      const targetLabel = formatBillReference(target);
+      const memo = `Applied Credit ${sourceLabel} to Bill ${targetLabel}`;
+      journalRows.push({
+        transaction_id: applyTransaction.id,
+        account_id: apAccount.id,
+        fund_id: target.fund_id,
+        debit: amount.toFixed(2),
+        credit: 0,
+        memo,
+        is_reconciled: false,
+        tax_rate_id: null,
+        is_tax_line: false,
+        created_at: trx.fn.now(),
+        updated_at: trx.fn.now(),
+      });
+      journalRows.push({
+        transaction_id: applyTransaction.id,
+        account_id: apAccount.id,
+        fund_id: target.fund_id,
+        debit: 0,
+        credit: amount.toFixed(2),
+        memo,
+        is_reconciled: false,
+        tax_rate_id: null,
+        is_tax_line: false,
+        created_at: trx.fn.now(),
+        updated_at: trx.fn.now(),
+      });
+
+      const sourceOutstanding = getOutstanding(entry.bill.amount, entry.bill.amount_paid);
+      const nextSourceOutstanding = sourceOutstanding.plus(amount);
+      await trx('bills')
+        .where({ id: entry.bill.id })
+        .update({
+          amount_paid: getAmountPaidFromOutstanding(entry.bill.amount, nextSourceOutstanding),
+          status: toBillStatus(nextSourceOutstanding),
+          paid_by: isSettledOutstanding(nextSourceOutstanding) ? userId : null,
+          paid_at: isSettledOutstanding(nextSourceOutstanding) ? trx.fn.now() : null,
+          updated_at: trx.fn.now(),
+        });
+
+      nextTargetOutstanding = nextTargetOutstanding.minus(amount);
+      appRows.push({
+        target_bill_id: target.id,
+        credit_bill_id: entry.bill.id,
+        amount: amount.toFixed(2),
+        apply_transaction_id: applyTransaction.id,
+        applied_by: userId,
+        applied_at: trx.fn.now(),
+        unapplied_at: null,
+        unapplied_by: null,
+      });
+    }
+
+    if (journalRows.length === 0) {
+      return { errors: ['No credit amount was applied'] };
+    }
+
+    await trx('journal_entries').insert(journalRows);
+    const insertedApps = await trx('bill_credit_applications')
+      .insert(appRows)
+      .returning('*') as BillCreditApplicationRow[];
+
+    await trx('bills')
+      .where({ id: target.id })
+      .update({
+        amount_paid: getAmountPaidFromOutstanding(target.amount, nextTargetOutstanding),
+        status: toBillStatus(nextTargetOutstanding),
+        paid_by: isSettledOutstanding(nextTargetOutstanding) ? userId : null,
+        paid_at: isSettledOutstanding(nextTargetOutstanding) ? trx.fn.now() : null,
+        updated_at: trx.fn.now(),
+      });
+
+    const detailedApps = await trx('bill_credit_applications as bca')
+      .leftJoin('users as u', 'u.id', 'bca.applied_by')
+      .leftJoin('bills as cb', 'cb.id', 'bca.credit_bill_id')
+      .whereIn('bca.id', insertedApps.map((app) => app.id))
+      .select(
+        'bca.*',
+        'u.name as applied_by_name',
+        'cb.bill_number as credit_bill_number',
+        'cb.date as credit_bill_date'
+      ) as ApplicationJoinedRow[];
+
+    const bill = await getBillWithLineItems(id);
+    return {
+      bill,
+      applications: normaliseApplications(detailedApps),
+      transaction: applyTransaction,
+    };
+  });
+
+  return result;
+}
+
 async function createBill(payload: CreateBillInput, userId: number): Promise<BillMutationResult> {
   const errors = validateBillData(payload);
   if (errors.length) return { errors };
@@ -518,7 +985,7 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
 
   const taxRateMap = await resolveTaxRateMap(payload.line_items, db);
   const totalAmount = calculateGrossTotalFromLineItems(payload.line_items, taxRateMap);
-  const isSettledOnCreate = totalAmount.eq(0);
+  const isSettledOnCreate = isSettledOutstanding(totalAmount);
 
   const result = await db.transaction(async (trx: Knex.Transaction) => {
     const [bill] = await trx('bills')
@@ -579,13 +1046,35 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
 }
 
 async function updateBill(id: string, payload: UpdateBillInput, userId: number): Promise<BillMutationResult> {
-  const bill = await db('bills').where({ id }).first() as BillRow | undefined;
+  let bill = await db('bills').where({ id }).first() as BillRow | undefined;
   if (!bill) {
     return { errors: ['Bill not found'] };
   }
 
   if (bill.status !== 'UNPAID') {
     return { errors: [`Cannot edit ${bill.status} bills`] };
+  }
+
+  const existingApplications = await db('bill_credit_applications')
+    .where({ target_bill_id: id })
+    .whereNull('unapplied_at')
+    .count('id as count')
+    .first() as { count: string | number } | undefined;
+
+  const hasAppliedCredits = parseInt(String(existingApplications?.count || 0), 10) > 0;
+  const sourcedApplications = await db('bill_credit_applications')
+    .where({ credit_bill_id: id })
+    .whereNull('unapplied_at')
+    .count('id as count')
+    .first() as { count: string | number } | undefined;
+  const isActiveCreditSource = parseInt(String(sourcedApplications?.count || 0), 10) > 0;
+
+  if (isActiveCreditSource) {
+    return { errors: ['Cannot edit this credit bill while it is applied to other bills'] };
+  }
+
+  if (hasAppliedCredits && !payload.confirm_unapply_credits) {
+    return { errors: ['Bill has applied credits. Confirm unapply before editing.'] };
   }
 
   const errors = validateBillData(payload, true);
@@ -624,12 +1113,22 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
     }
   }
 
+  if (hasAppliedCredits && payload.confirm_unapply_credits) {
+    const unapplied = await unapplyBillCredits(id, userId);
+    if (unapplied.errors) return { errors: unapplied.errors };
+    bill = await db('bills').where({ id }).first() as BillRow | undefined;
+    if (!bill) return { errors: ['Bill not found'] };
+    if (bill.status !== 'UNPAID') {
+      return { errors: [`Cannot edit ${bill.status} bills`] };
+    }
+  }
+
   const newLineItems = payload.line_items || [];
   const taxRateMap = newLineItems.length > 0 ? await resolveTaxRateMap(newLineItems, db) : {};
   const newTotalAmount = newLineItems.length > 0
     ? calculateGrossTotalFromLineItems(newLineItems, taxRateMap)
     : dec(bill.amount);
-  const isSettledAfterUpdate = newTotalAmount.eq(0);
+  const isSettledAfterUpdate = isSettledOutstanding(newTotalAmount);
 
   if (payload.line_items !== undefined || Boolean(bill.created_transaction_id)) {
     await db.transaction(async (trx: Knex.Transaction) => {
@@ -991,6 +1490,9 @@ export = {
   updateBill,
   payBill,
   voidBill,
+  getAvailableCreditsForBill,
+  applyBillCredits,
+  unapplyBillCredits,
   getAgingReport,
   getUnpaidSummary,
   getBillWithLineItems,
