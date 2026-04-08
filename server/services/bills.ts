@@ -1271,15 +1271,22 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
     if (!transaction) throw new Error('Failed to create payment transaction');
 
     const amount = outstanding.toFixed(2);
-    await trx('journal_entries').insert([
+    const fullAmount = dec(bill.amount).toFixed(2);
+    const creditAmount = (bill.applied_credits || []).reduce(
+      (sum: Decimal, c: { amount: number }) => sum.plus(dec(c.amount)),
+      dec(0),
+    );
+
+    const billRef = bill.bill_number || `#${bill.id}`;
+    const journalLines: object[] = [
       {
         transaction_id: transaction.id,
         account_id: apAccount.id,
         fund_id: bill.fund_id,
         contact_id: bill.contact_id,
-        debit: amount,
+        debit: fullAmount,
         credit: 0,
-        memo: `Payment for bill ${bill.bill_number || `#${bill.id}`}`,
+        memo: `Payment for bill ${billRef}`,
         is_reconciled: false,
         created_at: trx.fn.now(),
         updated_at: trx.fn.now(),
@@ -1291,12 +1298,29 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
         contact_id: bill.contact_id,
         debit: 0,
         credit: amount,
-        memo: `Payment for bill ${bill.bill_number || `#${bill.id}`}`,
+        memo: `Payment for bill ${billRef}`,
         is_reconciled: false,
         created_at: trx.fn.now(),
         updated_at: trx.fn.now(),
       },
-    ]);
+    ];
+
+    if (creditAmount.gt(0)) {
+      journalLines.push({
+        transaction_id: transaction.id,
+        account_id: apAccount.id,
+        fund_id: bill.fund_id,
+        contact_id: bill.contact_id,
+        debit: 0,
+        credit: creditAmount.toFixed(2),
+        memo: `Applied credit(s) for bill ${billRef}`,
+        is_reconciled: false,
+        created_at: trx.fn.now(),
+        updated_at: trx.fn.now(),
+      });
+    }
+
+    await trx('journal_entries').insert(journalLines);
 
     const [updatedBill] = await trx('bills')
       .where({ id })
