@@ -119,6 +119,7 @@ interface JournalEntryInsertRow {
   transaction_id: number;
   account_id: number;
   fund_id: number;
+  contact_id?: number | null;
   debit: Numeric;
   credit: Numeric;
   memo: string;
@@ -421,6 +422,7 @@ async function createMultiLineJournalEntries(
   lineItems: BillLineItemInput[],
   fundId: number,
   apAccountId: number,
+  contactId: number | null,
   contactName: string,
   billNumber: string | null | undefined,
   trx: Knex.Transaction
@@ -439,13 +441,15 @@ async function createMultiLineJournalEntries(
     amount: Decimal,
     memo: string,
     taxRateId: number | null,
-    isTaxLine: boolean
+    isTaxLine: boolean,
+    contactIdForEntry: number | null = null
   ) => {
     if (amount.eq(0)) return;
     journalEntries.push({
       transaction_id: transactionId,
       account_id: accountId,
       fund_id: fundId,
+      contact_id: contactIdForEntry,
       debit: amount.gt(0) ? amount.toFixed(2) : 0,
       credit: amount.lt(0) ? amount.abs().toFixed(2) : 0,
       memo,
@@ -491,7 +495,8 @@ async function createMultiLineJournalEntries(
     apTotal.negated(),
     `Bill ${billNumber || ''} - ${contactName}`,
     null,
-    false
+    false,
+    contactId
   );
 
   const totalDebits = journalEntries.reduce((sum, e) => sum.plus(dec(e.debit)), dec(0));
@@ -854,6 +859,7 @@ async function applyBillCredits(
         transaction_id: applyTransaction.id,
         account_id: apAccount.id,
         fund_id: target.fund_id,
+        contact_id: target.contact_id,
         debit: amount.toFixed(2),
         credit: 0,
         memo,
@@ -867,6 +873,7 @@ async function applyBillCredits(
         transaction_id: applyTransaction.id,
         account_id: apAccount.id,
         fund_id: target.fund_id,
+        contact_id: target.contact_id,
         debit: 0,
         credit: amount.toFixed(2),
         memo,
@@ -1033,6 +1040,7 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
       payload.line_items,
       payload.fund_id,
       apAccount.id,
+      payload.contact_id,
       contact.name,
       payload.bill_number?.trim(),
       trx
@@ -1161,6 +1169,7 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
           newLineItems,
           payload.fund_id || bill.fund_id,
           apAccount.id,
+          payload.contact_id !== undefined ? payload.contact_id : bill.contact_id,
           contact.name,
           bill.bill_number || '',
           trx
@@ -1267,6 +1276,7 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
         transaction_id: transaction.id,
         account_id: apAccount.id,
         fund_id: bill.fund_id,
+        contact_id: bill.contact_id,
         debit: amount,
         credit: 0,
         memo: `Payment for bill ${bill.bill_number || `#${bill.id}`}`,
@@ -1278,6 +1288,7 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
         transaction_id: transaction.id,
         account_id: bankAccount.id,
         fund_id: bill.fund_id,
+        contact_id: bill.contact_id,
         debit: 0,
         credit: amount,
         memo: `Payment for bill ${bill.bill_number || `#${bill.id}`}`,
