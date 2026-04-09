@@ -40,6 +40,77 @@ const REPORT_TYPES = [
   { value: 'donors-detail',  label: 'Income by Donor — Detail' },
 ];
 
+const SYNTHETIC_FUND_LABEL_PATTERN = /^\[System\] Net Income \(Prior Years\) - (.+)$/i
+
+function isNonZeroTrialBalanceAccount(account) {
+  return Number(account?.net_debit || 0) !== 0 || Number(account?.net_credit || 0) !== 0
+}
+
+function syntheticFundSortKey(account) {
+  const match = String(account?.name || '').match(SYNTHETIC_FUND_LABEL_PATTERN)
+  if (match?.[1]) return match[1].trim().toLowerCase()
+  return String(account?.name || '').trim().toLowerCase()
+}
+
+function sortTrialBalanceAccounts(accounts = []) {
+  const groups = new Map()
+
+  accounts.forEach((account, index) => {
+    const code = String(account?.code || '')
+    if (!groups.has(code)) groups.set(code, [])
+    groups.get(code).push({ account, index })
+  })
+
+  const sortedCodes = [...groups.keys()].sort((a, b) => (
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+  ))
+
+  const ordered = []
+  sortedCodes.forEach((code) => {
+    const group = groups.get(code) || []
+    const realRows = group
+      .filter(({ account }) => !account?.is_synthetic)
+      .sort((a, b) => {
+        const byName = String(a.account?.name || '').localeCompare(String(b.account?.name || ''))
+        if (byName !== 0) return byName
+        return a.index - b.index
+      })
+
+    const syntheticRows = group
+      .filter(({ account }) => account?.is_synthetic)
+      .sort((a, b) => {
+        const byFund = syntheticFundSortKey(a.account).localeCompare(syntheticFundSortKey(b.account))
+        if (byFund !== 0) return byFund
+        return a.index - b.index
+      })
+
+    realRows.forEach(({ account }) => ordered.push(account))
+    syntheticRows.forEach(({ account }) => ordered.push(account))
+  })
+
+  return ordered
+}
+
+function getVisibleTrialBalanceAccounts(accounts = [], { hideZeroBalances = false } = {}) {
+  const ordered = sortTrialBalanceAccounts(accounts)
+  if (!hideZeroBalances) return ordered
+
+  const visibleSyntheticByCode = new Map()
+  ordered.forEach((account) => {
+    if (!account?.is_synthetic) return
+    if (!isNonZeroTrialBalanceAccount(account)) return
+    const code = String(account?.code || '')
+    visibleSyntheticByCode.set(code, (visibleSyntheticByCode.get(code) || 0) + 1)
+  })
+
+  return ordered.filter((account) => {
+    if (account?.is_synthetic) return isNonZeroTrialBalanceAccount(account)
+    if (isNonZeroTrialBalanceAccount(account)) return true
+    const code = String(account?.code || '')
+    return (visibleSyntheticByCode.get(code) || 0) > 0
+  })
+}
+
 // ── Excel Exporters ──────────────────────────────────────────────────────────
 function exportPL(data, filters) {
   const rows = [
@@ -125,12 +196,13 @@ function exportLedger(data, filters) {
 }
 
 function exportTrialBalance(data, filters) {
+  const orderedAccounts = getVisibleTrialBalanceAccounts(data.accounts || [])
   const rows = [
     ['Trial Balance', '', '', ''],
     [`As of: ${filters.as_of}`, '', '', ''],
     [],
     ['Code', 'Account', 'Debit', 'Credit'],
-    ...(data.accounts || []).map((a) => [
+    ...orderedAccounts.map((a) => [
       a.code,
       `${a.name}${a.is_synthetic ? ' [Synthetic]' : ''}`,
       a.net_debit,
@@ -140,7 +212,27 @@ function exportTrialBalance(data, filters) {
     ['TOTALS', '', data.grand_total_debit, data.grand_total_credit],
     ['Balanced', '', '', data.is_balanced ? 'YES' : 'NO'],
   ];
-  downloadXlsx(rows, `trial_balance_${filters.as_of}.xlsx`, 'Trial Balance');
+
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+
+  orderedAccounts.forEach((account, index) => {
+    if (!account?.is_synthetic) return
+    const cellAddress = XLSX.utils.encode_cell({ r: 4 + index, c: 1 })
+    if (!ws[cellAddress]) return
+    const currentStyle = ws[cellAddress].s || {}
+    const currentAlignment = currentStyle.alignment || {}
+    ws[cellAddress].s = {
+      ...currentStyle,
+      alignment: {
+        ...currentAlignment,
+        indent: 2,
+      },
+    }
+  })
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Trial Balance')
+  XLSX.writeFile(wb, `trial_balance_${filters.as_of}.xlsx`)
 }
 
 function exportDonorSummary(data, filters) {
@@ -412,6 +504,8 @@ function LedgerReport({ data }) {
 }
 
 function TrialBalanceReport({ data, onInvestigate }) {
+  const orderedAccounts = getVisibleTrialBalanceAccounts(data.accounts || [])
+
   return (
     <div>
       {(data.diagnostics || []).length > 0 && (
@@ -458,13 +552,13 @@ function TrialBalanceReport({ data, onInvestigate }) {
           </tr>
         </thead>
         <tbody>
-          {(data.accounts || []).map((a) => (
+          {orderedAccounts.map((a) => (
             <tr key={a.id} style={{
               borderBottom: '1px solid #f3f4f6',
               background: a.is_synthetic ? '#fff7ed' : 'transparent',
             }}>
               <td style={{ padding: '0.55rem 0.75rem', fontFamily: 'monospace', fontSize: '0.8rem', color: '#6b7280' }}>{a.code}</td>
-              <td style={{ padding: '0.55rem 0.75rem' }}>
+              <td style={{ padding: '0.55rem 0.75rem', paddingLeft: a.is_synthetic ? '1.5rem' : '0.75rem' }}>
                 {a.name}
                 {a.is_synthetic && (
                   <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', color: '#9a3412' }}>

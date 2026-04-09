@@ -595,10 +595,8 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
     const syntheticCode = hasMappedNetAsset
       ? String(fund?.net_asset_code || '3000')
       : UNALLOCATED_SYNTHETIC_EQUITY_CODE;
-    const syntheticBaseName = hasMappedNetAsset
-      ? String(fund?.net_asset_name || 'Net Assets')
-      : UNALLOCATED_SYNTHETIC_EQUITY_NAME;
-    const syntheticNote = `Synthetic prior-years close for ${fund?.name || `Fund #${row.fund_id}`}`;
+    const syntheticFundName = String(fund?.name || `Fund #${row.fund_id}`);
+    const syntheticNote = `Synthetic prior-years close for ${syntheticFundName}`;
 
     if (!hasMappedNetAsset) {
       diagnostics.push({
@@ -617,7 +615,7 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
     trialBalanceAccounts.push({
       id: -1000000 - row.fund_id,
       code: syntheticCode,
-      name: `${syntheticBaseName} (Synthetic)`,
+      name: `[System] Net Income (Prior Years) - ${syntheticFundName}`,
       type: 'EQUITY',
       account_class: 'EQUITY',
       normal_balance: 'CREDIT',
