@@ -41,6 +41,13 @@ const REPORT_TYPES = [
 ];
 
 const SYNTHETIC_FUND_LABEL_PATTERN = /^\[System\] Net Income \(Prior Years\) - (.+)$/i
+const TRIAL_BALANCE_TYPE_ORDER = {
+  ASSET: 1,
+  LIABILITY: 2,
+  EQUITY: 3,
+  INCOME: 4,
+  EXPENSE: 5,
+}
 
 function isNonZeroTrialBalanceAccount(account) {
   return Number(account?.net_debit || 0) !== 0 || Number(account?.net_credit || 0) !== 0
@@ -53,42 +60,33 @@ function syntheticFundSortKey(account) {
 }
 
 function sortTrialBalanceAccounts(accounts = []) {
-  const groups = new Map()
+  return (accounts || [])
+    .map((account, index) => ({ account, index }))
+    .sort((a, b) => {
+      const typeA = TRIAL_BALANCE_TYPE_ORDER[a.account?.type] || 999
+      const typeB = TRIAL_BALANCE_TYPE_ORDER[b.account?.type] || 999
+      if (typeA !== typeB) return typeA - typeB
 
-  accounts.forEach((account, index) => {
-    const code = String(account?.code || '')
-    if (!groups.has(code)) groups.set(code, [])
-    groups.get(code).push({ account, index })
-  })
-
-  const sortedCodes = [...groups.keys()].sort((a, b) => (
-    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
-  ))
-
-  const ordered = []
-  sortedCodes.forEach((code) => {
-    const group = groups.get(code) || []
-    const realRows = group
-      .filter(({ account }) => !account?.is_synthetic)
-      .sort((a, b) => {
-        const byName = String(a.account?.name || '').localeCompare(String(b.account?.name || ''))
-        if (byName !== 0) return byName
-        return a.index - b.index
+      const byCode = String(a.account?.code || '').localeCompare(String(b.account?.code || ''), undefined, {
+        numeric: true,
+        sensitivity: 'base',
       })
+      if (byCode !== 0) return byCode
 
-    const syntheticRows = group
-      .filter(({ account }) => account?.is_synthetic)
-      .sort((a, b) => {
+      const syntheticA = Boolean(a.account?.is_synthetic)
+      const syntheticB = Boolean(b.account?.is_synthetic)
+      if (syntheticA !== syntheticB) return syntheticA ? 1 : -1
+
+      if (syntheticA && syntheticB) {
         const byFund = syntheticFundSortKey(a.account).localeCompare(syntheticFundSortKey(b.account))
         if (byFund !== 0) return byFund
-        return a.index - b.index
-      })
+      }
 
-    realRows.forEach(({ account }) => ordered.push(account))
-    syntheticRows.forEach(({ account }) => ordered.push(account))
-  })
-
-  return ordered
+      const byName = String(a.account?.name || '').localeCompare(String(b.account?.name || ''))
+      if (byName !== 0) return byName
+      return a.index - b.index
+    })
+    .map(({ account }) => account)
 }
 
 function getVisibleTrialBalanceAccounts(accounts = [], { hideZeroBalances = false } = {}) {

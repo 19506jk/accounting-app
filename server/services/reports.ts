@@ -152,6 +152,13 @@ const asDateString = (value: string | Date) => normalizeDateOnly(value);
 const ZERO = dec(0);
 const UNALLOCATED_SYNTHETIC_EQUITY_CODE = '9999';
 const UNALLOCATED_SYNTHETIC_EQUITY_NAME = 'System Unallocated Equity';
+const TRIAL_BALANCE_TYPE_ORDER: Record<AccountType, number> = {
+  ASSET: 1,
+  LIABILITY: 2,
+  EQUITY: 3,
+  INCOME: 4,
+  EXPENSE: 5,
+};
 
 const DEFAULT_NORMAL_BALANCE_BY_CLASS: Record<AccountClass, NormalBalanceSide> = {
   ASSET: 'DEBIT',
@@ -649,8 +656,14 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
   });
 
   visibleTrialBalanceAccounts.sort((a, b) => {
+    const byType = TRIAL_BALANCE_TYPE_ORDER[a.type] - TRIAL_BALANCE_TYPE_ORDER[b.type];
+    if (byType !== 0) return byType;
+
     const byCode = a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' });
     if (byCode !== 0) return byCode;
+
+    if (a.is_synthetic !== b.is_synthetic) return a.is_synthetic ? 1 : -1;
+
     return a.name.localeCompare(b.name);
   });
 
