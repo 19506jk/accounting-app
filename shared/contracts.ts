@@ -85,6 +85,18 @@ export interface NetAssetAccountSummary {
 }
 
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE';
+export type NormalBalanceSide = 'DEBIT' | 'CREDIT';
+export type AccountClass =
+  | 'ASSET'
+  | 'CONTRA_ASSET'
+  | 'LIABILITY'
+  | 'CONTRA_LIABILITY'
+  | 'EQUITY'
+  | 'CONTRA_EQUITY'
+  | 'INCOME'
+  | 'CONTRA_INCOME'
+  | 'EXPENSE'
+  | 'CONTRA_EXPENSE';
 
 export interface AccountsQuery {
   type?: string;
@@ -96,6 +108,8 @@ export interface AccountSummary {
   code: string;
   name: string;
   type: AccountType;
+  account_class: AccountClass;
+  normal_balance: NormalBalanceSide | null;
   parent_id: number | null;
   is_active: boolean;
   journal_entry_count?: number;
@@ -108,6 +122,8 @@ export interface CreateAccountInput {
   code: string;
   name: string;
   type: AccountType;
+  account_class?: AccountClass;
+  normal_balance?: NormalBalanceSide | null;
   parent_id?: number | null;
 }
 
@@ -115,6 +131,8 @@ export interface UpdateAccountInput {
   code?: string;
   name?: string;
   type?: AccountType;
+  account_class?: AccountClass;
+  normal_balance?: NormalBalanceSide | null;
   parent_id?: number | null;
   is_active?: boolean;
 }
@@ -838,7 +856,10 @@ export interface LedgerReportFilters extends DateRangeReportFilters {
   account_id?: string | number;
 }
 
-export interface TrialBalanceReportFilters extends DateRangeReportFilters {}
+export interface TrialBalanceReportFilters {
+  as_of: string;
+  fund_id?: string | number;
+}
 
 export interface DonorSummaryReportFilters extends DateRangeReportFilters {}
 
@@ -912,8 +933,36 @@ export interface TrialBalanceReportAccount {
   code: string;
   name: string;
   type: AccountType;
+  account_class: AccountClass;
+  normal_balance: NormalBalanceSide;
+  net_side: NormalBalanceSide | null;
+  net_debit: number;
+  net_credit: number;
   total_debit: number;
   total_credit: number;
+  is_abnormal_balance: boolean;
+  is_synthetic: boolean;
+  synthetic_note: string | null;
+  investigate_filters: {
+    from: string;
+    to: string;
+    fund_id: number | null;
+    account_id: number | null;
+  } | null;
+}
+
+export interface TrialBalanceDiagnostic {
+  code: 'ABNORMAL_BALANCE' | 'UNMAPPED_FUND_NET_ASSET' | 'MISSING_EQUITY_ACCOUNTS';
+  severity: 'warning';
+  message: string;
+  account_id: number | null;
+  fund_id: number | null;
+  investigate_filters: {
+    from: string;
+    to: string;
+    fund_id: number | null;
+    account_id: number | null;
+  } | null;
 }
 
 export interface TrialBalanceReportData {
@@ -921,6 +970,9 @@ export interface TrialBalanceReportData {
   grand_total_debit: number;
   grand_total_credit: number;
   is_balanced: boolean;
+  as_of: string;
+  fiscal_year_start: string;
+  diagnostics: TrialBalanceDiagnostic[];
 }
 
 export interface DonorSummaryReportDonor {

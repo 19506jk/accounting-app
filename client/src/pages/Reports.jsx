@@ -127,15 +127,20 @@ function exportLedger(data, filters) {
 function exportTrialBalance(data, filters) {
   const rows = [
     ['Trial Balance', '', '', ''],
-    [`Period: ${filters.from} to ${filters.to}`, '', '', ''],
+    [`As of: ${filters.as_of}`, '', '', ''],
     [],
     ['Code', 'Account', 'Debit', 'Credit'],
-    ...(data.accounts || []).map((a) => [a.code, a.name, a.total_debit, a.total_credit]),
+    ...(data.accounts || []).map((a) => [
+      a.code,
+      `${a.name}${a.is_synthetic ? ' [Synthetic]' : ''}`,
+      a.net_debit,
+      a.net_credit,
+    ]),
     [],
     ['TOTALS', '', data.grand_total_debit, data.grand_total_credit],
     ['Balanced', '', '', data.is_balanced ? 'YES' : 'NO'],
   ];
-  downloadXlsx(rows, `trial_balance_${filters.from}_${filters.to}.xlsx`, 'Trial Balance');
+  downloadXlsx(rows, `trial_balance_${filters.as_of}.xlsx`, 'Trial Balance');
 }
 
 function exportDonorSummary(data, filters) {
@@ -406,9 +411,43 @@ function LedgerReport({ data }) {
   );
 }
 
-function TrialBalanceReport({ data }) {
+function TrialBalanceReport({ data, onInvestigate }) {
   return (
     <div>
+      {(data.diagnostics || []).length > 0 && (
+        <div style={{
+          border: '1px solid #fde68a',
+          background: '#fffbeb',
+          borderRadius: '8px',
+          padding: '0.75rem 0.9rem',
+          marginBottom: '0.9rem',
+        }}>
+          <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#92400e', marginBottom: '0.4rem' }}>
+            Warnings
+          </div>
+          {(data.diagnostics || []).map((warning, idx) => (
+            <div key={idx} style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+              padding: '0.3rem 0',
+            }}>
+              <div style={{ fontSize: '0.82rem', color: '#78350f' }}>{warning.message}</div>
+              {warning.investigate_filters && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => onInvestigate?.(warning.investigate_filters)}
+                >
+                  Investigate
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <table style={{ width: '100%', fontSize: '0.875rem', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
@@ -420,11 +459,21 @@ function TrialBalanceReport({ data }) {
         </thead>
         <tbody>
           {(data.accounts || []).map((a) => (
-            <tr key={a.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+            <tr key={a.id} style={{
+              borderBottom: '1px solid #f3f4f6',
+              background: a.is_synthetic ? '#fff7ed' : 'transparent',
+            }}>
               <td style={{ padding: '0.55rem 0.75rem', fontFamily: 'monospace', fontSize: '0.8rem', color: '#6b7280' }}>{a.code}</td>
-              <td style={{ padding: '0.55rem 0.75rem' }}>{a.name}</td>
-              <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', color: '#15803d' }}>{a.total_debit > 0 ? fmt(a.total_debit) : ''}</td>
-              <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', color: '#b91c1c' }}>{a.total_credit > 0 ? fmt(a.total_credit) : ''}</td>
+              <td style={{ padding: '0.55rem 0.75rem' }}>
+                {a.name}
+                {a.is_synthetic && (
+                  <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', color: '#9a3412' }}>
+                    Synthetic
+                  </span>
+                )}
+              </td>
+              <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', color: '#15803d' }}>{a.net_debit > 0 ? fmt(a.net_debit) : ''}</td>
+              <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', color: '#b91c1c' }}>{a.net_credit > 0 ? fmt(a.net_credit) : ''}</td>
             </tr>
           ))}
           <tr style={{ borderTop: '2px solid #1e293b', background: '#f8fafc' }}>
@@ -631,7 +680,7 @@ export default function Reports() {
   const plFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined };
   const bsFilters     = { as_of: asOf, fund_id: fundId || undefined };
   const ledgerFilters = { from: range.from, to: range.to, fund_id: fundId || undefined, account_id: acctId || undefined };
-  const tbFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined };
+  const tbFilters     = { as_of: asOf, fund_id: fundId || undefined };
   const dsFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined };
   const ddFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined, contact_id: ctcId || undefined };
 
@@ -663,7 +712,17 @@ export default function Reports() {
     exportMap[type]?.();
   }
 
-  const needsAsOf = type === 'balance-sheet';
+  function handleInvestigate(filters) {
+    if (!filters) return
+    setType('ledger')
+    setRange({ from: filters.from, to: filters.to })
+    setAcctId(filters.account_id ? String(filters.account_id) : '')
+    if (filters.fund_id) setFundId(String(filters.fund_id))
+    setEnabled(false)
+    setTimeout(() => setEnabled(true), 0)
+  }
+
+  const needsAsOf = type === 'balance-sheet' || type === 'trial-balance';
 
   return (
     <div>
@@ -747,7 +806,7 @@ export default function Reports() {
           {type === 'pl'             && <PLReport data={reportData} />}
           {type === 'balance-sheet'  && <BalanceSheetReport data={reportData} />}
           {type === 'ledger'         && <LedgerReport data={reportData} />}
-          {type === 'trial-balance'  && <TrialBalanceReport data={reportData} />}
+          {type === 'trial-balance'  && <TrialBalanceReport data={reportData} onInvestigate={handleInvestigate} />}
           {type === 'donors-summary' && <DonorSummaryReport data={reportData} />}
           {type === 'donors-detail'  && <DonorDetailReport data={reportData} settings={settings} />}
         </Card>

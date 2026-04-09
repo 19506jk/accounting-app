@@ -118,6 +118,7 @@ router.post(
             code,
             name: `${name.trim()} - Net Assets`,
             type: 'EQUITY',
+            account_class: 'EQUITY',
             is_active: true,
             created_at: trx.fn.now(),
             updated_at: trx.fn.now(),

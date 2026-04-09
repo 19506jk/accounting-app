@@ -1,4 +1,4 @@
-import type { AccountType, Role } from '@shared/contracts';
+import type { AccountClass, AccountType, NormalBalanceSide, Role } from '@shared/contracts';
 
 export interface UserRow {
   id: number;
@@ -27,6 +27,8 @@ export interface AccountRow {
   code: string;
   name: string;
   type: AccountType | string;
+  account_class: AccountClass | string;
+  normal_balance: NormalBalanceSide | null;
   parent_id?: number | null;
   is_active: boolean;
   created_at: Date | string;
@@ -84,6 +86,8 @@ export interface AccountListRow {
   code: string;
   name: string;
   type: AccountType;
+  account_class: AccountClass;
+  normal_balance: NormalBalanceSide | null;
   parent_id: number | null;
   is_active: boolean;
   journal_entry_count: string | number;

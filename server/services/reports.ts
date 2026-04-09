@@ -2,13 +2,16 @@ import type { Knex } from 'knex';
 import Decimal from 'decimal.js';
 
 import type {
+  AccountClass,
   AccountType,
   BalanceSheetReportData,
   DonorDetailReportData,
   DonorDetailReportTransaction,
   DonorSummaryReportData,
   LedgerReportData,
+  NormalBalanceSide,
   PLReportData,
+  TrialBalanceDiagnostic,
   TrialBalanceReportData,
 } from '@shared/contracts';
 import { normalizeDateOnly } from '../utils/date.js';
@@ -38,6 +41,11 @@ interface DonorDetailArgs extends DateRangeArgs {
 
 interface BaseQueryArgs extends DateRangeArgs {
   asOf?: string;
+}
+
+interface TrialBalanceArgs {
+  asOf?: string;
+  fundId?: string | null;
 }
 
 interface PLRow {
@@ -79,8 +87,28 @@ interface TrialBalanceRow {
   code: string;
   name: string;
   type: AccountType;
+  account_class: AccountClass | null;
+  normal_balance: NormalBalanceSide | null;
+}
+
+interface TrialBalanceAggregateRow {
+  account_id: number;
   total_debit: Numeric;
   total_credit: Numeric;
+}
+
+interface TrialBalancePriorNetRow {
+  fund_id: number;
+  total_debit: Numeric;
+  total_credit: Numeric;
+}
+
+interface TrialBalanceFundRow {
+  id: number;
+  name: string;
+  net_asset_account_id: number | null;
+  net_asset_code: string | null;
+  net_asset_name: string | null;
 }
 
 interface DonorSummaryRow {
@@ -121,6 +149,46 @@ interface DonationQueryRow {
 
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
 const asDateString = (value: string | Date) => normalizeDateOnly(value);
+const ZERO = dec(0);
+const UNALLOCATED_SYNTHETIC_EQUITY_CODE = '9999';
+const UNALLOCATED_SYNTHETIC_EQUITY_NAME = 'System Unallocated Equity';
+
+const DEFAULT_NORMAL_BALANCE_BY_CLASS: Record<AccountClass, NormalBalanceSide> = {
+  ASSET: 'DEBIT',
+  CONTRA_ASSET: 'CREDIT',
+  LIABILITY: 'CREDIT',
+  CONTRA_LIABILITY: 'DEBIT',
+  EQUITY: 'CREDIT',
+  CONTRA_EQUITY: 'DEBIT',
+  INCOME: 'CREDIT',
+  CONTRA_INCOME: 'DEBIT',
+  EXPENSE: 'DEBIT',
+  CONTRA_EXPENSE: 'CREDIT',
+};
+
+const DEFAULT_ACCOUNT_CLASS_BY_TYPE: Record<AccountType, AccountClass> = {
+  ASSET: 'ASSET',
+  LIABILITY: 'LIABILITY',
+  EQUITY: 'EQUITY',
+  INCOME: 'INCOME',
+  EXPENSE: 'EXPENSE',
+};
+
+function getFiscalYearStartDate(asOf: string, fiscalStartMonth: number): string {
+  const year = Number(asOf.slice(0, 4));
+  const month = Number(asOf.slice(5, 7));
+  const fiscalYear = month >= fiscalStartMonth ? year : year - 1;
+  return `${fiscalYear}-${String(fiscalStartMonth).padStart(2, '0')}-01`;
+}
+
+function getPreviousYearStartDate(asOf: string): string {
+  const year = Number(asOf.slice(0, 4));
+  return `${year - 1}-01-01`;
+}
+
+function resolveAccountClass(accountType: AccountType, accountClass: AccountClass | null): AccountClass {
+  return accountClass || DEFAULT_ACCOUNT_CLASS_BY_TYPE[accountType];
+}
 
 function baseQuery({ from, to, asOf, fundId }: BaseQueryArgs = {}): Knex.QueryBuilder {
   const query = db('journal_entries as je')
@@ -373,43 +441,229 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
   return { ledger };
 }
 
-async function getTrialBalance({ from, to, fundId }: DateRangeArgs): Promise<TrialBalanceReportData> {
-  const rows = await baseQuery({ from, to, fundId })
-    .select(
-      'a.id',
-      'a.code',
-      'a.name',
-      'a.type',
-      db.raw('COALESCE(SUM(je.debit),  0) AS total_debit'),
-      db.raw('COALESCE(SUM(je.credit), 0) AS total_credit')
-    )
-    .groupBy('a.id', 'a.code', 'a.name', 'a.type')
+async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<TrialBalanceReportData> {
+  const trialAsOf = asOf || normalizeDateOnly(new Date());
+  const fiscalYearStartMonthRow = await db('settings')
+    .where({ key: 'fiscal_year_start' })
+    .select('value')
+    .first() as { value?: string | null } | undefined;
+  const fiscalStartMonth = Math.max(1, Math.min(12, parseInt(fiscalYearStartMonthRow?.value ?? '1', 10) || 1));
+  const fiscalYearStart = getFiscalYearStartDate(trialAsOf, fiscalStartMonth);
+  const previousYearStart = getPreviousYearStartDate(trialAsOf);
+
+  const accountsRows = await db('accounts as a')
+    .where('a.is_active', true)
+    .select('a.id', 'a.code', 'a.name', 'a.type', 'a.account_class', 'a.normal_balance')
     .orderBy('a.code', 'asc') as TrialBalanceRow[];
 
-  let grandDebit = dec(0);
-  let grandCredit = dec(0);
+  const balanceSheetRows = await db('journal_entries as je')
+    .join('transactions as t', 't.id', 'je.transaction_id')
+    .join('accounts as a', 'a.id', 'je.account_id')
+    .where('t.is_voided', false)
+    .where('t.date', '<=', trialAsOf)
+    .whereIn('a.type', ['ASSET', 'LIABILITY', 'EQUITY'])
+    .modify((query) => {
+      if (fundId) query.where('je.fund_id', fundId);
+    })
+    .select(
+      'je.account_id',
+      db.raw('COALESCE(SUM(je.debit), 0) AS total_debit'),
+      db.raw('COALESCE(SUM(je.credit), 0) AS total_credit')
+    )
+    .groupBy('je.account_id') as TrialBalanceAggregateRow[];
 
-  const accounts = rows.map((row) => {
-    const debit = dec(row.total_debit);
-    const credit = dec(row.total_credit);
-    grandDebit = grandDebit.plus(debit);
-    grandCredit = grandCredit.plus(credit);
+  const incomeExpenseRows = await db('journal_entries as je')
+    .join('transactions as t', 't.id', 'je.transaction_id')
+    .join('accounts as a', 'a.id', 'je.account_id')
+    .where('t.is_voided', false)
+    .where('t.date', '>=', fiscalYearStart)
+    .where('t.date', '<=', trialAsOf)
+    .whereIn('a.type', ['INCOME', 'EXPENSE'])
+    .modify((query) => {
+      if (fundId) query.where('je.fund_id', fundId);
+    })
+    .select(
+      'je.account_id',
+      db.raw('COALESCE(SUM(je.debit), 0) AS total_debit'),
+      db.raw('COALESCE(SUM(je.credit), 0) AS total_credit')
+    )
+    .groupBy('je.account_id') as TrialBalanceAggregateRow[];
+
+  const totalsByAccount = new Map<number, { debit: Decimal; credit: Decimal }>();
+  for (const row of [...balanceSheetRows, ...incomeExpenseRows]) {
+    const current = totalsByAccount.get(row.account_id) || { debit: ZERO, credit: ZERO };
+    current.debit = current.debit.plus(dec(row.total_debit));
+    current.credit = current.credit.plus(dec(row.total_credit));
+    totalsByAccount.set(row.account_id, current);
+  }
+
+  const diagnostics: TrialBalanceDiagnostic[] = [];
+  const trialBalanceAccounts: TrialBalanceReportData['accounts'] = accountsRows.map((account) => {
+    const totals = totalsByAccount.get(account.id) || { debit: ZERO, credit: ZERO };
+    const totalDebit = totals.debit;
+    const totalCredit = totals.credit;
+    const net = totalDebit.minus(totalCredit);
+    const netDebit = net.greaterThan(0) ? net : ZERO;
+    const netCredit = net.lessThan(0) ? net.abs() : ZERO;
+    const netSide: NormalBalanceSide | null = net.isZero() ? null : net.greaterThan(0) ? 'DEBIT' : 'CREDIT';
+
+    const accountClass = resolveAccountClass(account.type, account.account_class);
+    const normalBalance = account.normal_balance || DEFAULT_NORMAL_BALANCE_BY_CLASS[accountClass];
+    const isAbnormalBalance = !net.isZero() && netSide !== normalBalance;
+    const investigateFrom = account.type === 'INCOME' || account.type === 'EXPENSE'
+      ? fiscalYearStart
+      : previousYearStart;
+
+    if (isAbnormalBalance) {
+      diagnostics.push({
+        code: 'ABNORMAL_BALANCE',
+        severity: 'warning',
+        message: `${account.code} — ${account.name} is ${netSide} but normal balance is ${normalBalance}.`,
+        account_id: account.id,
+        fund_id: fundId ? Number(fundId) : null,
+        investigate_filters: {
+          from: investigateFrom,
+          to: trialAsOf,
+          fund_id: fundId ? Number(fundId) : null,
+          account_id: account.id,
+        },
+      });
+    }
 
     return {
-      id: row.id,
-      code: row.code,
-      name: row.name,
-      type: row.type,
-      total_debit: parseFloat(debit.toFixed(2)),
-      total_credit: parseFloat(credit.toFixed(2)),
+      id: account.id,
+      code: account.code,
+      name: account.name,
+      type: account.type,
+      account_class: accountClass,
+      normal_balance: normalBalance,
+      net_side: netSide,
+      net_debit: parseFloat(netDebit.toFixed(2)),
+      net_credit: parseFloat(netCredit.toFixed(2)),
+      total_debit: parseFloat(totalDebit.toFixed(2)),
+      total_credit: parseFloat(totalCredit.toFixed(2)),
+      is_abnormal_balance: isAbnormalBalance,
+      is_synthetic: false,
+      synthetic_note: null,
+      investigate_filters: {
+        from: investigateFrom,
+        to: trialAsOf,
+        fund_id: fundId ? Number(fundId) : null,
+        account_id: account.id,
+      },
     };
   });
 
+  const priorYearsNetRows = await db('journal_entries as je')
+    .join('transactions as t', 't.id', 'je.transaction_id')
+    .join('accounts as a', 'a.id', 'je.account_id')
+    .where('t.is_voided', false)
+    .where('t.date', '<', fiscalYearStart)
+    .whereIn('a.type', ['INCOME', 'EXPENSE'])
+    .modify((query) => {
+      if (fundId) query.where('je.fund_id', fundId);
+    })
+    .select(
+      'je.fund_id',
+      db.raw('COALESCE(SUM(je.debit), 0) AS total_debit'),
+      db.raw('COALESCE(SUM(je.credit), 0) AS total_credit')
+    )
+    .groupBy('je.fund_id') as TrialBalancePriorNetRow[];
+
+  const fundIds = priorYearsNetRows.map((row) => row.fund_id);
+  const fundsById = new Map<number, TrialBalanceFundRow>();
+  if (fundIds.length > 0) {
+    const fundRows = await db('funds as f')
+      .leftJoin('accounts as a', 'a.id', 'f.net_asset_account_id')
+      .whereIn('f.id', fundIds)
+      .select(
+        'f.id',
+        'f.name',
+        'f.net_asset_account_id',
+        'a.code as net_asset_code',
+        'a.name as net_asset_name'
+      ) as TrialBalanceFundRow[];
+    for (const fund of fundRows) fundsById.set(fund.id, fund);
+  }
+
+  for (const row of priorYearsNetRows) {
+    const priorNetIncome = dec(row.total_credit).minus(dec(row.total_debit));
+    if (priorNetIncome.isZero()) continue;
+
+    const fund = fundsById.get(row.fund_id);
+    const hasMappedNetAsset = Boolean(fund?.net_asset_account_id);
+    const syntheticCode = hasMappedNetAsset
+      ? String(fund?.net_asset_code || '3000')
+      : UNALLOCATED_SYNTHETIC_EQUITY_CODE;
+    const syntheticBaseName = hasMappedNetAsset
+      ? String(fund?.net_asset_name || 'Net Assets')
+      : UNALLOCATED_SYNTHETIC_EQUITY_NAME;
+    const syntheticNote = `Synthetic prior-years close for ${fund?.name || `Fund #${row.fund_id}`}`;
+
+    if (!hasMappedNetAsset) {
+      diagnostics.push({
+        code: 'UNMAPPED_FUND_NET_ASSET',
+        severity: 'warning',
+        message: `${fund?.name || `Fund #${row.fund_id}`} has no net-asset account mapping. Prior-years close routed to ${UNALLOCATED_SYNTHETIC_EQUITY_CODE} (${UNALLOCATED_SYNTHETIC_EQUITY_NAME}).`,
+        account_id: null,
+        fund_id: row.fund_id,
+        investigate_filters: null,
+      });
+    }
+
+    const syntheticNetDebit = priorNetIncome.lessThan(0) ? priorNetIncome.abs() : ZERO;
+    const syntheticNetCredit = priorNetIncome.greaterThan(0) ? priorNetIncome : ZERO;
+
+    trialBalanceAccounts.push({
+      id: -1000000 - row.fund_id,
+      code: syntheticCode,
+      name: `${syntheticBaseName} (Synthetic)`,
+      type: 'EQUITY',
+      account_class: 'EQUITY',
+      normal_balance: 'CREDIT',
+      net_side: priorNetIncome.isZero() ? null : priorNetIncome.greaterThan(0) ? 'CREDIT' : 'DEBIT',
+      net_debit: parseFloat(syntheticNetDebit.toFixed(2)),
+      net_credit: parseFloat(syntheticNetCredit.toFixed(2)),
+      total_debit: parseFloat(syntheticNetDebit.toFixed(2)),
+      total_credit: parseFloat(syntheticNetCredit.toFixed(2)),
+      is_abnormal_balance: false,
+      is_synthetic: true,
+      synthetic_note: syntheticNote,
+      investigate_filters: null,
+    });
+  }
+
+  const hasEquityAccount = trialBalanceAccounts.some((account) => account.type === 'EQUITY' && !account.is_synthetic);
+  if (!hasEquityAccount) {
+    diagnostics.push({
+      code: 'MISSING_EQUITY_ACCOUNTS',
+      severity: 'warning',
+      message: 'No active equity accounts were found. Verify fund net-asset account setup.',
+      account_id: null,
+      fund_id: fundId ? Number(fundId) : null,
+      investigate_filters: null,
+    });
+  }
+
+  trialBalanceAccounts.sort((a, b) => {
+    const byCode = a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' });
+    if (byCode !== 0) return byCode;
+    return a.name.localeCompare(b.name);
+  });
+
+  const grandDebit = trialBalanceAccounts.reduce((sum, account) => sum.plus(dec(account.net_debit)), ZERO);
+  const grandCredit = trialBalanceAccounts.reduce((sum, account) => sum.plus(dec(account.net_credit)), ZERO);
+  const roundedDebit = grandDebit.toDecimalPlaces(2);
+  const roundedCredit = grandCredit.toDecimalPlaces(2);
+
   return {
-    accounts,
-    grand_total_debit: parseFloat(grandDebit.toFixed(2)),
-    grand_total_credit: parseFloat(grandCredit.toFixed(2)),
-    is_balanced: grandDebit.equals(grandCredit),
+    accounts: trialBalanceAccounts,
+    grand_total_debit: parseFloat(roundedDebit.toFixed(2)),
+    grand_total_credit: parseFloat(roundedCredit.toFixed(2)),
+    is_balanced: roundedDebit.equals(roundedCredit),
+    as_of: trialAsOf,
+    fiscal_year_start: fiscalYearStart,
+    diagnostics,
   };
 }
 

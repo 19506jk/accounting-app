@@ -20,7 +20,15 @@ exports.up = function(knex) {
     });
 };
 
-exports.down = function(knex) {
+exports.down = async function(knex) {
+  await knex('bill_line_items')
+    .whereNull('description')
+    .update({ description: '' });
+
+  await knex('bills')
+    .whereNull('due_date')
+    .update({ due_date: knex.ref('date') });
+
   return knex.schema
     .table('bill_line_items', (t) => {
       t.string('description', 255).alter().notNullable();

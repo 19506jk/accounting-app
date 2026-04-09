@@ -54,7 +54,7 @@ export function useLedgerReport(filters: LedgerReportFilters, enabled = true) {
 
 export function useTrialBalanceReport(filters: TrialBalanceReportFilters, enabled = true) {
   return useQuery<TrialBalanceReportResponse['report']>({
-    queryKey: ['reports', 'trial-balance', filters.from, filters.to, filters.fund_id ?? null],
+    queryKey: ['reports', 'trial-balance', filters.as_of, filters.fund_id ?? null],
     queryFn: async () => {
       const { data } = await client.get<TrialBalanceReportResponse>('/reports/trial-balance', { params: filters })
       return data.report

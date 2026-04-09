@@ -57,7 +57,7 @@ type LedgerReportRouteResponse = {
 };
 
 type TrialBalanceReportRouteResponse = {
-  report: ReportEnvelope<'trial-balance', DateRangeFiltersResponse, TrialBalanceReportData>;
+  report: ReportEnvelope<'trial-balance', BalanceSheetFiltersResponse, TrialBalanceReportData>;
 };
 
 type DonorSummaryReportRouteResponse = {
@@ -197,22 +197,22 @@ router.get(
 router.get(
   '/trial-balance',
   async (
-    req: Request<{}, TrialBalanceReportRouteResponse | ReportErrorResponse, unknown, DateRangeQuery>,
+    req: Request<{}, TrialBalanceReportRouteResponse | ReportErrorResponse, unknown, BalanceSheetQuery>,
     res: Response<TrialBalanceReportRouteResponse | ReportErrorResponse>,
     next: NextFunction
   ) => {
     try {
-      const { from, to, fund_id } = req.query;
+      const { as_of, fund_id } = req.query;
 
-      if (!from || !to) {
-        return res.status(400).json({ error: 'from and to query parameters are required' });
+      if (!as_of) {
+        return res.status(400).json({ error: 'as_of query parameter is required' });
       }
 
-      const errors = validateDates({ from, to });
+      const errors = validateDates({ asOf: as_of });
       if (errors.length) return res.status(400).json({ errors });
 
-      const data = await getTrialBalance({ from, to, fundId: fund_id || null });
-      res.json(envelope('trial-balance', { from, to, fund_id: fund_id || null }, data));
+      const data = await getTrialBalance({ asOf: as_of, fundId: fund_id || null });
+      res.json(envelope('trial-balance', { as_of, fund_id: fund_id || null }, data));
     } catch (err) {
       next(err);
     }
