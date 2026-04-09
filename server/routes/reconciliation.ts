@@ -27,7 +27,7 @@ import type {
   ReconciliationRow,
   ReconciliationSummaryRow,
 } from '../types/db';
-import { compareDateOnly, isValidDateOnly } from '../utils/date.js';
+import { compareDateOnly, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth');
@@ -207,7 +207,7 @@ router.get(
 
       const reconciliation: ReconciliationDetail = {
         ...recon,
-        statement_date: String(recon.statement_date),
+        statement_date: normalizeDateOnly(recon.statement_date),
         created_at: String(recon.created_at),
         statement_balance: parseFloat(String(recon.statement_balance)),
         opening_balance: parseFloat(String(recon.opening_balance)),
@@ -276,9 +276,10 @@ router.post(
         .orderBy('statement_date', 'desc')
         .first() as ReconciliationRow | undefined;
 
-      if (lastClosed && compareDateOnly(statement_date, String(lastClosed.statement_date)) <= 0) {
+      const lastClosedDate = lastClosed ? normalizeDateOnly(lastClosed.statement_date) : '';
+      if (lastClosed && compareDateOnly(statement_date, lastClosedDate) <= 0) {
         return res.status(400).json({
-          error: `Statement date must be after the last closed reconciliation (${lastClosed.statement_date})`,
+          error: `Statement date must be after the last closed reconciliation (${lastClosedDate})`,
         });
       }
 
@@ -340,7 +341,8 @@ router.put(
         return res.status(409).json({ error: 'Cannot edit a closed reconciliation' });
       }
 
-      const newDate = statement_date || String(recon.statement_date);
+      const currentDate = normalizeDateOnly(recon.statement_date);
+      const newDate = statement_date || currentDate;
       if (statement_date && !isValidDateOnly(statement_date)) {
         return res.status(400).json({ error: 'statement_date is not a valid date (YYYY-MM-DD)' });
       }
@@ -355,7 +357,7 @@ router.put(
           updated_at: trx.fn.now(),
         });
 
-        if (statement_date && statement_date !== String(recon.statement_date)) {
+        if (statement_date && statement_date !== currentDate) {
           const futureEntryIds = await trx('rec_items as ri')
             .join('journal_entries as je', 'je.id', 'ri.journal_entry_id')
             .join('transactions as t', 't.id', 'je.transaction_id')
