@@ -10,6 +10,7 @@ const NAV_LINKS = [
   { to: '/bills',                   label: '📄 Bills' },
   { to: '/transactions',            label: '💳 Transactions', end: true },
   { to: '/transactions/deposit',    label: '💰 Make a Deposit' },
+  { to: '/transactions/expense',    label: '🧾 Record Expense' },
   { to: '/reconciliation',          label: '✅ Reconciliation' },
   { to: '/reports',                 label: '📈 Reports' },
 ];
