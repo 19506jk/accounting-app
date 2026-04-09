@@ -7,7 +7,11 @@ import type {
   ApiErrorResponse,
   ApiValidationErrorResponse,
   CreateTransactionInput,
+  ImportTransactionRow,
+  ImportTransactionsInput,
+  ImportTransactionsResult,
   MessageResponse,
+  SkippedImportRow,
   TransactionCreateResult,
   TransactionDetail,
   TransactionEntryDetail,
@@ -36,6 +40,12 @@ const router = express.Router();
 router.use(auth);
 
 const dec = (v: Decimal.Value) => new Decimal(v ?? 0);
+const normalizeImportDescription = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+const normalizeImportReference = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized || null;
+};
 
 async function validateTransaction(body: CreateTransactionInput): Promise<string[]> {
   const errors: string[] = [];
@@ -274,6 +284,316 @@ router.get(
         total: parseInt(counted?.count || '0', 10),
         limit: cap,
         offset: off,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/import',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{}, ImportTransactionsResult | ApiValidationErrorResponse, ImportTransactionsInput>,
+    res: Response<ImportTransactionsResult | ApiValidationErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const body = req.body || {} as ImportTransactionsInput;
+      const errors: string[] = [];
+
+      const bankAccountId = Number(body.bank_account_id);
+      const fundId = Number(body.fund_id);
+      const force = body.force === true;
+      const rows = body.rows;
+
+      if (!Number.isInteger(bankAccountId) || bankAccountId <= 0) errors.push('bank_account_id must be a positive integer');
+      if (!Number.isInteger(fundId) || fundId <= 0) errors.push('fund_id must be a positive integer');
+      if (!Array.isArray(rows) || rows.length === 0) errors.push('rows must be a non-empty array');
+      if (Array.isArray(rows) && rows.length > 500) errors.push('rows cannot exceed 500');
+
+      if (errors.length > 0) return res.status(400).json({ errors });
+
+      const bankAccount = await db('accounts')
+        .where({ id: bankAccountId, is_active: true })
+        .first() as AccountRow | undefined;
+
+      if (!bankAccount) {
+        errors.push(`Bank account #${bankAccountId} does not exist or is inactive`);
+      } else if (bankAccount.type !== 'ASSET') {
+        errors.push(`Bank account #${bankAccountId} must be an ASSET account`);
+      }
+
+      const fund = await db('funds').where({ id: fundId, is_active: true }).first() as FundRow | undefined;
+      if (!fund) errors.push(`Fund #${fundId} does not exist or is inactive`);
+
+      type PreparedImportRow = {
+        row_index: number;
+        date: string;
+        description: string;
+        normalized_description: string;
+        reference_no: string | null;
+        amount: Decimal;
+        amount_fixed: string;
+        type: 'withdrawal' | 'deposit';
+        offset_account_id: number;
+      };
+
+      const preparedRows: PreparedImportRow[] = [];
+      const offsetAccountIds = new Set<number>();
+      const offsetAccountRows = new Map<number, number[]>();
+
+      (rows as ImportTransactionRow[]).forEach((row, idx) => {
+        const rowNumber = idx + 1;
+        if (!row) {
+          errors.push(`Row ${rowNumber}: row is required`);
+          return;
+        }
+
+        const rowDate = String(row.date || '').trim();
+        const rowDescription = String(row.description || '').trim();
+        const rowReferenceNo = normalizeImportReference(row.reference_no);
+        const rowType = row.type;
+        const offsetAccountId = Number(row.offset_account_id);
+        let amount: Decimal;
+
+        if (!parseDateOnlyStrict(rowDate)) {
+          errors.push(`Row ${rowNumber}: date must be a valid YYYY-MM-DD value`);
+        }
+
+        if (!rowDescription) {
+          errors.push(`Row ${rowNumber}: description is required`);
+        }
+
+        try {
+          amount = dec(row.amount);
+        } catch {
+          errors.push(`Row ${rowNumber}: amount is invalid`);
+          return;
+        }
+
+        if (amount.isZero() || amount.isNegative()) {
+          errors.push(`Row ${rowNumber}: amount must be greater than 0`);
+        } else if (amount.decimalPlaces() > 2) {
+          errors.push(`Row ${rowNumber}: amount cannot have more than 2 decimal places`);
+        }
+
+        if (rowType !== 'withdrawal' && rowType !== 'deposit') {
+          errors.push(`Row ${rowNumber}: type must be 'withdrawal' or 'deposit'`);
+        }
+
+        if (!Number.isInteger(offsetAccountId) || offsetAccountId <= 0) {
+          errors.push(`Row ${rowNumber}: offset_account_id must be a positive integer`);
+        } else {
+          if (offsetAccountId === bankAccountId) {
+            errors.push(`Row ${rowNumber}: offset_account_id cannot be the same as bank_account_id`);
+          }
+          offsetAccountIds.add(offsetAccountId);
+          const existingRows = offsetAccountRows.get(offsetAccountId) || [];
+          existingRows.push(rowNumber);
+          offsetAccountRows.set(offsetAccountId, existingRows);
+        }
+
+        if (errors.length > 0) return;
+
+        preparedRows.push({
+          row_index: rowNumber,
+          date: rowDate,
+          description: rowDescription,
+          normalized_description: normalizeImportDescription(rowDescription),
+          reference_no: rowReferenceNo,
+          amount,
+          amount_fixed: amount.toFixed(2),
+          type: rowType,
+          offset_account_id: offsetAccountId,
+        });
+      });
+
+      if (offsetAccountIds.size > 0) {
+        const offsetAccounts = await db('accounts')
+          .whereIn('id', [...offsetAccountIds])
+          .where('is_active', true) as AccountRow[];
+        const activeIds = new Set(offsetAccounts.map((a) => a.id));
+        for (const [id, rowNumbers] of offsetAccountRows.entries()) {
+          if (!activeIds.has(id)) {
+            rowNumbers.forEach((rowNumber) => {
+              errors.push(`Row ${rowNumber}: offset account #${id} does not exist or is inactive`);
+            });
+          }
+        }
+      }
+
+      if (errors.length > 0) return res.status(400).json({ errors });
+
+      const skippedRows: SkippedImportRow[] = [];
+      const rowsToImport: PreparedImportRow[] = [];
+
+      if (!force) {
+        const referenceValues = [...new Set(preparedRows.map((r) => r.reference_no).filter((r): r is string => !!r))];
+        const duplicateReferences = new Set<string>();
+
+        if (referenceValues.length > 0) {
+          const existingReferenceRows = await db('transactions as t')
+            .join('journal_entries as je', 'je.transaction_id', 't.id')
+            .where('je.account_id', bankAccountId)
+            .whereIn('t.reference_no', referenceValues)
+            .select('t.reference_no')
+            .groupBy('t.reference_no') as Array<{ reference_no: string | null }>;
+
+          for (const row of existingReferenceRows) {
+            if (row.reference_no) duplicateReferences.add(row.reference_no);
+          }
+        }
+
+        const noReferenceRows = preparedRows.filter((r) => !r.reference_no);
+        const fallbackSignatures = new Set<string>();
+
+        if (noReferenceRows.length > 0) {
+          const uniqueDates = [...new Set(noReferenceRows.map((r) => r.date))];
+          const candidates = await db('transactions as t')
+            .join('journal_entries as je', 'je.transaction_id', 't.id')
+            .where('je.account_id', bankAccountId)
+            .whereIn('t.date', uniqueDates)
+            .select('t.date', 't.description', 'je.debit', 'je.credit') as Array<{
+              date: string;
+              description: string;
+              debit: string | number;
+              credit: string | number;
+            }>;
+
+          for (const candidate of candidates) {
+            const debit = dec(candidate.debit ?? 0);
+            const credit = dec(candidate.credit ?? 0);
+            const type = debit.greaterThan(0) ? 'deposit' : credit.greaterThan(0) ? 'withdrawal' : null;
+            if (!type) continue;
+            const amountFixed = type === 'deposit' ? debit.toFixed(2) : credit.toFixed(2);
+            const normalizedDate = normalizeDateOnly(candidate.date);
+            const normalizedDescription = normalizeImportDescription(candidate.description || '');
+            fallbackSignatures.add(`${normalizedDate}|${normalizedDescription}|${amountFixed}|${type}`);
+          }
+        }
+
+        for (const row of preparedRows) {
+          const signature = `${row.date}|${row.normalized_description}|${row.amount_fixed}|${row.type}`;
+          const isDuplicateReference = row.reference_no ? duplicateReferences.has(row.reference_no) : false;
+          const isDuplicateFallback = !row.reference_no && fallbackSignatures.has(signature);
+
+          if (isDuplicateReference || isDuplicateFallback) {
+            skippedRows.push({
+              row_index: row.row_index,
+              reason: isDuplicateReference
+                ? `Duplicate import detected for reference number ${row.reference_no}`
+                : 'Duplicate import detected for date, description, amount, and type on this bank account',
+              date: row.date,
+              amount: parseFloat(row.amount_fixed),
+              description: row.description,
+              reference_no: row.reference_no,
+            });
+            continue;
+          }
+
+          rowsToImport.push(row);
+        }
+      } else {
+        rowsToImport.push(...preparedRows);
+      }
+
+      if (rowsToImport.length === 0) {
+        return res.json({
+          imported: 0,
+          skipped: skippedRows.length,
+          skipped_rows: skippedRows,
+        });
+      }
+
+      await db.transaction(async (trx: Knex.Transaction) => {
+        const transactionIds: number[] = [];
+
+        for (const row of rowsToImport) {
+          const inserted = await trx('transactions')
+            .insert({
+              date: row.date,
+              description: row.description,
+              reference_no: row.reference_no,
+              fund_id: fundId,
+              created_by: req.user!.id,
+              created_at: trx.fn.now(),
+              updated_at: trx.fn.now(),
+            })
+            .returning('id') as Array<number | { id: number }>;
+
+          const first = inserted[0];
+          const transactionId = typeof first === 'number' ? first : first?.id;
+          if (!transactionId) throw new Error(`Failed to create transaction for row ${row.row_index}`);
+          transactionIds.push(transactionId);
+        }
+
+        const allEntries = rowsToImport.flatMap((row, idx) => {
+          const transactionId = transactionIds[idx];
+          const amountFixed = row.amount.toFixed(2);
+          const bankEntry = row.type === 'deposit'
+            ? {
+              transaction_id: transactionId,
+              account_id: bankAccountId,
+              fund_id: fundId,
+              contact_id: null,
+              debit: amountFixed,
+              credit: '0.00',
+              memo: null,
+              is_reconciled: false,
+              created_at: trx.fn.now(),
+              updated_at: trx.fn.now(),
+            }
+            : {
+              transaction_id: transactionId,
+              account_id: bankAccountId,
+              fund_id: fundId,
+              contact_id: null,
+              debit: '0.00',
+              credit: amountFixed,
+              memo: null,
+              is_reconciled: false,
+              created_at: trx.fn.now(),
+              updated_at: trx.fn.now(),
+            };
+
+          const offsetEntry = row.type === 'deposit'
+            ? {
+              transaction_id: transactionId,
+              account_id: row.offset_account_id,
+              fund_id: fundId,
+              contact_id: null,
+              debit: '0.00',
+              credit: amountFixed,
+              memo: null,
+              is_reconciled: false,
+              created_at: trx.fn.now(),
+              updated_at: trx.fn.now(),
+            }
+            : {
+              transaction_id: transactionId,
+              account_id: row.offset_account_id,
+              fund_id: fundId,
+              contact_id: null,
+              debit: amountFixed,
+              credit: '0.00',
+              memo: null,
+              is_reconciled: false,
+              created_at: trx.fn.now(),
+              updated_at: trx.fn.now(),
+            };
+
+          return [bankEntry, offsetEntry];
+        });
+
+        await trx('journal_entries').insert(allEntries);
+      });
+
+      return res.json({
+        imported: rowsToImport.length,
+        skipped: skippedRows.length,
+        skipped_rows: skippedRows,
       });
     } catch (err) {
       next(err);

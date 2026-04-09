@@ -3,6 +3,8 @@ import client from './client'
 
 import type {
   CreateTransactionInput,
+  ImportTransactionsInput,
+  ImportTransactionsResult,
   TransactionCreateResult,
   TransactionDetail,
   TransactionsListResponse,
@@ -74,6 +76,21 @@ export function useDeleteTransaction() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
+    },
+  })
+}
+
+export function useImportTransactions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: ImportTransactionsInput) => {
+      const { data } = await client.post<ImportTransactionsResult>('/transactions/import', payload)
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
     },
   })
 }

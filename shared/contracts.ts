@@ -150,6 +150,37 @@ export interface UpdateTransactionInput {
   entries?: TransactionEntryInput[];
 }
 
+export interface ImportTransactionRow {
+  date: string;
+  description: string;
+  reference_no?: string;
+  amount: number;
+  type: 'withdrawal' | 'deposit';
+  offset_account_id: number;
+}
+
+export interface ImportTransactionsInput {
+  bank_account_id: number;
+  fund_id: number;
+  rows: ImportTransactionRow[];
+  force?: boolean;
+}
+
+export interface SkippedImportRow {
+  row_index: number;
+  reason: string;
+  date: string;
+  amount: number;
+  description: string;
+  reference_no?: string | null;
+}
+
+export interface ImportTransactionsResult {
+  imported: number;
+  skipped: number;
+  skipped_rows: SkippedImportRow[];
+}
+
 export interface TransactionsQuery {
   fund_id?: string | number;
   account_id?: string | number;
