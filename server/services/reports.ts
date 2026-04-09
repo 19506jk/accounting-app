@@ -304,7 +304,7 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
       .orderBy('t.date', 'asc')
       .orderBy('je.id', 'asc') as LedgerEntryRow[];
 
-    if (entries.length === 0 && !accountId) continue;
+    if (entries.length === 0 && !from && !accountId) continue;
 
     let openingBalance = dec(0);
     if (from) {
@@ -330,6 +330,8 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
         openingBalance = dec(prior?.total_credit).minus(dec(prior?.total_debit));
       }
     }
+
+    if (entries.length === 0 && openingBalance.isZero() && !accountId) continue;
 
     let runningBalance = openingBalance;
     const rows = entries.map((entry) => {
