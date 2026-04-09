@@ -56,6 +56,8 @@
   - function useCreateTransaction: () => void
   - function useUpdateTransaction: () => void
   - function useDeleteTransaction: () => void
+  - function useImportTransactions: () => void
+  - _...1 more_
 - `client/src/api/useUsers.ts`
   - function useUsers: () => void
   - function useCreateUser: () => void
@@ -70,6 +72,7 @@
   - function toDateOnly: (value?) => void
   - function getChurchToday: (timeZone?) => void
   - _...10 more_
+- `client/src/utils/parseStatementCsv.ts` — function parseStatementCsv: (file) => Promise<ParseStatementCsvResult>
 - `server/services/churchTimeZone.ts`
   - function getChurchTimeZone: () => void
   - function setChurchTimeZone: (value?) => void
