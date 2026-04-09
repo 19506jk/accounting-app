@@ -645,19 +645,24 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
     });
   }
 
-  trialBalanceAccounts.sort((a, b) => {
+  const visibleTrialBalanceAccounts = trialBalanceAccounts.filter((account) => {
+    if (account.type !== 'INCOME' && account.type !== 'EXPENSE') return true;
+    return !(account.net_debit === 0 && account.net_credit === 0);
+  });
+
+  visibleTrialBalanceAccounts.sort((a, b) => {
     const byCode = a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' });
     if (byCode !== 0) return byCode;
     return a.name.localeCompare(b.name);
   });
 
-  const grandDebit = trialBalanceAccounts.reduce((sum, account) => sum.plus(dec(account.net_debit)), ZERO);
-  const grandCredit = trialBalanceAccounts.reduce((sum, account) => sum.plus(dec(account.net_credit)), ZERO);
+  const grandDebit = visibleTrialBalanceAccounts.reduce((sum, account) => sum.plus(dec(account.net_debit)), ZERO);
+  const grandCredit = visibleTrialBalanceAccounts.reduce((sum, account) => sum.plus(dec(account.net_credit)), ZERO);
   const roundedDebit = grandDebit.toDecimalPlaces(2);
   const roundedCredit = grandCredit.toDecimalPlaces(2);
 
   return {
-    accounts: trialBalanceAccounts,
+    accounts: visibleTrialBalanceAccounts,
     grand_total_debit: parseFloat(roundedDebit.toFixed(2)),
     grand_total_credit: parseFloat(roundedCredit.toFixed(2)),
     is_balanced: roundedDebit.equals(roundedCredit),
