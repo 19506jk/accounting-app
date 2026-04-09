@@ -421,18 +421,12 @@ const PreviewRow = memo(function PreviewRow({ row, index, offsetOptions, onOffse
         </span>
       </td>
       <td style={{ padding: '0.5rem', minWidth: '260px' }}>
-        {isLinked ? (
-          <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600 }}>
-            Linked bill uses Accounts Payable
-          </div>
-        ) : (
-          <Combobox
-            options={offsetOptions}
-            value={row.offset_account_id}
-            onChange={(value) => onOffsetChange(index, Number(value))}
-            placeholder="Offset account…"
-          />
-        )}
+        <Combobox
+          options={offsetOptions}
+          value={row.offset_account_id}
+          onChange={(value) => onOffsetChange(index, Number(value))}
+          placeholder="Offset account…"
+        />
       </td>
       <td style={{ padding: '0.5rem', minWidth: '260px' }}>
         {!isWithdrawal && <span style={{ color: '#9ca3af' }}>—</span>}
@@ -517,9 +511,12 @@ function ImportCsvModal({ onClose }) {
   );
 
   const offsetAccountOptions = useMemo(
-    () => activeAccounts
-      .filter((a) => a.id !== Number(bankAccountId || 0))
-      .map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+    () => [
+      { value: '', label: 'None' },
+      ...activeAccounts
+        .filter((a) => a.id !== Number(bankAccountId || 0))
+        .map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+    ],
     [activeAccounts, bankAccountId]
   );
 
@@ -527,6 +524,18 @@ function ImportCsvModal({ onClose }) {
     () => (funds || []).filter((f) => f.is_active).map((f) => ({ value: f.id, label: f.name })),
     [funds]
   );
+
+  useEffect(() => {
+    if (bankAccountId !== '') return;
+    if (bankAccountOptions.length === 0) return;
+    setBankAccountId(String(bankAccountOptions[0].value));
+  }, [bankAccountOptions]);
+
+  useEffect(() => {
+    if (fundId !== '') return;
+    if (fundOptions.length === 0) return;
+    setFundId(String(fundOptions[0].value));
+  }, [fundOptions]);
 
   useEffect(() => {
     if (phase !== 'setup') return;
@@ -607,7 +616,6 @@ function ImportCsvModal({ onClose }) {
   async function handlePreview() {
     const nextErrors = [];
     if (!bankAccountId) nextErrors.push('Bank account is required');
-    if (!defaultOffsetAccountId) nextErrors.push('Default offset account is required');
     if (!fundId) nextErrors.push('Fund is required');
     if (!parsedRows.length) nextErrors.push('Please upload a CSV with at least one transaction row');
     if (bankAccountId && defaultOffsetAccountId && Number(bankAccountId) === Number(defaultOffsetAccountId)) {
@@ -620,7 +628,9 @@ function ImportCsvModal({ onClose }) {
 
     setErrors([]);
     setSkippedRows([]);
-    const nextRows = parsedRows.map((row) => ({ ...row, offset_account_id: Number(defaultOffsetAccountId) }))
+    const nextRows = defaultOffsetAccountId
+      ? parsedRows.map((row) => ({ ...row, offset_account_id: Number(defaultOffsetAccountId) }))
+      : parsedRows
     setParsedRows(nextRows);
     setPhase('preview');
     await loadBillMatches(nextRows, Number(bankAccountId));
@@ -697,7 +707,7 @@ function ImportCsvModal({ onClose }) {
               label="Default Offset Account"
               options={offsetAccountOptions}
               value={defaultOffsetAccountId ? Number(defaultOffsetAccountId) : ''}
-              onChange={(value) => setDefaultOffsetAccountId(String(value))}
+              onChange={(value) => setDefaultOffsetAccountId(value === '' ? '' : String(value))}
               placeholder="Select default offset…"
             />
             <Combobox
@@ -800,7 +810,7 @@ function ImportCsvModal({ onClose }) {
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           {phase === 'setup' ? (
-            <Button onClick={handlePreview} disabled={isParsing || !!parseError || !parsedRows.length || !bankAccountId || !defaultOffsetAccountId || !fundId}>
+            <Button onClick={handlePreview} disabled={isParsing || !!parseError || !parsedRows.length || !bankAccountId || !fundId}>
               Preview
             </Button>
           ) : (
