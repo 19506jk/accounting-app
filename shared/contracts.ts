@@ -879,6 +879,9 @@ export interface ReportAccountBalance {
   code: string;
   name: string;
   balance: number;
+  is_synthetic?: boolean;
+  synthetic_note?: string | null;
+  investigate_filters?: ReportInvestigateFilters | null;
 }
 
 export interface PLReportData {
@@ -898,6 +901,7 @@ export interface BalanceSheetReportData {
   total_equity: number;
   total_liabilities_and_equity: number;
   is_balanced: boolean;
+  diagnostics: ReportDiagnostic[];
 }
 
 export interface LedgerReportRow {
@@ -943,26 +947,23 @@ export interface TrialBalanceReportAccount {
   is_abnormal_balance: boolean;
   is_synthetic: boolean;
   synthetic_note: string | null;
-  investigate_filters: {
-    from: string;
-    to: string;
-    fund_id: number | null;
-    account_id: number | null;
-  } | null;
+  investigate_filters: ReportInvestigateFilters | null;
 }
 
-export interface TrialBalanceDiagnostic {
-  code: 'ABNORMAL_BALANCE' | 'UNMAPPED_FUND_NET_ASSET' | 'MISSING_EQUITY_ACCOUNTS';
-  severity: 'warning';
+export interface ReportInvestigateFilters {
+  from: string;
+  to: string;
+  fund_id: number | null;
+  account_id?: number | null;
+}
+
+export interface ReportDiagnostic {
+  code: 'ABNORMAL_BALANCE' | 'UNMAPPED_FUND_NET_ASSET' | 'MISSING_EQUITY_ACCOUNTS' | 'BALANCED' | 'UNBALANCED' | 'SUGGEST_HARD_CLOSE';
+  severity: 'warning' | 'info';
   message: string;
   account_id: number | null;
   fund_id: number | null;
-  investigate_filters: {
-    from: string;
-    to: string;
-    fund_id: number | null;
-    account_id: number | null;
-  } | null;
+  investigate_filters: ReportInvestigateFilters | null;
 }
 
 export interface TrialBalanceReportData {
@@ -972,8 +973,11 @@ export interface TrialBalanceReportData {
   is_balanced: boolean;
   as_of: string;
   fiscal_year_start: string;
-  diagnostics: TrialBalanceDiagnostic[];
+  diagnostics: ReportDiagnostic[];
 }
+
+/** @deprecated use ReportDiagnostic */
+export type TrialBalanceDiagnostic = ReportDiagnostic;
 
 export interface DonorSummaryReportDonor {
   contact_id: number;

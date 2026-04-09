@@ -408,9 +408,73 @@ function PLReport({ data }) {
   );
 }
 
-function BalanceSheetReport({ data }) {
+function DiagnosticsPanel({ diagnostics, onInvestigate }) {
+  const warnings = (diagnostics || []).filter((d) => d.severity === 'warning')
+  const infos = (diagnostics || []).filter((d) => d.severity === 'info')
+
+  const renderGroup = (items, { border, background, headingColor, textColor, title }) => {
+    if (!items.length) return null
+    return (
+      <div style={{
+        border: `1px solid ${border}`,
+        background,
+        borderRadius: '8px',
+        padding: '0.75rem 0.9rem',
+        marginBottom: '0.6rem',
+      }}>
+        <div style={{ fontWeight: 700, fontSize: '0.82rem', color: headingColor, marginBottom: '0.4rem' }}>
+          {title}
+        </div>
+        {items.map((item, idx) => (
+          <div key={`${item.code}-${item.fund_id ?? 'none'}-${idx}`} style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            padding: '0.3rem 0',
+          }}>
+            <div style={{ fontSize: '0.82rem', color: textColor }}>{item.message}</div>
+            {item.investigate_filters && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => onInvestigate?.(item.investigate_filters)}
+              >
+                Investigate
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (!warnings.length && !infos.length) return null
+
+  return (
+    <div style={{ marginBottom: '0.9rem' }}>
+      {renderGroup(warnings, {
+        border: '#fde68a',
+        background: '#fffbeb',
+        headingColor: '#92400e',
+        textColor: '#78350f',
+        title: 'Warnings',
+      })}
+      {renderGroup(infos, {
+        border: '#bfdbfe',
+        background: '#eff6ff',
+        headingColor: '#1d4ed8',
+        textColor: '#1e40af',
+        title: 'Notes',
+      })}
+    </div>
+  )
+}
+
+function BalanceSheetReport({ data, onInvestigate }) {
   return (
     <div>
+      <DiagnosticsPanel diagnostics={data.diagnostics} onInvestigate={onInvestigate} />
       <Section title="ASSETS">
         {data.assets.map((a) => <LineItem key={a.id} label={`${a.code} - ${a.name}`} value={fmt(a.balance)} />)}
         <LineItem label="Total Assets" value={fmt(data.total_assets)} bold />
@@ -420,7 +484,27 @@ function BalanceSheetReport({ data }) {
         <LineItem label="Total Liabilities" value={fmt(data.total_liabilities)} bold />
       </Section>
       <Section title="EQUITY">
-        {data.equity.map((a) => <LineItem key={a.id} label={`${a.code} - ${a.name}`} value={fmt(a.balance)} />)}
+        {data.equity.map((a) => !a.is_synthetic ? (
+          <LineItem key={a.id} label={`${a.code} - ${a.name}`} value={fmt(a.balance)} />
+        ) : (
+          <div key={a.id} style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '0.35rem 0.5rem',
+            marginBottom: '0.2rem',
+            borderRadius: '6px',
+            background: '#fff7ed',
+          }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', paddingLeft: '1.5rem' }}>
+              <span style={{ color: '#374151' }}>{`${a.code} - ${a.name}`}</span>
+              <span style={{ fontSize: '0.7rem', color: '#9a3412' }}>
+                Synthetic
+              </span>
+            </span>
+            <span style={{ color: '#1e293b' }}>{fmt(a.balance)}</span>
+          </div>
+        ))}
         <LineItem label="Total Equity" value={fmt(data.total_equity)} bold />
       </Section>
       <div style={{ borderTop: '2px solid #1e293b', paddingTop: '0.75rem', marginTop: '0.5rem' }}>
@@ -506,39 +590,7 @@ function TrialBalanceReport({ data, onInvestigate }) {
 
   return (
     <div>
-      {(data.diagnostics || []).length > 0 && (
-        <div style={{
-          border: '1px solid #fde68a',
-          background: '#fffbeb',
-          borderRadius: '8px',
-          padding: '0.75rem 0.9rem',
-          marginBottom: '0.9rem',
-        }}>
-          <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#92400e', marginBottom: '0.4rem' }}>
-            Warnings
-          </div>
-          {(data.diagnostics || []).map((warning, idx) => (
-            <div key={idx} style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '0.75rem',
-              padding: '0.3rem 0',
-            }}>
-              <div style={{ fontSize: '0.82rem', color: '#78350f' }}>{warning.message}</div>
-              {warning.investigate_filters && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => onInvestigate?.(warning.investigate_filters)}
-                >
-                  Investigate
-                </Button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <DiagnosticsPanel diagnostics={data.diagnostics} onInvestigate={onInvestigate} />
 
       <table style={{ width: '100%', fontSize: '0.875rem', borderCollapse: 'collapse' }}>
         <thead>
@@ -896,7 +948,7 @@ export default function Reports() {
           </div>
 
           {type === 'pl'             && <PLReport data={reportData} />}
-          {type === 'balance-sheet'  && <BalanceSheetReport data={reportData} />}
+          {type === 'balance-sheet'  && <BalanceSheetReport data={reportData} onInvestigate={handleInvestigate} />}
           {type === 'ledger'         && <LedgerReport data={reportData} />}
           {type === 'trial-balance'  && <TrialBalanceReport data={reportData} onInvestigate={handleInvestigate} />}
           {type === 'donors-summary' && <DonorSummaryReport data={reportData} />}

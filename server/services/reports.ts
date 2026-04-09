@@ -11,7 +11,7 @@ import type {
   LedgerReportData,
   NormalBalanceSide,
   PLReportData,
-  TrialBalanceDiagnostic,
+  ReportDiagnostic,
   TrialBalanceReportData,
 } from '@shared/contracts';
 import { normalizeDateOnly } from '../utils/date.js';
@@ -193,6 +193,17 @@ function getPreviousYearStartDate(asOf: string): string {
   return `${year - 1}-01-01`;
 }
 
+function dayBefore(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function getSyntheticEquityLabel(type: 'Prior' | 'Current', fundName: string): string {
+  const period = type === 'Prior' ? 'Prior Years' : 'Current Year';
+  return `[System] Net Income (${period}) - ${fundName}`;
+}
+
 function resolveAccountClass(accountType: AccountType, accountClass: AccountClass | null): AccountClass {
   return accountClass || DEFAULT_ACCOUNT_CLASS_BY_TYPE[accountType];
 }
@@ -269,7 +280,8 @@ async function getPL({ from, to, fundId }: DateRangeArgs): Promise<PLReportData>
 }
 
 async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<BalanceSheetReportData> {
-  const rows = await baseQuery({ asOf, fundId })
+  const balanceAsOf = asOf || normalizeDateOnly(new Date());
+  const rows = await baseQuery({ asOf: balanceAsOf, fundId })
     .whereIn('a.type', ['ASSET', 'LIABILITY', 'EQUITY'])
     .select(
       'a.id',
@@ -285,6 +297,7 @@ async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<Bala
   const assets: BalanceSheetReportData['assets'] = [];
   const liabilities: BalanceSheetReportData['liabilities'] = [];
   const equity: BalanceSheetReportData['equity'] = [];
+  const diagnostics: ReportDiagnostic[] = [];
 
   let totalAssets = dec(0);
   let totalLiabilities = dec(0);
@@ -324,7 +337,172 @@ async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<Bala
     }
   }
 
+  const fiscalYearStartMonthRow = await db('settings')
+    .where({ key: 'fiscal_year_start' })
+    .select('value')
+    .first() as { value?: string | null } | undefined;
+  const fiscalStartMonth = Math.max(1, Math.min(12, parseInt(fiscalYearStartMonthRow?.value ?? '1', 10) || 1));
+  const fiscalYearStart = getFiscalYearStartDate(balanceAsOf, fiscalStartMonth);
+
+  const priorRows = await db('journal_entries as je')
+    .join('transactions as t', 't.id', 'je.transaction_id')
+    .join('accounts as a', 'a.id', 'je.account_id')
+    .where('t.is_voided', false)
+    .where('t.date', '<', fiscalYearStart)
+    .whereIn('a.type', ['INCOME', 'EXPENSE'])
+    .modify((query) => {
+      if (fundId) query.where('je.fund_id', fundId);
+    })
+    .select(
+      'je.fund_id',
+      db.raw('COALESCE(SUM(je.debit), 0) AS total_debit'),
+      db.raw('COALESCE(SUM(je.credit), 0) AS total_credit')
+    )
+    .groupBy('je.fund_id') as TrialBalancePriorNetRow[];
+
+  const currentRows = await db('journal_entries as je')
+    .join('transactions as t', 't.id', 'je.transaction_id')
+    .join('accounts as a', 'a.id', 'je.account_id')
+    .where('t.is_voided', false)
+    .where('t.date', '>=', fiscalYearStart)
+    .where('t.date', '<=', balanceAsOf)
+    .whereIn('a.type', ['INCOME', 'EXPENSE'])
+    .modify((query) => {
+      if (fundId) query.where('je.fund_id', fundId);
+    })
+    .select(
+      'je.fund_id',
+      db.raw('COALESCE(SUM(je.debit), 0) AS total_debit'),
+      db.raw('COALESCE(SUM(je.credit), 0) AS total_credit')
+    )
+    .groupBy('je.fund_id') as TrialBalancePriorNetRow[];
+
+  const allFundIds = [...new Set([...priorRows.map((row) => row.fund_id), ...currentRows.map((row) => row.fund_id)])];
+  const fundsById = new Map<number, TrialBalanceFundRow>();
+  if (allFundIds.length > 0) {
+    const fundRows = await db('funds as f')
+      .leftJoin('accounts as a', 'a.id', 'f.net_asset_account_id')
+      .whereIn('f.id', allFundIds)
+      .select(
+        'f.id',
+        'f.name',
+        'f.net_asset_account_id',
+        'a.code as net_asset_code',
+        'a.name as net_asset_name'
+      ) as TrialBalanceFundRow[];
+    for (const fund of fundRows) fundsById.set(fund.id, fund);
+  }
+
+  const unmappedFunds = new Set<number>();
+
+  for (const row of priorRows) {
+    const priorNetIncome = dec(row.total_credit).minus(dec(row.total_debit));
+    if (priorNetIncome.isZero()) continue;
+
+    const fund = fundsById.get(row.fund_id);
+    const hasMappedNetAsset = Boolean(fund?.net_asset_account_id);
+    const syntheticCode = hasMappedNetAsset ? String(fund?.net_asset_code || '3000') : UNALLOCATED_SYNTHETIC_EQUITY_CODE;
+    const syntheticFundName = String(fund?.name || `Fund #${row.fund_id}`);
+    const syntheticBalance = parseFloat(priorNetIncome.toFixed(2));
+
+    if (!hasMappedNetAsset && !unmappedFunds.has(row.fund_id)) {
+      unmappedFunds.add(row.fund_id);
+      diagnostics.push({
+        code: 'UNMAPPED_FUND_NET_ASSET',
+        severity: 'warning',
+        message: `${syntheticFundName} has no net-asset account mapping. Synthetic equity routed to ${UNALLOCATED_SYNTHETIC_EQUITY_CODE} (${UNALLOCATED_SYNTHETIC_EQUITY_NAME}).`,
+        account_id: null,
+        fund_id: row.fund_id,
+        investigate_filters: null,
+      });
+    }
+
+    equity.push({
+      id: -2000000 - row.fund_id,
+      code: syntheticCode,
+      name: getSyntheticEquityLabel('Prior', syntheticFundName),
+      balance: syntheticBalance,
+      is_synthetic: true,
+      synthetic_note: `Synthetic prior-years close for ${syntheticFundName}`,
+      investigate_filters: {
+        from: '1900-01-01',
+        to: dayBefore(fiscalYearStart),
+        fund_id: row.fund_id,
+        account_id: null,
+      },
+    });
+    totalEquity = totalEquity.plus(priorNetIncome);
+    diagnostics.push({
+      code: 'SUGGEST_HARD_CLOSE',
+      severity: 'info',
+      message: `${syntheticFundName} has a prior-years synthetic balance (${priorNetIncome.toFixed(2)}). Consider posting a hard close journal entry.`,
+      account_id: null,
+      fund_id: row.fund_id,
+      investigate_filters: {
+        from: '1900-01-01',
+        to: dayBefore(fiscalYearStart),
+        fund_id: row.fund_id,
+        account_id: null,
+      },
+    });
+  }
+
+  for (const row of currentRows) {
+    const currentNetIncome = dec(row.total_credit).minus(dec(row.total_debit));
+    if (currentNetIncome.isZero()) continue;
+
+    const fund = fundsById.get(row.fund_id);
+    const hasMappedNetAsset = Boolean(fund?.net_asset_account_id);
+    const syntheticCode = hasMappedNetAsset ? String(fund?.net_asset_code || '3000') : UNALLOCATED_SYNTHETIC_EQUITY_CODE;
+    const syntheticFundName = String(fund?.name || `Fund #${row.fund_id}`);
+
+    if (!hasMappedNetAsset && !unmappedFunds.has(row.fund_id)) {
+      unmappedFunds.add(row.fund_id);
+      diagnostics.push({
+        code: 'UNMAPPED_FUND_NET_ASSET',
+        severity: 'warning',
+        message: `${syntheticFundName} has no net-asset account mapping. Synthetic equity routed to ${UNALLOCATED_SYNTHETIC_EQUITY_CODE} (${UNALLOCATED_SYNTHETIC_EQUITY_NAME}).`,
+        account_id: null,
+        fund_id: row.fund_id,
+        investigate_filters: null,
+      });
+    }
+
+    equity.push({
+      id: -3000000 - row.fund_id,
+      code: syntheticCode,
+      name: getSyntheticEquityLabel('Current', syntheticFundName),
+      balance: parseFloat(currentNetIncome.toFixed(2)),
+      is_synthetic: true,
+      synthetic_note: `Synthetic current-year net income for ${syntheticFundName}`,
+      investigate_filters: {
+        from: fiscalYearStart,
+        to: balanceAsOf,
+        fund_id: row.fund_id,
+        account_id: null,
+      },
+    });
+    totalEquity = totalEquity.plus(currentNetIncome);
+  }
+
   const totalLiabilitiesAndEquity = totalLiabilities.plus(totalEquity);
+  const isBalanced = totalAssets.equals(totalLiabilitiesAndEquity);
+
+  diagnostics.push({
+    code: isBalanced ? 'BALANCED' : 'UNBALANCED',
+    severity: isBalanced ? 'info' : 'warning',
+    message: isBalanced
+      ? 'Balance Sheet is balanced.'
+      : `Balance Sheet is out of balance by ${totalAssets.minus(totalLiabilitiesAndEquity).toFixed(2)}.`,
+    account_id: null,
+    fund_id: fundId ? Number(fundId) : null,
+    investigate_filters: null,
+  });
+
+  const dedupedDiagnostics = diagnostics.filter((diagnostic, index, all) => {
+    const key = `${diagnostic.code}:${diagnostic.fund_id ?? 'null'}`;
+    return index === all.findIndex((candidate) => `${candidate.code}:${candidate.fund_id ?? 'null'}` === key);
+  });
 
   return {
     assets,
@@ -334,7 +512,8 @@ async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<Bala
     total_liabilities: parseFloat(totalLiabilities.toFixed(2)),
     total_equity: parseFloat(totalEquity.toFixed(2)),
     total_liabilities_and_equity: parseFloat(totalLiabilitiesAndEquity.toFixed(2)),
-    is_balanced: totalAssets.equals(totalLiabilitiesAndEquity),
+    is_balanced: isBalanced,
+    diagnostics: dedupedDiagnostics,
   };
 }
 
@@ -504,7 +683,7 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
     totalsByAccount.set(row.account_id, current);
   }
 
-  const diagnostics: TrialBalanceDiagnostic[] = [];
+  const diagnostics: ReportDiagnostic[] = [];
   const trialBalanceAccounts: TrialBalanceReportData['accounts'] = accountsRows.map((account) => {
     const totals = totalsByAccount.get(account.id) || { debit: ZERO, credit: ZERO };
     const totalDebit = totals.debit;
@@ -618,11 +797,17 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
 
     const syntheticNetDebit = priorNetIncome.lessThan(0) ? priorNetIncome.abs() : ZERO;
     const syntheticNetCredit = priorNetIncome.greaterThan(0) ? priorNetIncome : ZERO;
+    const investigateFilters = {
+      from: '1900-01-01',
+      to: dayBefore(fiscalYearStart),
+      fund_id: row.fund_id,
+      account_id: null,
+    };
 
     trialBalanceAccounts.push({
       id: -1000000 - row.fund_id,
       code: syntheticCode,
-      name: `[System] Net Income (Prior Years) - ${syntheticFundName}`,
+      name: getSyntheticEquityLabel('Prior', syntheticFundName),
       type: 'EQUITY',
       account_class: 'EQUITY',
       normal_balance: 'CREDIT',
@@ -634,7 +819,16 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
       is_abnormal_balance: false,
       is_synthetic: true,
       synthetic_note: syntheticNote,
-      investigate_filters: null,
+      investigate_filters: investigateFilters,
+    });
+
+    diagnostics.push({
+      code: 'SUGGEST_HARD_CLOSE',
+      severity: 'info',
+      message: `${syntheticFundName} has a prior-years synthetic balance (${priorNetIncome.toFixed(2)}). Consider posting a hard close journal entry.`,
+      account_id: null,
+      fund_id: row.fund_id,
+      investigate_filters: investigateFilters,
     });
   }
 
@@ -651,6 +845,7 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
   }
 
   const visibleTrialBalanceAccounts = trialBalanceAccounts.filter((account) => {
+    if (account.is_synthetic && account.net_debit === 0 && account.net_credit === 0) return false;
     if (account.type !== 'INCOME' && account.type !== 'EXPENSE') return true;
     return !(account.net_debit === 0 && account.net_credit === 0);
   });
@@ -671,12 +866,24 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
   const grandCredit = visibleTrialBalanceAccounts.reduce((sum, account) => sum.plus(dec(account.net_credit)), ZERO);
   const roundedDebit = grandDebit.toDecimalPlaces(2);
   const roundedCredit = grandCredit.toDecimalPlaces(2);
+  const isBalanced = roundedDebit.equals(roundedCredit);
+
+  diagnostics.push({
+    code: isBalanced ? 'BALANCED' : 'UNBALANCED',
+    severity: isBalanced ? 'info' : 'warning',
+    message: isBalanced
+      ? 'Trial Balance is balanced.'
+      : `Trial Balance is out of balance by ${roundedDebit.minus(roundedCredit).toFixed(2)}.`,
+    account_id: null,
+    fund_id: fundId ? Number(fundId) : null,
+    investigate_filters: null,
+  });
 
   return {
     accounts: visibleTrialBalanceAccounts,
     grand_total_debit: parseFloat(roundedDebit.toFixed(2)),
     grand_total_credit: parseFloat(roundedCredit.toFixed(2)),
-    is_balanced: roundedDebit.equals(roundedCredit),
+    is_balanced: isBalanced,
     as_of: trialAsOf,
     fiscal_year_start: fiscalYearStart,
     diagnostics,
