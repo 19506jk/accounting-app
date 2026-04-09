@@ -302,7 +302,7 @@ function PLReport({ data }) {
         <LineItem label="Total Income" value={fmt(data.total_income)} bold />
       </Section>
       <Section title="EXPENSES">
-        {data.expenses.map((a) => <LineItem key={a.id} label={`${a.name}`} value={fmt(a.amount)} />)}
+        {data.expenses.map((a) => <LineItem key={a.id} label={`${a.code} - ${a.name}`} value={fmt(a.amount)} />)}
         <LineItem label="Total Expenses" value={fmt(data.total_expenses)} bold />
       </Section>
       <div style={{ borderTop: '2px solid #1e293b', paddingTop: '0.75rem', marginTop: '0.5rem' }}>
@@ -317,15 +317,15 @@ function BalanceSheetReport({ data }) {
   return (
     <div>
       <Section title="ASSETS">
-        {data.assets.map((a) => <LineItem key={a.id} label={a.name} value={fmt(a.balance)} />)}
+        {data.assets.map((a) => <LineItem key={a.id} label={`${a.code} - ${a.name}`} value={fmt(a.balance)} />)}
         <LineItem label="Total Assets" value={fmt(data.total_assets)} bold />
       </Section>
       <Section title="LIABILITIES">
-        {data.liabilities.map((a) => <LineItem key={a.id} label={a.name} value={fmt(a.balance)} />)}
+        {data.liabilities.map((a) => <LineItem key={a.id} label={`${a.code} - ${a.name}`} value={fmt(a.balance)} />)}
         <LineItem label="Total Liabilities" value={fmt(data.total_liabilities)} bold />
       </Section>
       <Section title="EQUITY">
-        {data.equity.map((a) => <LineItem key={a.id} label={a.name} value={fmt(a.balance)} />)}
+        {data.equity.map((a) => <LineItem key={a.id} label={`${a.code} - ${a.name}`} value={fmt(a.balance)} />)}
         <LineItem label="Total Equity" value={fmt(data.total_equity)} bold />
       </Section>
       <div style={{ borderTop: '2px solid #1e293b', paddingTop: '0.75rem', marginTop: '0.5rem' }}>
