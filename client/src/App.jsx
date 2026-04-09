@@ -9,7 +9,6 @@ import FullScreenSpinner from './components/FullScreenSpinner';
 import Login           from './pages/Login';
 import Dashboard       from './pages/Dashboard';
 import ChartOfAccounts from './pages/ChartOfAccounts';
-import Funds           from './pages/Funds';
 import Contacts        from './pages/Contacts';
 import Bills           from './pages/Bills';
 import Transactions    from './pages/Transactions';
@@ -19,6 +18,7 @@ import Settings        from './pages/Settings';
 import UserManagement  from './pages/UserManagement';
 import DepositEntry    from './pages/DepositEntry';
 import ExpenseEntry    from './pages/ExpenseEntry';
+import ImportCsv       from './pages/ImportCsv';
 
 function AppRoutes() {
   const { isInitialLoading } = useAuth();
@@ -43,13 +43,13 @@ function AppRoutes() {
       }>
         <Route path="/dashboard"      element={<Dashboard />} />
         <Route path="/accounts"       element={<ChartOfAccounts />} />
-        <Route path="/funds"          element={<Funds />} />
         <Route path="/contacts"       element={<Contacts />} />
         <Route path="/bills"          element={<Bills />} />
 	<Route path="/transactions">
           <Route index element={<Transactions />} />
           <Route path="deposit" element={<DepositEntry />} />
           <Route path="expense" element={<ExpenseEntry />} />
+          <Route path="import" element={<ImportCsv />} />
         </Route>
         <Route path="/reconciliation" element={<Reconciliation />} />
         <Route path="/reports"        element={<Reports />} />

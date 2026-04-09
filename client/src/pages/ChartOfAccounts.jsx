@@ -1,12 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import { useAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount } from '../api/useAccounts';
+import { useFunds, useCreateFund, useUpdateFund, useDeleteFund } from '../api/useFunds';
 import { useLedgerReport } from '../api/useReports';
 import { useToast }  from '../components/ui/Toast';
 import Card    from '../components/ui/Card';
-import Table   from '../components/ui/Table';
 import Modal   from '../components/ui/Modal';
 import Drawer  from '../components/ui/Drawer';
-import Badge   from '../components/ui/Badge';
 import Button  from '../components/ui/Button';
 import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
@@ -174,14 +173,21 @@ export default function ChartOfAccounts() {
   const { addToast } = useToast();
   const [showInactive, setShowInactive] = useState(false);
   const { data: accounts, isLoading } = useAccounts({ include_inactive: showInactive });
+  const { data: funds } = useFunds({ include_inactive: showInactive });
 
   const createAccount = useCreateAccount();
   const updateAccount = useUpdateAccount();
   const deleteAccount = useDeleteAccount();
+  const createFund = useCreateFund();
+  const updateFund = useUpdateFund();
+  const deleteFund = useDeleteFund();
 
   const [modal,   setModal]   = useState(null); // null | 'add' | account
   const [form,    setForm]    = useState(EMPTY_FORM);
   const [errors,  setErrors]  = useState({});
+  const [fundModal, setFundModal] = useState(null); // null | 'add' | fund
+  const [fundForm, setFundForm] = useState({ name: '', code: '', description: '' });
+  const [fundErrors, setFundErrors] = useState({});
   const [ledgerAccount, setLedgerAccount] = useState(null);
 
   const openAdd  = () => { setForm(EMPTY_FORM); setErrors({}); setModal('add'); };
@@ -190,12 +196,35 @@ export default function ChartOfAccounts() {
     setErrors({});
     setModal(a);
   };
+  const openAddFund = () => {
+    setFundForm({ name: '', code: '', description: '' });
+    setFundErrors({});
+    setFundModal('add');
+  };
+  const openEditFund = (fund) => {
+    setFundForm({
+      name: fund.name,
+      code: fund.net_asset_code || '',
+      description: fund.description || '',
+    });
+    setFundErrors({});
+    setFundModal(fund);
+  };
+  const setFund = (k) => (e) => setFundForm((f) => ({ ...f, [k]: e.target.value }));
 
   function validate() {
     const e = {};
     if (!form.code.trim()) e.code = 'Code is required';
     if (!form.name.trim()) e.name = 'Name is required';
     setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  function validateFund() {
+    const e = {};
+    if (!fundForm.name.trim()) e.name = 'Fund name is required';
+    if (!fundForm.code.trim()) e.code = 'Fund code is required';
+    setFundErrors(e);
     return Object.keys(e).length === 0;
   }
 
@@ -238,6 +267,46 @@ export default function ChartOfAccounts() {
     }
   }
 
+  async function handleFundSave() {
+    if (!validateFund()) return;
+    try {
+      if (fundModal === 'add') {
+        const result = await createFund.mutateAsync(fundForm);
+        addToast(`Fund created with equity account ${result.equityAccount?.code}.`, 'success');
+      } else {
+        await updateFund.mutateAsync({ id: fundModal.id, ...fundForm });
+        addToast('Fund updated.', 'success');
+      }
+      setFundModal(null);
+    } catch (err) {
+      addToast(err.response?.data?.error || 'Failed to save fund.', 'error');
+    }
+  }
+
+  async function handleFundDeactivate() {
+    if (!fundModal || fundModal === 'add') return;
+    if (!confirm(`Deactivate "${fundModal.name}"? This will fail if the fund has a non-zero balance or transaction history.`)) return;
+    try {
+      await deleteFund.mutateAsync(fundModal.id);
+      addToast('Fund deactivated.', 'success');
+      setFundModal(null);
+    } catch (err) {
+      addToast(err.response?.data?.error || 'Cannot deactivate fund.', 'error');
+    }
+  }
+
+  async function handleFundReactivate() {
+    if (!fundModal || fundModal === 'add') return;
+    if (!confirm(`Reactivate "${fundModal.name}"? Its linked net asset account will also be reactivated.`)) return;
+    try {
+      await updateFund.mutateAsync({ id: fundModal.id, is_active: true });
+      addToast('Fund reactivated.', 'success');
+      setFundModal(null);
+    } catch (err) {
+      addToast(err.response?.data?.error || 'Cannot reactivate fund.', 'error');
+    }
+  }
+
   // Group by type
   const grouped = {};
   (accounts || []).forEach((a) => {
@@ -247,8 +316,21 @@ export default function ChartOfAccounts() {
   const sortedTypes = Object.keys(grouped).sort(
     (a, b) => (TYPE_ORDER[a] || 9) - (TYPE_ORDER[b] || 9)
   );
+  const fundByAccountId = useMemo(() => {
+    const map = {};
+    (funds || []).forEach((fund) => {
+      if (fund.net_asset_account_id) map[fund.net_asset_account_id] = fund;
+    });
+    return map;
+  }, [funds]);
+  const unlinkedFunds = useMemo(
+    () => (funds || []).filter((fund) => !fund.net_asset_account_id),
+    [funds]
+  );
 
   const isSaving = createAccount.isPending || updateAccount.isPending;
+  const isFundSaving = createFund.isPending || updateFund.isPending;
+  const editingFund = fundModal && fundModal !== 'add' ? fundModal : null;
 
   return (
     <div>
@@ -268,47 +350,114 @@ export default function ChartOfAccounts() {
       {isLoading ? (
         <Card><div style={{ padding: '2rem', color: '#9ca3af', textAlign: 'center' }}>Loading…</div></Card>
       ) : sortedTypes.map((type) => (
-        <Card key={type} style={{ marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
-            marginBottom: '0.75rem' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%',
-              background: TYPE_COLORS[type], display: 'inline-block' }} />
-            <span style={{ fontWeight: 700, fontSize: '0.8rem', color: TYPE_COLORS[type],
-              textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {type}
-            </span>
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-            <tbody>
-              {grouped[type].map((a) => (
-                <tr key={a.id}
-                  style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer',
-                    opacity: a.is_active ? 1 : 0.45 }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#fafafa'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  <td style={{ padding: '0.6rem 0.75rem', width: '90px',
-                    color: '#6b7280', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                    {a.code}
-                  </td>
-                  <td
-                    style={{ padding: '0.6rem 0.75rem', color: '#1e293b',
-                      fontWeight: 500, cursor: 'pointer' }}
-                    onClick={() => setLedgerAccount(a)}
-                  >
-                    <span style={{ textDecoration: 'underline', textDecorationStyle: 'dotted',
-                      textUnderlineOffset: '3px', textDecorationColor: '#cbd5e1' }}>
-                      {a.name}
-                    </span>
-                  </td>
-                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>
-                    <Button variant="secondary" size="sm" onClick={() => openEdit(a)}>Edit</Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <div key={type}>
+          <Card style={{ marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem',
+              marginBottom: '0.75rem' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%',
+                background: TYPE_COLORS[type], display: 'inline-block' }} />
+              <span style={{ fontWeight: 700, fontSize: '0.8rem', color: TYPE_COLORS[type],
+                textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {type}
+              </span>
+              {type === 'EQUITY' && (
+                <Button size="sm" onClick={openAddFund} style={{ marginLeft: 'auto' }}>
+                  + Add Fund
+                </Button>
+              )}
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+              <tbody>
+                {grouped[type].map((a) => {
+                  const fund = type === 'EQUITY' ? fundByAccountId[a.id] : undefined;
+                  return (
+                    <tr key={a.id}
+                      style={{
+                        borderBottom: '1px solid #f3f4f6',
+                        cursor: 'pointer',
+                        opacity: a.is_active ? 1 : 0.45,
+                        background: fund ? '#faf5ff' : 'transparent',
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#fafafa'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = fund ? '#faf5ff' : 'transparent'}
+                    >
+                      <td style={{ padding: '0.6rem 0.75rem', width: '90px',
+                        color: '#6b7280', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                        {a.code}
+                      </td>
+                      <td
+                        style={{ padding: '0.6rem 0.75rem', color: '#1e293b',
+                          fontWeight: 500, cursor: 'pointer' }}
+                        onClick={() => setLedgerAccount(a)}
+                      >
+                        <span style={{ textDecoration: 'underline', textDecorationStyle: 'dotted',
+                          textUnderlineOffset: '3px', textDecorationColor: '#cbd5e1' }}>
+                          {a.name}
+                        </span>
+                        {fund && (
+                          <div style={{ fontSize: '0.72rem', color: '#7c3aed', marginTop: '2px' }}>
+                            Fund: {fund.name}{fund.description ? ` — ${fund.description}` : ''}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => (fund ? openEditFund(fund) : openEdit(a))}
+                        >
+                          Edit
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+
+          {type === 'EQUITY' && unlinkedFunds.length > 0 && (
+            <Card style={{ marginBottom: '1rem', border: '1px solid #e9d5ff' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#7c3aed',
+                textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+                Funds Without Linked Equity Account
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ color: '#6b7280', textAlign: 'left' }}>
+                    <th style={{ padding: '0.45rem 0.75rem', width: '90px', fontSize: '0.75rem', fontWeight: 600 }}>Code</th>
+                    <th style={{ padding: '0.45rem 0.75rem', fontSize: '0.75rem', fontWeight: 600 }}>Fund</th>
+                    <th style={{ padding: '0.45rem 0.75rem', textAlign: 'right', fontSize: '0.75rem', fontWeight: 600 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unlinkedFunds.map((fund) => (
+                    <tr
+                      key={fund.id}
+                      style={{ borderBottom: '1px solid #f3f4f6', opacity: fund.is_active ? 1 : 0.45 }}
+                    >
+                      <td style={{ padding: '0.6rem 0.75rem', width: '90px',
+                        color: '#6b7280', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                        {fund.net_asset_code || '—'}
+                      </td>
+                      <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: 500 }}>
+                        {fund.name}
+                        {fund.description && (
+                          <div style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: '2px' }}>
+                            {fund.description}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>
+                        <Button variant="secondary" size="sm" onClick={() => openEditFund(fund)}>Edit</Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </div>
       ))}
 
       {/* Add / Edit Modal */}
@@ -354,6 +503,80 @@ export default function ChartOfAccounts() {
               <Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button>
               <Button onClick={handleSave} isLoading={isSaving}>
                 {modal === 'add' ? 'Add Account' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={!!fundModal} onClose={() => setFundModal(null)}
+        title={fundModal === 'add' ? 'Add Fund' : 'Edit Fund'}>
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <Input
+            label="Fund Code"
+            required
+            value={fundForm.code}
+            onChange={setFund('code')}
+            error={fundErrors.code}
+            placeholder="e.g., 3000"
+          />
+          <Input
+            label="Fund Name"
+            required
+            value={fundForm.name}
+            onChange={setFund('name')}
+            error={fundErrors.name}
+            placeholder="General Fund"
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>Description</label>
+            <textarea
+              value={fundForm.description}
+              onChange={setFund('description')}
+              rows={2}
+              style={{
+                padding: '0.45rem 0.75rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                fontSize: '0.875rem',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+              }}
+            />
+          </div>
+          {fundModal === 'add' && (
+            <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: 0 }}>
+              An equity (net assets) account will be auto-created in the 3000–3899 range.
+            </p>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+            {editingFund?.is_active && (
+              <Button
+                variant="ghost"
+                onClick={handleFundDeactivate}
+                isLoading={deleteFund.isPending}
+                style={{ color: '#dc2626' }}
+              >
+                Deactivate Fund
+              </Button>
+            )}
+            {editingFund && !editingFund.is_active && (
+              <Button
+                variant="ghost"
+                onClick={handleFundReactivate}
+                isLoading={updateFund.isPending}
+                style={{ color: '#15803d' }}
+              >
+                Reactivate Fund
+              </Button>
+            )}
+            {fundModal === 'add' && <span />}
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <Button variant="secondary" onClick={() => setFundModal(null)}>Cancel</Button>
+              <Button onClick={handleFundSave} isLoading={isFundSaving}>
+                {fundModal === 'add' ? 'Create Fund' : 'Save Changes'}
               </Button>
             </div>
           </div>
