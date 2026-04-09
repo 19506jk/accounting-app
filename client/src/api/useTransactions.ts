@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import client from './client'
 
 import type {
+  GetBillMatchesInput,
+  GetBillMatchesResult,
   CreateTransactionInput,
   ImportTransactionsInput,
   ImportTransactionsResult,
@@ -91,6 +93,15 @@ export function useImportTransactions() {
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function useGetBillMatches() {
+  return useMutation({
+    mutationFn: async (payload: GetBillMatchesInput) => {
+      const { data } = await client.post<GetBillMatchesResult>('/transactions/import/bill-matches', payload)
+      return data
     },
   })
 }

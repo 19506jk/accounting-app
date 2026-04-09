@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, memo } from 'react';
 import Decimal from 'decimal.js';
-import { useTransactions, useCreateTransaction, useUpdateTransaction, useDeleteTransaction, useImportTransactions } from '../api/useTransactions';
+import { useTransactions, useCreateTransaction, useUpdateTransaction, useDeleteTransaction, useImportTransactions, useGetBillMatches } from '../api/useTransactions';
 import { useAccounts }  from '../api/useAccounts';
 import { useFunds }     from '../api/useFunds';
 import { useContacts }  from '../api/useContacts';
@@ -396,7 +396,11 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
   );
 }
 
-const PreviewRow = memo(function PreviewRow({ row, index, offsetOptions, onOffsetChange }) {
+const PreviewRow = memo(function PreviewRow({ row, index, offsetOptions, onOffsetChange, suggestions, onBillLink }) {
+  const isWithdrawal = row.type === 'withdrawal'
+  const isLinked = isWithdrawal && !!row.bill_id
+  const linkedBill = isLinked ? suggestions.find((suggestion) => suggestion.bill_id === row.bill_id) : null
+
   return (
     <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
       <td style={{ padding: '0.5rem', color: '#6b7280' }}>{index + 1}</td>
@@ -417,12 +421,64 @@ const PreviewRow = memo(function PreviewRow({ row, index, offsetOptions, onOffse
         </span>
       </td>
       <td style={{ padding: '0.5rem', minWidth: '260px' }}>
-        <Combobox
-          options={offsetOptions}
-          value={row.offset_account_id}
-          onChange={(value) => onOffsetChange(index, Number(value))}
-          placeholder="Offset account…"
-        />
+        {isLinked ? (
+          <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600 }}>
+            Linked bill uses Accounts Payable
+          </div>
+        ) : (
+          <Combobox
+            options={offsetOptions}
+            value={row.offset_account_id}
+            onChange={(value) => onOffsetChange(index, Number(value))}
+            placeholder="Offset account…"
+          />
+        )}
+      </td>
+      <td style={{ padding: '0.5rem', minWidth: '260px' }}>
+        {!isWithdrawal && <span style={{ color: '#9ca3af' }}>—</span>}
+        {isWithdrawal && !isLinked && suggestions.length === 0 && (
+          <span style={{ color: '#9ca3af' }}>No suggested bill</span>
+        )}
+        {isWithdrawal && !isLinked && suggestions.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            {suggestions.map((suggestion) => (
+              <button
+                key={`${index}-${suggestion.bill_id}`}
+                onClick={() => onBillLink(index, suggestion.bill_id)}
+                style={{
+                  border: '1px solid #fcd34d',
+                  background: '#fffbeb',
+                  borderRadius: '999px',
+                  padding: '0.3rem 0.55rem',
+                  color: '#92400e',
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                {suggestion.confidence === 'exact' ? 'Exact' : 'Possible'}: Bill {suggestion.bill_number || `#${suggestion.bill_id}`} — {suggestion.vendor_name || 'Unknown vendor'} {fmt(suggestion.balance_due)}
+              </button>
+            ))}
+          </div>
+        )}
+        {isLinked && (
+          <button
+            onClick={() => onBillLink(index, null)}
+            style={{
+              border: '1px solid #86efac',
+              background: '#dcfce7',
+              borderRadius: '999px',
+              padding: '0.3rem 0.55rem',
+              color: '#166534',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            {linkedBill?.confidence === 'exact' ? 'Exact' : 'Possible'}: Bill {linkedBill?.bill_number || `#${row.bill_id}`} — {linkedBill?.vendor_name || 'Linked'} {linkedBill ? fmt(linkedBill.balance_due) : ''} (Unlink)
+          </button>
+        )}
       </td>
     </tr>
   );
@@ -433,6 +489,7 @@ function ImportCsvModal({ onClose }) {
   const { data: accounts } = useAccounts();
   const { data: funds } = useFunds();
   const importTransactions = useImportTransactions();
+  const getBillMatches = useGetBillMatches();
 
   const [phase, setPhase] = useState('setup');
   const [bankAccountId, setBankAccountId] = useState('');
@@ -444,6 +501,8 @@ function ImportCsvModal({ onClose }) {
   const [errors, setErrors] = useState([]);
   const [skippedRows, setSkippedRows] = useState([]);
   const [isParsing, setIsParsing] = useState(false);
+  const [suggestionsByRow, setSuggestionsByRow] = useState({});
+  const [matchLoadError, setMatchLoadError] = useState('');
 
   const activeAccounts = useMemo(
     () => (accounts || []).filter((a) => a.is_active),
@@ -484,6 +543,43 @@ function ImportCsvModal({ onClose }) {
     });
   }, []);
 
+  const onBillLink = useCallback((index, billId) => {
+    setParsedRows((prev) => {
+      const next = [...prev]
+      next[index] = { ...next[index], bill_id: billId || undefined }
+      return next
+    })
+  }, [])
+
+  async function loadBillMatches(nextRows, nextBankAccountId) {
+    setMatchLoadError('')
+    setSuggestionsByRow({})
+
+    const withdrawalRows = nextRows.filter((row) => row.type === 'withdrawal')
+    if (withdrawalRows.length === 0) return
+
+    try {
+      const result = await getBillMatches.mutateAsync({
+        bank_account_id: nextBankAccountId,
+        rows: nextRows.map((row, idx) => ({
+          row_index: idx + 1,
+          date: row.date,
+          amount: row.amount,
+          type: row.type,
+        })),
+      })
+
+      const grouped = {}
+      ;(result.suggestions || []).forEach((suggestion) => {
+        if (!grouped[suggestion.row_index]) grouped[suggestion.row_index] = []
+        grouped[suggestion.row_index].push(suggestion)
+      })
+      setSuggestionsByRow(grouped)
+    } catch (err) {
+      setMatchLoadError(err.response?.data?.error || err.response?.data?.errors?.[0] || 'Failed to load bill match suggestions.')
+    }
+  }
+
   async function handleFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -492,6 +588,8 @@ function ImportCsvModal({ onClose }) {
     setParseError('');
     setErrors([]);
     setSkippedRows([]);
+    setSuggestionsByRow({});
+    setMatchLoadError('');
     try {
       const result = await parseStatementCsv(file);
       const nextOffsetId = defaultOffsetAccountId ? Number(defaultOffsetAccountId) : 0;
@@ -506,7 +604,7 @@ function ImportCsvModal({ onClose }) {
     }
   }
 
-  function handlePreview() {
+  async function handlePreview() {
     const nextErrors = [];
     if (!bankAccountId) nextErrors.push('Bank account is required');
     if (!defaultOffsetAccountId) nextErrors.push('Default offset account is required');
@@ -522,8 +620,10 @@ function ImportCsvModal({ onClose }) {
 
     setErrors([]);
     setSkippedRows([]);
-    setParsedRows((prev) => prev.map((row) => ({ ...row, offset_account_id: Number(defaultOffsetAccountId) })));
+    const nextRows = parsedRows.map((row) => ({ ...row, offset_account_id: Number(defaultOffsetAccountId) }))
+    setParsedRows(nextRows);
     setPhase('preview');
+    await loadBillMatches(nextRows, Number(bankAccountId));
   }
 
   async function handleImport(force) {
@@ -558,6 +658,7 @@ function ImportCsvModal({ onClose }) {
           amount: row.amount,
           type: row.type,
           offset_account_id: Number(row.offset_account_id),
+          bill_id: row.bill_id,
         })),
         force,
       });
@@ -643,8 +744,14 @@ function ImportCsvModal({ onClose }) {
             </div>
           )}
 
+          {matchLoadError && (
+            <div style={{ margin: '0.75rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem 1rem', color: '#b91c1c', fontSize: '0.82rem' }}>
+              {matchLoadError}
+            </div>
+          )}
+
           <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'auto', maxHeight: '52vh' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '860px', fontSize: '0.82rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1080px', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', color: '#6b7280', textAlign: 'left' }}>
                   <th style={{ padding: '0.55rem' }}>#</th>
@@ -653,6 +760,7 @@ function ImportCsvModal({ onClose }) {
                   <th style={{ padding: '0.55rem', textAlign: 'right' }}>Amount</th>
                   <th style={{ padding: '0.55rem' }}>Type</th>
                   <th style={{ padding: '0.55rem' }}>Offset Account</th>
+                  <th style={{ padding: '0.55rem' }}>Link to Bill</th>
                 </tr>
               </thead>
               <tbody>
@@ -663,6 +771,8 @@ function ImportCsvModal({ onClose }) {
                     index={idx}
                     offsetOptions={offsetAccountOptions}
                     onOffsetChange={onOffsetChange}
+                    suggestions={suggestionsByRow[idx + 1] || []}
+                    onBillLink={onBillLink}
                   />
                 ))}
               </tbody>
@@ -695,6 +805,13 @@ function ImportCsvModal({ onClose }) {
             </Button>
           ) : (
             <>
+              <Button
+                variant="secondary"
+                onClick={() => loadBillMatches(parsedRows, Number(bankAccountId))}
+                isLoading={getBillMatches.isPending}
+              >
+                Refresh matches
+              </Button>
               {skippedRows.length > 0 && (
                 <Button variant="secondary" onClick={() => handleImport(true)} isLoading={importTransactions.isPending}>
                   Import all including duplicates

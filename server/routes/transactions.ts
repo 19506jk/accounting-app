@@ -4,9 +4,13 @@ import express = require('express');
 import Decimal from 'decimal.js';
 
 import type {
+  BillMatchSuggestion,
   ApiErrorResponse,
   ApiValidationErrorResponse,
   CreateTransactionInput,
+  GetBillMatchRowInput,
+  GetBillMatchesInput,
+  GetBillMatchesResult,
   ImportTransactionRow,
   ImportTransactionsInput,
   ImportTransactionsResult,
@@ -35,6 +39,7 @@ import { getChurchTimeZone } from '../services/churchTimeZone.js';
 const db = require('../db');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/roles');
+import billService = require('../services/bills');
 
 const router = express.Router();
 router.use(auth);
@@ -46,6 +51,8 @@ const normalizeImportReference = (value: unknown): string | null => {
   const normalized = value.trim();
   return normalized || null;
 };
+
+const { payBill } = billService;
 
 async function validateTransaction(body: CreateTransactionInput): Promise<string[]> {
   const errors: string[] = [];
@@ -292,11 +299,186 @@ router.get(
 );
 
 router.post(
+  '/import/bill-matches',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{}, GetBillMatchesResult | ApiValidationErrorResponse, GetBillMatchesInput>,
+    res: Response<GetBillMatchesResult | ApiValidationErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const body = req.body || {} as GetBillMatchesInput;
+      const errors: string[] = [];
+      const bankAccountId = Number(body.bank_account_id);
+      const rows = body.rows;
+
+      if (!Number.isInteger(bankAccountId) || bankAccountId <= 0) errors.push('bank_account_id must be a positive integer');
+      if (!Array.isArray(rows) || rows.length === 0) errors.push('rows must be a non-empty array');
+      if (Array.isArray(rows) && rows.length > 500) errors.push('rows cannot exceed 500');
+      if (errors.length > 0) return res.status(400).json({ errors });
+
+      const withdrawalRows = (rows as GetBillMatchRowInput[])
+        .map((row) => ({ row, row_index: Number(row?.row_index) }))
+        .filter(({ row }) => row?.type === 'withdrawal');
+
+      const preparedRows: Array<{ row_index: number; date: string; amount: Decimal }> = [];
+      withdrawalRows.forEach(({ row, row_index }) => {
+        if (!Number.isInteger(row_index) || row_index <= 0) {
+          errors.push(`Row index ${row_index}: row_index must be a positive integer`);
+          return;
+        }
+
+        const rowDate = String(row.date || '').trim();
+        if (!parseDateOnlyStrict(rowDate)) {
+          errors.push(`Row ${row_index}: date must be a valid YYYY-MM-DD value`);
+          return;
+        }
+
+        let amount: Decimal;
+        try {
+          amount = dec(row.amount);
+        } catch {
+          errors.push(`Row ${row_index}: amount is invalid`);
+          return;
+        }
+
+        if (amount.lte(0)) {
+          errors.push(`Row ${row_index}: amount must be greater than 0`);
+          return;
+        }
+
+        preparedRows.push({ row_index, date: rowDate, amount });
+      });
+
+      if (errors.length > 0) return res.status(400).json({ errors });
+      if (preparedRows.length === 0) return res.json({ suggestions: [] });
+
+      const uniqueAmounts = [...new Set(preparedRows.map((row) => row.amount.toFixed(2)))];
+      const maxDate = preparedRows.reduce((acc, row) => (row.date > acc ? row.date : acc), preparedRows[0]!.date);
+      const minDate = preparedRows.reduce((acc, row) => (row.date < acc ? row.date : acc), preparedRows[0]!.date);
+      const timezone = getChurchTimeZone();
+      const minExactDateFloor = addDaysDateOnly(minDate, -60, timezone);
+
+      const exactCandidateBills = await db('bills as b')
+        .leftJoin('contacts as c', 'c.id', 'b.contact_id')
+        .where('b.status', 'UNPAID')
+        .where('b.date', '>=', minExactDateFloor)
+        .where('b.date', '<=', maxDate)
+        .whereIn(db.raw('(b.amount - b.amount_paid)'), uniqueAmounts)
+        .select(
+          'b.id',
+          'b.bill_number',
+          'b.date',
+          'b.due_date',
+          'b.amount',
+          'b.amount_paid',
+          'c.name as vendor_name'
+        ) as Array<{
+          id: number;
+          bill_number: string | null;
+          date: string;
+          due_date: string | null;
+          amount: string | number;
+          amount_paid: string | number;
+          vendor_name: string | null;
+        }>;
+
+      const suggestions: BillMatchSuggestion[] = [];
+      const unresolvedRows: Array<{ row_index: number; date: string; amount: Decimal }> = [];
+
+      for (const row of preparedRows) {
+        const rowAmount = row.amount.toFixed(2);
+        const minExactDate = addDaysDateOnly(row.date, -60, timezone);
+
+        const exactMatches = exactCandidateBills.filter((bill) => {
+          const billDate = normalizeDateOnly(bill.date);
+          const balanceDue = dec(bill.amount).minus(dec(bill.amount_paid));
+          return balanceDue.toFixed(2) === rowAmount
+            && billDate <= row.date
+            && billDate >= minExactDate;
+        });
+
+        exactMatches.forEach((bill) => {
+          const balanceDue = dec(bill.amount).minus(dec(bill.amount_paid));
+          suggestions.push({
+            row_index: row.row_index,
+            bill_id: bill.id,
+            bill_number: bill.bill_number,
+            vendor_name: bill.vendor_name,
+            bill_date: normalizeDateOnly(bill.date),
+            due_date: bill.due_date ? normalizeDateOnly(bill.due_date) : null,
+            balance_due: parseFloat(balanceDue.toFixed(2)),
+            confidence: 'exact',
+          });
+        });
+
+        if (exactMatches.length === 0) unresolvedRows.push(row);
+      }
+
+      if (unresolvedRows.length > 0) {
+        const unresolvedAmounts = [...new Set(unresolvedRows.map((row) => row.amount.toFixed(2)))];
+        const unresolvedMaxDate = unresolvedRows.reduce((acc, row) => (row.date > acc ? row.date : acc), unresolvedRows[0]!.date);
+
+        const possibleCandidateBills = await db('bills as b')
+          .leftJoin('contacts as c', 'c.id', 'b.contact_id')
+          .where('b.status', 'UNPAID')
+          .where('b.date', '<=', unresolvedMaxDate)
+          .whereIn(db.raw('(b.amount - b.amount_paid)'), unresolvedAmounts)
+          .select(
+            'b.id',
+            'b.bill_number',
+            'b.date',
+            'b.due_date',
+            'b.amount',
+            'b.amount_paid',
+            'c.name as vendor_name'
+          ) as Array<{
+            id: number;
+            bill_number: string | null;
+            date: string;
+            due_date: string | null;
+            amount: string | number;
+            amount_paid: string | number;
+            vendor_name: string | null;
+          }>;
+
+        for (const row of unresolvedRows) {
+          const rowAmount = row.amount.toFixed(2);
+          const possibleMatches = possibleCandidateBills.filter((bill) => {
+            const billDate = normalizeDateOnly(bill.date);
+            const balanceDue = dec(bill.amount).minus(dec(bill.amount_paid));
+            return balanceDue.toFixed(2) === rowAmount && billDate <= row.date;
+          });
+
+          possibleMatches.forEach((bill) => {
+            const balanceDue = dec(bill.amount).minus(dec(bill.amount_paid));
+            suggestions.push({
+              row_index: row.row_index,
+              bill_id: bill.id,
+              bill_number: bill.bill_number,
+              vendor_name: bill.vendor_name,
+              bill_date: normalizeDateOnly(bill.date),
+              due_date: bill.due_date ? normalizeDateOnly(bill.due_date) : null,
+              balance_due: parseFloat(balanceDue.toFixed(2)),
+              confidence: 'possible',
+            });
+          });
+        }
+      }
+
+      return res.json({ suggestions });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
   '/import',
   requireRole('admin', 'editor'),
   async (
-    req: Request<{}, ImportTransactionsResult | ApiValidationErrorResponse, ImportTransactionsInput>,
-    res: Response<ImportTransactionsResult | ApiValidationErrorResponse>,
+    req: Request<{}, ImportTransactionsResult | ApiValidationErrorResponse | ApiErrorResponse, ImportTransactionsInput>,
+    res: Response<ImportTransactionsResult | ApiValidationErrorResponse | ApiErrorResponse>,
     next: NextFunction
   ) => {
     try {
@@ -338,11 +520,14 @@ router.post(
         amount_fixed: string;
         type: 'withdrawal' | 'deposit';
         offset_account_id: number;
+        bill_id?: number;
       };
 
       const preparedRows: PreparedImportRow[] = [];
       const offsetAccountIds = new Set<number>();
       const offsetAccountRows = new Map<number, number[]>();
+      const billIds = new Set<number>();
+      const billRows = new Map<number, number[]>();
 
       (rows as ImportTransactionRow[]).forEach((row, idx) => {
         const rowNumber = idx + 1;
@@ -356,6 +541,7 @@ router.post(
         const rowReferenceNo = normalizeImportReference(row.reference_no);
         const rowType = row.type;
         const offsetAccountId = Number(row.offset_account_id);
+        const billId = row.bill_id === undefined || row.bill_id === null ? undefined : Number(row.bill_id);
         let amount: Decimal;
 
         if (!parseDateOnlyStrict(rowDate)) {
@@ -395,6 +581,17 @@ router.post(
           offsetAccountRows.set(offsetAccountId, existingRows);
         }
 
+        if (billId !== undefined) {
+          if (!Number.isInteger(billId) || billId <= 0) {
+            errors.push(`Row ${rowNumber}: bill_id must be a positive integer`);
+          } else {
+            billIds.add(billId);
+            const existingRows = billRows.get(billId) || [];
+            existingRows.push(rowNumber);
+            billRows.set(billId, existingRows);
+          }
+        }
+
         if (errors.length > 0) return;
 
         preparedRows.push({
@@ -407,6 +604,7 @@ router.post(
           amount_fixed: amount.toFixed(2),
           type: rowType,
           offset_account_id: offsetAccountId,
+          bill_id: billId,
         });
       });
 
@@ -422,6 +620,53 @@ router.post(
             });
           }
         }
+      }
+
+      for (const [id, rowNumbers] of billRows.entries()) {
+        if (rowNumbers.length > 1) {
+          errors.push(`The same bill cannot be linked to more than one row in the same import (bill #${id})`);
+        }
+      }
+
+      if (billIds.size > 0) {
+        const bills = await db('bills')
+          .whereIn('id', [...billIds])
+          .select('id', 'status', 'amount', 'amount_paid', 'transaction_id') as Array<{
+            id: number;
+            status: 'UNPAID' | 'PAID' | 'VOID';
+            amount: string | number;
+            amount_paid: string | number;
+            transaction_id: number | null;
+          }>;
+
+        const billMap = new Map(bills.map((bill) => [bill.id, bill]));
+
+        preparedRows.forEach((row) => {
+          if (!row.bill_id) return;
+          const bill = billMap.get(row.bill_id);
+          if (!bill) {
+            errors.push(`Row ${row.row_index}: bill #${row.bill_id} not found`);
+            return;
+          }
+
+          if (bill.status !== 'UNPAID') {
+            errors.push(`Row ${row.row_index}: bill #${row.bill_id} is not unpaid (status: ${bill.status})`);
+            return;
+          }
+
+          const balanceDue = dec(bill.amount).minus(dec(bill.amount_paid));
+          if (!balanceDue.equals(row.amount)) {
+            errors.push(
+              `Row ${row.row_index}: amount ${row.amount_fixed} does not match bill #${row.bill_id} balance due ${balanceDue.toFixed(2)}`
+            );
+          }
+
+          if (!row.reference_no && bill.transaction_id) {
+            errors.push(
+              `Row ${row.row_index}: bill #${row.bill_id} already has a recorded payment and this row has no reference number`
+            );
+          }
+        });
       }
 
       if (errors.length > 0) return res.status(400).json({ errors });
@@ -507,91 +752,120 @@ router.post(
         });
       }
 
-      await db.transaction(async (trx: Knex.Transaction) => {
-        const transactionIds: number[] = [];
+      const billLinkedRows = rowsToImport.filter((row) => !!row.bill_id);
+      const plainRows = rowsToImport.filter((row) => !row.bill_id);
 
-        for (const row of rowsToImport) {
-          const inserted = await trx('transactions')
-            .insert({
-              date: row.date,
-              description: row.description,
-              reference_no: row.reference_no,
-              fund_id: fundId,
-              created_by: req.user!.id,
-              created_at: trx.fn.now(),
-              updated_at: trx.fn.now(),
-            })
-            .returning('id') as Array<number | { id: number }>;
+      let paidBillRows = 0;
+      let plainInsertedRows = 0;
 
-          const first = inserted[0];
-          const transactionId = typeof first === 'number' ? first : first?.id;
-          if (!transactionId) throw new Error(`Failed to create transaction for row ${row.row_index}`);
-          transactionIds.push(transactionId);
+      // payBill manages its own DB transaction; cross-row atomicity is limited until payBill accepts an external trx.
+      for (const row of billLinkedRows) {
+        const result = await payBill(
+          String(row.bill_id),
+          {
+            payment_date: row.date,
+            bank_account_id: bankAccountId,
+            reference_no: row.reference_no || undefined,
+          },
+          req.user!.id
+        );
+
+        if (result.errors?.length) {
+          return res.status(409).json({ errors: [`Row ${row.row_index}: ${result.errors.join(', ')}`] });
         }
 
-        const allEntries = rowsToImport.flatMap((row, idx) => {
-          const transactionId = transactionIds[idx];
-          const amountFixed = row.amount.toFixed(2);
-          const bankEntry = row.type === 'deposit'
-            ? {
-              transaction_id: transactionId,
-              account_id: bankAccountId,
-              fund_id: fundId,
-              contact_id: null,
-              debit: amountFixed,
-              credit: '0.00',
-              memo: null,
-              is_reconciled: false,
-              created_at: trx.fn.now(),
-              updated_at: trx.fn.now(),
-            }
-            : {
-              transaction_id: transactionId,
-              account_id: bankAccountId,
-              fund_id: fundId,
-              contact_id: null,
-              debit: '0.00',
-              credit: amountFixed,
-              memo: null,
-              is_reconciled: false,
-              created_at: trx.fn.now(),
-              updated_at: trx.fn.now(),
-            };
+        paidBillRows += 1;
+      }
 
-          const offsetEntry = row.type === 'deposit'
-            ? {
-              transaction_id: transactionId,
-              account_id: row.offset_account_id,
-              fund_id: fundId,
-              contact_id: null,
-              debit: '0.00',
-              credit: amountFixed,
-              memo: null,
-              is_reconciled: false,
-              created_at: trx.fn.now(),
-              updated_at: trx.fn.now(),
-            }
-            : {
-              transaction_id: transactionId,
-              account_id: row.offset_account_id,
-              fund_id: fundId,
-              contact_id: null,
-              debit: amountFixed,
-              credit: '0.00',
-              memo: null,
-              is_reconciled: false,
-              created_at: trx.fn.now(),
-              updated_at: trx.fn.now(),
-            };
+      if (plainRows.length > 0) {
+        await db.transaction(async (trx: Knex.Transaction) => {
+          const transactionIds: number[] = [];
 
-          return [bankEntry, offsetEntry];
+          for (const row of plainRows) {
+            const inserted = await trx('transactions')
+              .insert({
+                date: row.date,
+                description: row.description,
+                reference_no: row.reference_no,
+                fund_id: fundId,
+                created_by: req.user!.id,
+                created_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+              })
+              .returning('id') as Array<number | { id: number }>;
+
+            const first = inserted[0];
+            const transactionId = typeof first === 'number' ? first : first?.id;
+            if (!transactionId) throw new Error(`Failed to create transaction for row ${row.row_index}`);
+            transactionIds.push(transactionId);
+          }
+
+          const allEntries = plainRows.flatMap((row, idx) => {
+            const transactionId = transactionIds[idx];
+            const amountFixed = row.amount.toFixed(2);
+            const bankEntry = row.type === 'deposit'
+              ? {
+                transaction_id: transactionId,
+                account_id: bankAccountId,
+                fund_id: fundId,
+                contact_id: null,
+                debit: amountFixed,
+                credit: '0.00',
+                memo: null,
+                is_reconciled: false,
+                created_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+              }
+              : {
+                transaction_id: transactionId,
+                account_id: bankAccountId,
+                fund_id: fundId,
+                contact_id: null,
+                debit: '0.00',
+                credit: amountFixed,
+                memo: null,
+                is_reconciled: false,
+                created_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+              };
+
+            const offsetEntry = row.type === 'deposit'
+              ? {
+                transaction_id: transactionId,
+                account_id: row.offset_account_id,
+                fund_id: fundId,
+                contact_id: null,
+                debit: '0.00',
+                credit: amountFixed,
+                memo: null,
+                is_reconciled: false,
+                created_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+              }
+              : {
+                transaction_id: transactionId,
+                account_id: row.offset_account_id,
+                fund_id: fundId,
+                contact_id: null,
+                debit: amountFixed,
+                credit: '0.00',
+                memo: null,
+                is_reconciled: false,
+                created_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+              };
+
+            return [bankEntry, offsetEntry];
+          });
+
+          await trx('journal_entries').insert(allEntries);
         });
 
-        await trx('journal_entries').insert(allEntries);
-      });
+        plainInsertedRows = plainRows.length;
+      }
 
       return res.json({
-        imported: rowsToImport.length,
+        imported: paidBillRows + plainInsertedRows,
         skipped: skippedRows.length,
         skipped_rows: skippedRows,
       });

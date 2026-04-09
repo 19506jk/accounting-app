@@ -157,6 +157,7 @@ export interface ImportTransactionRow {
   amount: number;
   type: 'withdrawal' | 'deposit';
   offset_account_id: number;
+  bill_id?: number;
 }
 
 export interface ImportTransactionsInput {
@@ -179,6 +180,33 @@ export interface ImportTransactionsResult {
   imported: number;
   skipped: number;
   skipped_rows: SkippedImportRow[];
+}
+
+export interface GetBillMatchesInput {
+  bank_account_id: number;
+  rows: GetBillMatchRowInput[];
+}
+
+export interface GetBillMatchRowInput {
+  row_index: number;
+  date: string;
+  amount: number;
+  type: 'withdrawal' | 'deposit';
+}
+
+export interface BillMatchSuggestion {
+  row_index: number;
+  bill_id: number;
+  bill_number: string | null;
+  vendor_name: string | null;
+  bill_date: string;
+  due_date: string | null;
+  balance_due: number;
+  confidence: 'exact' | 'possible';
+}
+
+export interface GetBillMatchesResult {
+  suggestions: BillMatchSuggestion[];
 }
 
 export interface TransactionsQuery {
