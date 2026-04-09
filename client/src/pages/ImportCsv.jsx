@@ -178,6 +178,13 @@ export default function ImportCsv() {
     })
   }, [])
 
+  const handleBackToSetup = useCallback(() => {
+    setErrors([]);
+    setSkippedRows([]);
+    setMatchLoadError('');
+    setPhase('setup');
+  }, []);
+
   async function loadBillMatches(nextRows, nextBankAccountId) {
     setMatchLoadError('')
     setSuggestionsByRow({})
@@ -428,7 +435,7 @@ export default function ImportCsv() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               {phase === 'preview' && (
-                <Button variant="secondary" onClick={() => setPhase('setup')}>
+                <Button variant="secondary" onClick={handleBackToSetup}>
                   Back
                 </Button>
               )}
