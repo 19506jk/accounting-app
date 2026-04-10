@@ -37,16 +37,45 @@ function currentMonth() {
 }
 
 // ── Account Ledger Drawer ────────────────────────────────────────────────────
-function AccountLedgerDrawer({ account, onClose }) {
+function AccountLedgerDrawer({ target, onClose }) {
   const [range, setRange] = useState(currentMonth());
   const [enabled, setEnabled] = useState(true);
+  const isFundMode = target?.mode === 'fund';
+  const accountTarget = target?.mode === 'account' ? target : null;
+  const fundTarget = target?.mode === 'fund' ? target : null;
 
   const { data, isLoading } = useLedgerReport(
-    { from: range.from, to: range.to, account_id: account?.id },
-    enabled && !!account
+    isFundMode
+      ? { from: range.from, to: range.to, fund_id: fundTarget?.fundId }
+      : { from: range.from, to: range.to, account_id: accountTarget?.accountId },
+    enabled && !!target
   );
 
-  const ledger = data?.data?.ledger?.[0];
+  const reportLedgers = data?.data?.ledger || [];
+  const ledger = isFundMode
+    ? (() => {
+        const rows = reportLedgers
+          .flatMap((acctLedger) =>
+            acctLedger.rows.map((row) => ({
+              ...row,
+              account_code: acctLedger.account.code,
+              description: `${acctLedger.account.code} — ${row.description}`,
+            }))
+          )
+          .sort((a, b) => {
+            if (a.date === b.date) return a.account_code.localeCompare(b.account_code);
+            return a.date.localeCompare(b.date);
+          });
+        if (rows.length === 0) return null;
+        return { opening_balance: null, closing_balance: null, rows };
+      })()
+    : reportLedgers[0];
+
+  const drawerTitle = !target
+    ? ''
+    : isFundMode
+      ? `Fund: ${fundTarget.fundName} (${fundTarget.fundCode})`
+      : `${accountTarget.accountCode} — ${accountTarget.accountName}`;
 
   function exportExcel() {
     if (!ledger) return;
@@ -56,11 +85,11 @@ function AccountLedgerDrawer({ account, onClose }) {
     };
 
     const rows = [
-      [`${account.code} — ${account.name}`, '', '', '', '', '', ''],
+      [drawerTitle, '', '', '', '', '', ''],
       [`From: ${range.from}`, `To: ${range.to}`, '', '', '', '', ''],
       [],
       ['Date', 'Reference No', 'Description', 'Fund', 'Debit', 'Credit', 'Balance'],
-      [`Opening Balance`, '', '', '', '', '', ledger.opening_balance],
+      ...(isFundMode ? [] : [[`Opening Balance`, '', '', '', '', '', ledger.opening_balance]]),
       ...ledger.rows.map((r) => [
         r.date,
         formatReferenceForExport(r.reference_no),
@@ -70,8 +99,7 @@ function AccountLedgerDrawer({ account, onClose }) {
         r.credit || '',
         r.balance,
       ]),
-      [],
-      ['Closing Balance', '', '', '', '', '', ledger.closing_balance],
+      ...(isFundMode ? [] : [[], ['Closing Balance', '', '', '', '', '', ledger.closing_balance]]),
     ];
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -85,11 +113,14 @@ function AccountLedgerDrawer({ account, onClose }) {
       { wch: 14 },
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
-    XLSX.writeFile(wb, `ledger_${account.code}_${range.from}_${range.to}.xlsx`);
+    const exportPrefix = isFundMode
+      ? `fund_${fundTarget.fundCode}`
+      : `account_${accountTarget.accountCode}`;
+    XLSX.writeFile(wb, `ledger_${exportPrefix}_${range.from}_${range.to}.xlsx`);
   }
 
   return (
-    <Drawer isOpen={!!account} onClose={onClose} title={account ? `${account.code} — ${account.name}` : ''} width="900px">
+    <Drawer isOpen={!!target} onClose={onClose} title={drawerTitle} width="900px">
       <div style={{ marginBottom: '1rem' }}>
         <DateRangePicker from={range.from} to={range.to}
           onChange={(r) => { setRange(r); setEnabled(true); }} />
@@ -102,8 +133,14 @@ function AccountLedgerDrawer({ account, onClose }) {
           <div style={{ display: 'flex', justifyContent: 'space-between',
             alignItems: 'center', marginBottom: '0.75rem' }}>
             <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-              Opening: <strong>{fmt(ledger.opening_balance)}</strong>
-              &nbsp;→&nbsp;Closing: <strong>{fmt(ledger.closing_balance)}</strong>
+              {isFundMode ? (
+                <>Transactions: <strong>{ledger.rows.length}</strong></>
+              ) : (
+                <>
+                  Opening: <strong>{fmt(ledger.opening_balance)}</strong>
+                  &nbsp;→&nbsp;Closing: <strong>{fmt(ledger.closing_balance)}</strong>
+                </>
+              )}
             </div>
             <Button variant="secondary" size="sm" onClick={exportExcel}>Export Excel</Button>
           </div>
@@ -188,7 +225,7 @@ export default function ChartOfAccounts() {
   const [fundModal, setFundModal] = useState(null); // null | 'add' | fund
   const [fundForm, setFundForm] = useState({ name: '', code: '', description: '' });
   const [fundErrors, setFundErrors] = useState({});
-  const [ledgerAccount, setLedgerAccount] = useState(null);
+  const [ledgerTarget, setLedgerTarget] = useState(null);
 
   const openAdd  = () => { setForm(EMPTY_FORM); setErrors({}); setModal('add'); };
   const openEdit = (a) => {
@@ -388,7 +425,24 @@ export default function ChartOfAccounts() {
                       <td
                         style={{ padding: '0.6rem 0.75rem', color: '#1e293b',
                           fontWeight: 500, cursor: 'pointer' }}
-                        onClick={() => setLedgerAccount(a)}
+                        onClick={() => {
+                          if (fund) {
+                            setLedgerTarget({
+                              mode: 'fund',
+                              fundId: fund.id,
+                              fundName: fund.name,
+                              fundCode: fund.net_asset_code || a.code,
+                              linkedAccountId: a.id,
+                            });
+                            return;
+                          }
+                          setLedgerTarget({
+                            mode: 'account',
+                            accountId: a.id,
+                            accountCode: a.code,
+                            accountName: a.name,
+                          });
+                        }}
                       >
                         <span style={{ textDecoration: 'underline', textDecorationStyle: 'dotted',
                           textUnderlineOffset: '3px', textDecorationColor: '#cbd5e1' }}>
@@ -585,8 +639,8 @@ export default function ChartOfAccounts() {
 
       {/* Ledger Drill-Down Drawer */}
       <AccountLedgerDrawer
-        account={ledgerAccount}
-        onClose={() => setLedgerAccount(null)}
+        target={ledgerTarget}
+        onClose={() => setLedgerTarget(null)}
       />
     </div>
   );
