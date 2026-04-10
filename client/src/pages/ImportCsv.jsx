@@ -6,6 +6,7 @@ import { useAccounts } from '../api/useAccounts';
 import { useFunds } from '../api/useFunds';
 import { useContacts } from '../api/useContacts';
 import { useTaxRates } from '../api/useTaxRates';
+import { useSettings } from '../api/useSettings';
 import { useToast } from '../components/ui/Toast';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -45,6 +46,12 @@ const SR_ONLY_STYLE = {
   border: 0,
 };
 const normalize = (s) => String(s ?? '').trim().toLowerCase();
+const ETRANSFER_TOKENS = ['e-transfer', 'etransfer', 'interac e-transfer'];
+const isEtransferDeposit = (row, metadata) => {
+  if (row.type !== 'deposit') return false;
+  const desc = normalize(metadata?.description_1);
+  return ETRANSFER_TOKENS.some((token) => desc.includes(token));
+};
 const dec = (value) => {
   try {
     return new Decimal(value || 0);
@@ -669,10 +676,10 @@ export default function ImportCsv() {
   const { data: payeeContacts = [] } = useContacts({ type: 'PAYEE' });
   const importTransactions = useImportTransactions();
   const getBillMatches = useGetBillMatches();
+  const { data: settings } = useSettings();
 
   const [phase, setPhase] = useState('setup');
   const [bankAccountId, setBankAccountId] = useState('');
-  const [defaultOffsetAccountId, setDefaultOffsetAccountId] = useState('');
   const [fundId, setFundId] = useState('');
   const [parsedRows, setParsedRows] = useState([]);
   const [parseWarnings, setParseWarnings] = useState([]);
@@ -705,6 +712,11 @@ export default function ImportCsv() {
     ],
     [activeAccounts, bankAccountId]
   );
+
+  const defaultEtransferOffsetId = useMemo(() => {
+    const raw = settings?.etransfer_deposit_offset_account_id;
+    return raw ? Number(raw) : 0;
+  }, [settings]);
 
   const fundOptions = useMemo(
     () => (funds || []).filter((f) => f.is_active).map((f) => ({ value: f.id, label: f.name })),
@@ -752,15 +764,6 @@ export default function ImportCsv() {
     setFundId(String(fundOptions[0].value));
   }, [fundOptions]);
 
-  useEffect(() => {
-    if (phase !== 'setup') return;
-    if (!defaultOffsetAccountId) return;
-    const nextId = Number(defaultOffsetAccountId);
-    setParsedRows((prev) => prev.map((row) => (
-      row.splits?.length > 0 ? row : { ...row, offset_account_id: nextId }
-    )));
-  }, [defaultOffsetAccountId, phase]);
-
   const onOffsetChange = useCallback((index, offsetId) => {
     setParsedRows((prev) => {
       const next = [...prev];
@@ -807,11 +810,10 @@ export default function ImportCsv() {
     if (clear) {
       setParsedRows((prev) => {
         const next = [...prev]
-        const fallbackOffsetId = defaultOffsetAccountId ? Number(defaultOffsetAccountId) : 0
         next[index] = {
           ...next[index],
           splits: undefined,
-          offset_account_id: Number(next[index].offset_account_id) || fallbackOffsetId,
+          offset_account_id: Number(next[index].offset_account_id) || 0,
           payee_id: undefined,
           contact_id: undefined,
         }
@@ -820,7 +822,7 @@ export default function ImportCsv() {
       return
     }
     setSplitModalIndex(index)
-  }, [defaultOffsetAccountId])
+  }, [])
 
   const onSplitClose = useCallback(() => setSplitModalIndex(null), [])
 
@@ -932,11 +934,11 @@ export default function ImportCsv() {
       }
 
       const AUTODEPOSIT_DESC = 'e-transfer - autodeposit';
-      const nextOffsetId = defaultOffsetAccountId ? Number(defaultOffsetAccountId) : 0;
       const mappedRows = result.rows.map((row, i) => {
-        const base = { ...row, offset_account_id: nextOffsetId };
-        if (row.type !== 'deposit') return base;
         const metadata = result.metadata?.[i];
+        const etransferPrefill = isEtransferDeposit(row, metadata) ? defaultEtransferOffsetId : 0;
+        const base = { ...row, offset_account_id: etransferPrefill };
+        if (row.type !== 'deposit') return base;
         if (normalize(metadata?.description_1) !== AUTODEPOSIT_DESC) return base;
 
         const fromEmail = normalize(metadata?.from);
@@ -996,9 +998,6 @@ export default function ImportCsv() {
     if (!bankAccountId) nextErrors.push('Bank account is required');
     if (!fundId) nextErrors.push('Fund is required');
     if (!parsedRows.length) nextErrors.push('Please upload a CSV with at least one transaction row');
-    if (bankAccountId && defaultOffsetAccountId && Number(bankAccountId) === Number(defaultOffsetAccountId)) {
-      nextErrors.push('Default offset account cannot be the same as the selected bank account');
-    }
     if (nextErrors.length) {
       setErrors(nextErrors);
       return;
@@ -1006,11 +1005,7 @@ export default function ImportCsv() {
 
     setErrors([]);
     setSkippedRows([]);
-    const nextRows = defaultOffsetAccountId
-      ? parsedRows.map((row) => (
-        row.splits?.length > 0 ? row : { ...row, offset_account_id: Number(defaultOffsetAccountId) }
-      ))
-      : parsedRows
+    const nextRows = parsedRows
     setParsedRows(nextRows);
     setPhase('preview');
     await loadBillMatches(nextRows, Number(bankAccountId));
@@ -1134,13 +1129,6 @@ export default function ImportCsv() {
                   value={bankAccountId ? Number(bankAccountId) : ''}
                   onChange={(value) => setBankAccountId(String(value))}
                   placeholder="Select bank account…"
-                />
-                <Combobox
-                  label="Default Offset Account"
-                  options={offsetAccountOptions}
-                  value={defaultOffsetAccountId ? Number(defaultOffsetAccountId) : ''}
-                  onChange={(value) => setDefaultOffsetAccountId(value === '' ? '' : String(value))}
-                  placeholder="Select default offset…"
                 />
                 <Combobox
                   label="Fund"

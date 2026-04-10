@@ -20,6 +20,7 @@ const SETTINGS = [
   { key: 'church_timezone',        label: 'Church Timezone',          value: 'America/Toronto' },
   { key: 'fiscal_year_start',      label: 'Fiscal Year Start Month', value: '1' },
   { key: 'currency',               label: 'Currency',                value: 'CAD' },
+  { key: 'etransfer_deposit_offset_account_id', label: 'E-Transfer Deposit Offset Account' },
 ];
 
 exports.seed = async function (knex) {

@@ -1,11 +1,13 @@
-import { useState, useEffect }       from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSettings, useUpdateSettings } from '../api/useSettings';
 import { useTaxRates, useUpdateTaxRate, useToggleTaxRate } from '../api/useTaxRates';
+import { useAccounts } from '../api/useAccounts';
 import { useToast }   from '../components/ui/Toast';
 import Card    from '../components/ui/Card';
 import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
 import Button  from '../components/ui/Button';
+import Combobox from '../components/ui/Combobox';
 import { DEFAULT_CHURCH_TIMEZONE } from '../utils/date';
 
 const PROVINCES = [
@@ -35,6 +37,14 @@ export default function Settings() {
   const { data: taxRates = [], isLoading: taxRatesLoading } = useTaxRates();
   const updateTaxRate = useUpdateTaxRate();
   const toggleTaxRate = useToggleTaxRate();
+
+  const { data: accounts = [] } = useAccounts();
+  const offsetAccountOptions = useMemo(() => [
+    { value: '', label: 'None' },
+    ...accounts
+      .filter((a) => a.is_active && a.type !== 'ASSET')
+      .map((a) => ({ value: String(a.id), label: `${a.code} — ${a.name}` })),
+  ], [accounts]);
 
   // Per-row editing state: { [id]: '13.00' } — stored as display % string while editing
   const [editingRates, setEditingRates] = useState({});
@@ -190,6 +200,26 @@ export default function Settings() {
             options={TIMEZONES}
           />
         </div>
+      </Card>
+
+      <Card style={{ marginBottom: '1.25rem' }}>
+        <h2 style={{ fontSize: '0.9rem', fontWeight: 600, color: '#374151',
+          marginBottom: '1.25rem', marginTop: 0 }}>
+          Import Defaults
+        </h2>
+        <Combobox
+          label="E-Transfer Deposit Offset Account"
+          options={offsetAccountOptions}
+          value={form.etransfer_deposit_offset_account_id ?? ''}
+          onChange={(value) => setForm((f) => ({
+            ...f,
+            etransfer_deposit_offset_account_id: value === '' ? null : String(value),
+          }))}
+          placeholder="Select account…"
+        />
+        <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.5rem' }}>
+          When set, e-transfer deposit rows are pre-filled with this offset account during CSV import.
+        </p>
       </Card>
 
       <Card style={{ marginBottom: '1.75rem' }}>
