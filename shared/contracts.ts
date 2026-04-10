@@ -877,10 +877,13 @@ export interface TrialBalanceReportFilters {
   fund_id?: string | number;
 }
 
-export interface DonorSummaryReportFilters extends DateRangeReportFilters {}
+export interface DonorSummaryReportFilters extends DateRangeReportFilters {
+  account_ids?: string;
+}
 
 export interface DonorDetailReportFilters extends DateRangeReportFilters {
   contact_id?: string | number;
+  account_ids?: string;
 }
 
 export interface ReportAccountAmount {

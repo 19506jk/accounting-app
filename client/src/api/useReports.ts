@@ -66,7 +66,7 @@ export function useTrialBalanceReport(filters: TrialBalanceReportFilters, enable
 
 export function useDonorSummaryReport(filters: DonorSummaryReportFilters, enabled = true) {
   return useQuery<DonorSummaryReportResponse['report']>({
-    queryKey: ['reports', 'donors-summary', filters.from, filters.to, filters.fund_id ?? null],
+    queryKey: ['reports', 'donors-summary', filters.from, filters.to, filters.fund_id ?? null, filters.account_ids ?? null],
     queryFn: async () => {
       const { data } = await client.get<DonorSummaryReportResponse>('/reports/donors/summary', { params: filters })
       return data.report
@@ -78,7 +78,15 @@ export function useDonorSummaryReport(filters: DonorSummaryReportFilters, enable
 
 export function useDonorDetailReport(filters: DonorDetailReportFilters, enabled = true) {
   return useQuery<DonorDetailReportResponse['report']>({
-    queryKey: ['reports', 'donors-detail', filters.from, filters.to, filters.fund_id ?? null, filters.contact_id ?? null],
+    queryKey: [
+      'reports',
+      'donors-detail',
+      filters.from,
+      filters.to,
+      filters.fund_id ?? null,
+      filters.contact_id ?? null,
+      filters.account_ids ?? null,
+    ],
     queryFn: async () => {
       const { data } = await client.get<DonorDetailReportResponse>('/reports/donors/detail', { params: filters })
       return data.report

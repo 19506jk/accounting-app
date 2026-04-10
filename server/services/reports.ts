@@ -24,6 +24,7 @@ interface DateRangeArgs {
   from?: string;
   to?: string;
   fundId?: string | null;
+  accountIds?: number[] | null;
 }
 
 interface BalanceSheetArgs {
@@ -889,7 +890,7 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
   };
 }
 
-async function getDonorSummary({ from, to, fundId }: DateRangeArgs): Promise<DonorSummaryReportData> {
+async function getDonorSummary({ from, to, fundId, accountIds }: DateRangeArgs): Promise<DonorSummaryReportData> {
   const rows = await db('transactions as t')
     .join('journal_entries as je', 'je.transaction_id', 't.id')
     .join('accounts as a', 'a.id', 'je.account_id')
@@ -902,6 +903,7 @@ async function getDonorSummary({ from, to, fundId }: DateRangeArgs): Promise<Don
       if (from) query.where('t.date', '>=', from);
       if (to) query.where('t.date', '<=', to);
       if (fundId) query.where('je.fund_id', fundId);
+      if (accountIds?.length) query.whereIn('a.id', accountIds);
     })
     .select(
       'c.id as contact_id',
@@ -924,6 +926,7 @@ async function getDonorSummary({ from, to, fundId }: DateRangeArgs): Promise<Don
       if (from) query.where('t.date', '>=', from);
       if (to) query.where('t.date', '<=', to);
       if (fundId) query.where('je.fund_id', fundId);
+      if (accountIds?.length) query.whereIn('a.id', accountIds);
     })
     .select(
       db.raw('COALESCE(SUM(je.credit), 0) AS total'),
@@ -953,7 +956,7 @@ async function getDonorSummary({ from, to, fundId }: DateRangeArgs): Promise<Don
   };
 }
 
-async function getDonorDetail({ from, to, fundId, contactId }: DonorDetailArgs): Promise<DonorDetailReportData> {
+async function getDonorDetail({ from, to, fundId, contactId, accountIds }: DonorDetailArgs): Promise<DonorDetailReportData> {
   const donationQuery = () =>
     db('transactions as t')
       .join('journal_entries as je', 'je.transaction_id', 't.id')
@@ -966,6 +969,7 @@ async function getDonorDetail({ from, to, fundId, contactId }: DonorDetailArgs):
         if (from) query.where('t.date', '>=', from);
         if (to) query.where('t.date', '<=', to);
         if (fundId) query.where('je.fund_id', fundId);
+        if (accountIds?.length) query.whereIn('a.id', accountIds);
       })
       .select(
         't.id as transaction_id',

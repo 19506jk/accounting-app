@@ -40,8 +40,13 @@ type LedgerFiltersResponse = DateRangeFiltersResponse & {
   account_id: string | null;
 };
 
+type DonorSummaryFiltersResponse = DateRangeFiltersResponse & {
+  account_ids: number[] | null;
+};
+
 type DonorDetailFiltersResponse = DateRangeFiltersResponse & {
   contact_id: string | null;
+  account_ids: number[] | null;
 };
 
 type PLReportRouteResponse = {
@@ -61,7 +66,7 @@ type TrialBalanceReportRouteResponse = {
 };
 
 type DonorSummaryReportRouteResponse = {
-  report: ReportEnvelope<'donors-summary', DateRangeFiltersResponse, DonorSummaryReportData>;
+  report: ReportEnvelope<'donors-summary', DonorSummaryFiltersResponse, DonorSummaryReportData>;
 };
 
 type DonorDetailReportRouteResponse = {
@@ -72,6 +77,7 @@ interface DateRangeQuery {
   from?: string;
   to?: string;
   fund_id?: string;
+  account_ids?: string;
 }
 
 interface BalanceSheetQuery {
@@ -85,6 +91,28 @@ interface LedgerQuery extends DateRangeQuery {
 
 interface DonorDetailQuery extends DateRangeQuery {
   contact_id?: string;
+}
+
+function parseAccountIds(rawIds: unknown): { accountIds: number[] | null; error: string | null } {
+  if (typeof rawIds === 'undefined') {
+    return { accountIds: null, error: null };
+  }
+  if (typeof rawIds !== 'string') {
+    return { accountIds: null, error: 'account_ids must be a comma-separated string' };
+  }
+
+  const tokens = rawIds.split(',').map((token) => token.trim());
+  const hasInvalidToken = tokens.some((token) => !/^\d+$/.test(token));
+  if (hasInvalidToken) {
+    return { accountIds: null, error: 'account_ids must be comma-separated positive integers' };
+  }
+
+  const accountIds = tokens.map(Number);
+  if (accountIds.some((id) => id <= 0)) {
+    return { accountIds: null, error: 'account_ids must be positive integers' };
+  }
+
+  return { accountIds, error: null };
 }
 
 function envelope<TType extends ReportType, TFilters, TData>(
@@ -227,7 +255,7 @@ router.get(
     next: NextFunction
   ) => {
     try {
-      const { from, to, fund_id } = req.query;
+      const { from, to, fund_id, account_ids } = req.query;
 
       if (!from || !to) {
         return res.status(400).json({ error: 'from and to query parameters are required' });
@@ -236,8 +264,11 @@ router.get(
       const errors = validateDates({ from, to });
       if (errors.length) return res.status(400).json({ errors });
 
-      const data = await getDonorSummary({ from, to, fundId: fund_id || null });
-      res.json(envelope('donors-summary', { from, to, fund_id: fund_id || null }, data));
+      const { accountIds, error } = parseAccountIds(account_ids);
+      if (error) return res.status(400).json({ error });
+
+      const data = await getDonorSummary({ from, to, fundId: fund_id || null, accountIds });
+      res.json(envelope('donors-summary', { from, to, fund_id: fund_id || null, account_ids: accountIds }, data));
     } catch (err) {
       next(err);
     }
@@ -252,7 +283,7 @@ router.get(
     next: NextFunction
   ) => {
     try {
-      const { from, to, fund_id, contact_id } = req.query;
+      const { from, to, fund_id, contact_id, account_ids } = req.query;
 
       if (!from || !to) {
         return res.status(400).json({ error: 'from and to query parameters are required' });
@@ -261,17 +292,21 @@ router.get(
       const errors = validateDates({ from, to });
       if (errors.length) return res.status(400).json({ errors });
 
+      const { accountIds, error } = parseAccountIds(account_ids);
+      if (error) return res.status(400).json({ error });
+
       const data = await getDonorDetail({
         from,
         to,
         fundId: fund_id || null,
         contactId: contact_id || null,
+        accountIds,
       });
 
       res.json(
         envelope(
           'donors-detail',
-          { from, to, fund_id: fund_id || null, contact_id: contact_id || null },
+          { from, to, fund_id: fund_id || null, contact_id: contact_id || null, account_ids: accountIds },
           data
         )
       );

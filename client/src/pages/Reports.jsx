@@ -12,6 +12,7 @@ import Card    from '../components/ui/Card';
 import Button  from '../components/ui/Button';
 import Select  from '../components/ui/Select';
 import Combobox from '../components/ui/Combobox';
+import MultiSelectCombobox from '../components/ui/MultiSelectCombobox';
 import DateRangePicker from '../components/ui/DateRangePicker';
 import Badge   from '../components/ui/Badge';
 import {
@@ -809,23 +810,34 @@ export default function Reports() {
   const [fundId,  setFundId]  = useState('');
   const [acctId,  setAcctId]  = useState('');
   const [ctcId,   setCtcId]   = useState('');
+  const [donorAcctIds, setDonorAcctIds] = useState([]);
   const [enabled, setEnabled] = useState(false);
 
   const { data: funds    } = useFunds();
   const { data: accounts } = useAccounts();
+  const { data: incomeAccounts } = useAccounts({ type: 'INCOME' });
   const { data: contacts } = useContacts({ type: 'DONOR' });
   const { data: settings } = useSettings();
 
   const fundOptions    = [{ value: '', label: 'All Funds' }, ...(funds || []).map((f) => ({ value: f.id, label: f.name }))];
   const accountOptions = [{ value: '', label: 'All Accounts' }, ...(accounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))];
+  const incomeAccountOptions = (incomeAccounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
   const contactOptions = [{ value: '', label: 'All Donors' }, ...(contacts || []).map((c) => ({ value: c.id, label: c.name }))];
+  const sortedAcctIds = [...donorAcctIds].sort((a, b) => a - b);
+  const acctIdsParam = sortedAcctIds.length ? sortedAcctIds.join(',') : undefined;
 
   const plFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined };
   const bsFilters     = { as_of: asOf, fund_id: fundId || undefined };
   const ledgerFilters = { from: range.from, to: range.to, fund_id: fundId || undefined, account_id: acctId || undefined };
   const tbFilters     = { as_of: asOf, fund_id: fundId || undefined };
-  const dsFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined };
-  const ddFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined, contact_id: ctcId || undefined };
+  const dsFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined, account_ids: acctIdsParam };
+  const ddFilters     = {
+    from: range.from,
+    to: range.to,
+    fund_id: fundId || undefined,
+    contact_id: ctcId || undefined,
+    account_ids: acctIdsParam,
+  };
 
   const plData  = usePLReport(plFilters,     enabled && type === 'pl');
   const bsData  = useBalanceSheetReport(bsFilters, enabled && type === 'balance-sheet');
@@ -878,7 +890,12 @@ export default function Reports() {
         <div style={{ display: 'grid', gap: '1rem' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '1rem', alignItems: 'end' }}>
             <Select label="Report Type" value={type}
-              onChange={(e) => { setType(e.target.value); setEnabled(false); }}
+              onChange={(e) => {
+                const nextType = e.target.value
+                setType(nextType)
+                if (nextType !== 'donors-summary' && nextType !== 'donors-detail') setDonorAcctIds([])
+                setEnabled(false)
+              }}
               options={REPORT_TYPES} />
             {!needsAsOf && (
               <div>
@@ -904,6 +921,16 @@ export default function Reports() {
             <Select label="Fund" value={fundId}
               onChange={(e) => { setFundId(e.target.value); setEnabled(false); }}
               options={fundOptions} style={{ minWidth: '180px' }} />
+            {(type === 'donors-summary' || type === 'donors-detail') && (
+              <MultiSelectCombobox
+                label="Income Accounts"
+                options={incomeAccountOptions}
+                value={donorAcctIds}
+                onChange={(ids) => { setDonorAcctIds(ids); setEnabled(false); }}
+                placeholder="All Accounts"
+                style={{ minWidth: '240px' }}
+              />
+            )}
             {type === 'ledger' && (
               <Combobox label="Account" options={accountOptions} value={acctId}
                 onChange={(v) => { setAcctId(v); setEnabled(false); }}
@@ -943,6 +970,8 @@ export default function Reports() {
             <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>
               {needsAsOf ? `As of ${asOf}` : `${range.from} — ${range.to}`}
               {fundId && ` · ${(funds || []).find((f) => f.id === Number(fundId))?.name}`}
+              {(type === 'donors-summary' || type === 'donors-detail') && donorAcctIds.length > 0 &&
+                ` · ${donorAcctIds.length} account${donorAcctIds.length > 1 ? 's' : ''}`}
             </div>
           </div>
 
