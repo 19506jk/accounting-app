@@ -776,6 +776,7 @@ router.post(
                 } else if (!taxRate.recoverable_account_id) {
                   pushSplitError(`${label}: selected tax rate has no recoverable_account_id configured`);
                 } else if (splitPreTax) {
+                  // PostgreSQL numeric may arrive as string depending on driver; Decimal handles both.
                   recoverableAccountId = Number(taxRate.recoverable_account_id);
                   recoverableAccountIds.add(recoverableAccountId);
                   recoverableAccountLabels.set(
@@ -800,6 +801,7 @@ router.post(
               const computedGross = splitPreTax.plus(taxAmount).plus(splitRounding).toDecimalPlaces(2);
               if (!computedGross.equals(splitAmount)) {
                 pushSplitError(`${label}: amount ${splitAmount.toFixed(2)} must equal pre_tax + tax + rounding (${computedGross.toFixed(2)})`);
+                return;
               }
 
               splitTotal = splitTotal.plus(computedGross).toDecimalPlaces(2);
@@ -1137,6 +1139,10 @@ router.post(
           const allEntries = plainRows.flatMap((row, idx) => {
             const transactionId = transactionIds[idx];
             const amountFixed = row.amount.toFixed(2);
+            const withdrawalPayeeId = row.type === 'withdrawal' ? row.payee_id : null;
+            if (row.type === 'withdrawal' && !withdrawalPayeeId) {
+              throw new Error(`Missing payee for withdrawal split row ${row.row_index}`);
+            }
             const bankEntry = {
               transaction_id: transactionId,
               account_id: bankAccountId,
@@ -1171,7 +1177,7 @@ router.post(
                     transaction_id: transactionId,
                     account_id: Number(split.expense_account_id),
                     fund_id: split.fund_id,
-                    contact_id: row.payee_id,
+                    contact_id: withdrawalPayeeId,
                     debit: split.pre_tax_amount_fixed || '0.00',
                     credit: '0.00',
                     memo: split.description || row.description,
@@ -1185,7 +1191,7 @@ router.post(
                       transaction_id: transactionId,
                       account_id: Number(split.recoverable_account_id),
                       fund_id: split.fund_id,
-                      contact_id: row.payee_id,
+                      contact_id: withdrawalPayeeId,
                       debit: split.tax_amount_fixed || '0.00',
                       credit: '0.00',
                       memo: `${split.tax_rate_name || 'Tax'} on ${split.description || row.description}`,
@@ -1200,7 +1206,7 @@ router.post(
                       transaction_id: transactionId,
                       account_id: roundingAccount.id,
                       fund_id: split.fund_id,
-                      contact_id: row.payee_id,
+                      contact_id: withdrawalPayeeId,
                       debit: split.rounding_adjustment.gt(0) ? split.rounding_adjustment_fixed || '0.00' : '0.00',
                       credit: split.rounding_adjustment.lt(0) ? split.rounding_adjustment.abs().toFixed(2) : '0.00',
                       memo: split.description

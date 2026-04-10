@@ -41,7 +41,9 @@ function SplitModal({
   const [attempted, setAttempted] = useState(false);
   const { data: donorContacts = [] } = useContacts({ type: 'DONOR' });
   const { data: payeeContacts = [] } = useContacts({ type: 'PAYEE' });
-  const { data: taxRates = [] } = useTaxRates({ activeOnly: true });
+  const taxRatesQuery = useTaxRates({ activeOnly: true });
+  const taxRates = taxRatesQuery.data || [];
+  const isTaxRatesLoading = taxRatesQuery.isPending;
   const isWithdrawal = row?.type === 'withdrawal';
 
   const donorOptions = useMemo(() => [
@@ -464,9 +466,15 @@ function SplitModal({
           </div>
         )}
 
+        {isWithdrawal && isTaxRatesLoading && (
+          <div style={{ color: '#475569', fontSize: '0.8rem' }}>
+            Loading tax rates...
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
           <Button variant='secondary' onClick={onClose}>Cancel</Button>
-          <Button onClick={onSaveClick} disabled={!isBalanced}>Save Split</Button>
+          <Button onClick={onSaveClick} disabled={!isBalanced || (isWithdrawal && isTaxRatesLoading)}>Save Split</Button>
         </div>
       </div>
     </Modal>
