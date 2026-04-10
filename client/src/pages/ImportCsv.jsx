@@ -499,21 +499,28 @@ const PreviewRow = memo(function PreviewRow({
   const hasSplits = row.splits?.length > 0
   const isLinked = isWithdrawal && !!row.bill_id
   const linkedBill = isLinked ? suggestions.find((suggestion) => suggestion.bill_id === row.bill_id) : null
+  const controlLabelStyle = {
+    fontSize: '0.7rem',
+    color: '#64748b',
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.02em',
+  }
+  const controlGroupStyle = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.35rem',
+    minWidth: '170px',
+    flex: '1 1 220px',
+  }
 
   return (
-    <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-      <td style={{ padding: '0.5rem', color: '#6b7280' }}>{index + 1}</td>
-      <td style={{ padding: '0.5rem', whiteSpace: 'nowrap' }}>{formatDateOnlyForDisplay(row.date)}</td>
-      <td style={{ padding: '0.5rem' }}>{row.description}</td>
-      <td style={{ padding: '0.5rem', minWidth: '170px' }}>
-        <Input
-          value={row.reference_no || ''}
-          onChange={(e) => onReferenceChange(index, e.target.value)}
-          placeholder='Reference no...'
-        />
-      </td>
-      <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: 500 }}>{fmt(row.amount)}</td>
-      <td style={{ padding: '0.5rem' }}>
+    <div style={{ borderBottom: '1px solid #e5e7eb', padding: '0.65rem 0.75rem' }}>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', fontSize: '0.9rem', fontWeight: 600 }}>
+        <span style={{ color: '#64748b', fontWeight: 600, minWidth: '2ch' }}>#{index + 1}</span>
+        <span style={{ color: '#334155', whiteSpace: 'nowrap' }}>{formatDateOnlyForDisplay(row.date)}</span>
+        <span style={{ color: '#111827', flex: '1 1 240px', minWidth: '180px' }}>{row.description}</span>
+        <span style={{ color: '#111827', fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt(row.amount)}</span>
         <span style={{
           display: 'inline-block',
           padding: '0.2rem 0.5rem',
@@ -525,94 +532,116 @@ const PreviewRow = memo(function PreviewRow({
         }}>
           {row.type === 'deposit' ? 'Deposit' : 'Withdrawal'}
         </span>
-      </td>
-      <td style={{ padding: '0.5rem', minWidth: '160px' }}>
-        {hasSplits ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ fontSize: '0.82rem', color: '#1d4ed8', fontWeight: 500 }}>
-              Multiple ({row.splits.length} splits)
-            </span>
-            <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index)}>Edit</Button>
-            <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index, true)}>Clear</Button>
-          </div>
-        ) : (
-          <Combobox
-            options={offsetOptions}
-            value={row.offset_account_id || ''}
-            onChange={(value) => onOffsetChange(index, Number(value))}
-            placeholder='Offset account…'
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', marginTop: '0.7rem', alignItems: 'flex-start' }}>
+        <div style={{ ...controlGroupStyle, flex: '0 1 180px', minWidth: '140px' }}>
+          <span style={controlLabelStyle}>Reference No</span>
+          <Input
+            value={row.reference_no || ''}
+            onChange={(e) => onReferenceChange(index, e.target.value)}
+            placeholder='Reference no...'
           />
-        )}
-      </td>
-      <td style={{ padding: '0.5rem', minWidth: '160px' }}>
-        {hasSplits || isLinked ? (
-          <span style={{ color: '#9ca3af' }}>—</span>
-        ) : (
-          <Combobox
-            options={isWithdrawal ? payeeOptions : donorOptions}
-            value={isWithdrawal ? (row.payee_id || '') : (row.contact_id || '')}
-            onChange={(value) => onContactChange(index, Number(value) || undefined, row.type)}
-            placeholder={isWithdrawal ? 'Payee…' : 'Donor…'}
-          />
-        )}
-      </td>
-      <td style={{ padding: '0.5rem', minWidth: '160px' }}>
-        {hasSplits && <span style={{ color: '#9ca3af' }}>Unavailable for split rows</span>}
-        {!hasSplits && !isWithdrawal && <span style={{ color: '#9ca3af' }}>—</span>}
-        {!hasSplits && isWithdrawal && !isLinked && suggestions.length === 0 && (
-          <span style={{ color: '#9ca3af' }}>No suggested bill</span>
-        )}
-        {!hasSplits && isWithdrawal && !isLinked && suggestions.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-            {suggestions.map((suggestion) => (
-              <button
-                key={`${index}-${suggestion.bill_id}`}
-                onClick={() => onBillLink(index, suggestion.bill_id)}
-                style={{
-                  border: '1px solid #fcd34d',
-                  background: '#fffbeb',
-                  borderRadius: '999px',
-                  padding: '0.3rem 0.55rem',
-                  color: '#92400e',
-                  fontSize: '0.72rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  whiteSpace: 'normal',
-                }}
-              >
-                {suggestion.confidence === 'exact' ? 'Exact' : 'Possible'}: Bill {suggestion.bill_number || `#${suggestion.bill_id}`} — {suggestion.vendor_name || 'Unknown vendor'} {fmt(suggestion.balance_due)}
-              </button>
-            ))}
-          </div>
-        )}
-        {!hasSplits && isLinked && (
-          <button
-            onClick={() => onBillLink(index, null)}
-            style={{
-              border: '1px solid #86efac',
-              background: '#dcfce7',
-              borderRadius: '999px',
-              padding: '0.3rem 0.55rem',
-              color: '#166534',
-              fontSize: '0.72rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              whiteSpace: 'normal',
-            }}
-          >
-            {linkedBill?.confidence === 'exact' ? 'Exact' : 'Possible'}: Bill {linkedBill?.bill_number || `#${row.bill_id}`} — {linkedBill?.vendor_name || 'Linked'} {linkedBill ? fmt(linkedBill.balance_due) : ''} (Unlink)
-          </button>
-        )}
-      </td>
-      <td style={{ padding: '0.5rem' }}>
-        {!row.bill_id && (
-          <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index)}>
-            {hasSplits ? 'Edit Split' : 'Split'}
-          </Button>
-        )}
-      </td>
-    </tr>
+        </div>
+
+        <div style={controlGroupStyle}>
+          <span style={controlLabelStyle}>Offset Account</span>
+          {hasSplits ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', minHeight: '38px' }}>
+              <span style={{ fontSize: '0.82rem', color: '#1d4ed8', fontWeight: 500 }}>
+                Multiple ({row.splits.length} splits)
+              </span>
+              <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index)}>Edit</Button>
+              <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index, true)}>Clear</Button>
+            </div>
+          ) : (
+            <Combobox
+              options={offsetOptions}
+              value={row.offset_account_id || ''}
+              onChange={(value) => onOffsetChange(index, Number(value))}
+              placeholder='Offset account…'
+            />
+          )}
+        </div>
+
+        <div style={controlGroupStyle}>
+          <span style={controlLabelStyle}>Contact</span>
+          {hasSplits || isLinked ? (
+            <div style={{ color: '#9ca3af', minHeight: '38px', display: 'flex', alignItems: 'center' }}>—</div>
+          ) : (
+            <Combobox
+              options={isWithdrawal ? payeeOptions : donorOptions}
+              value={isWithdrawal ? (row.payee_id || '') : (row.contact_id || '')}
+              onChange={(value) => onContactChange(index, Number(value) || undefined, row.type)}
+              placeholder={isWithdrawal ? 'Payee…' : 'Donor…'}
+            />
+          )}
+        </div>
+
+        <div style={{ ...controlGroupStyle, flex: '1 1 260px', minWidth: '220px' }}>
+          <span style={controlLabelStyle}>Link to Bill</span>
+          {hasSplits && <div style={{ color: '#9ca3af', minHeight: '38px', display: 'flex', alignItems: 'center' }}>Unavailable for split rows</div>}
+          {!hasSplits && !isWithdrawal && <div style={{ color: '#9ca3af', minHeight: '38px', display: 'flex', alignItems: 'center' }}>—</div>}
+          {!hasSplits && isWithdrawal && !isLinked && suggestions.length === 0 && (
+            <div style={{ color: '#9ca3af', minHeight: '38px', display: 'flex', alignItems: 'center' }}>No suggested bill</div>
+          )}
+          {!hasSplits && isWithdrawal && !isLinked && suggestions.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              {suggestions.map((suggestion) => (
+                <button
+                  key={`${index}-${suggestion.bill_id}`}
+                  onClick={() => onBillLink(index, suggestion.bill_id)}
+                  style={{
+                    border: '1px solid #fcd34d',
+                    background: '#fffbeb',
+                    borderRadius: '999px',
+                    padding: '0.3rem 0.55rem',
+                    color: '#92400e',
+                    fontSize: '0.72rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    whiteSpace: 'normal',
+                  }}
+                >
+                  {suggestion.confidence === 'exact' ? 'Exact' : 'Possible'}: Bill {suggestion.bill_number || `#${suggestion.bill_id}`} — {suggestion.vendor_name || 'Unknown vendor'} {fmt(suggestion.balance_due)}
+                </button>
+              ))}
+            </div>
+          )}
+          {!hasSplits && isLinked && (
+            <button
+              onClick={() => onBillLink(index, null)}
+              style={{
+                border: '1px solid #86efac',
+                background: '#dcfce7',
+                borderRadius: '999px',
+                padding: '0.3rem 0.55rem',
+                color: '#166534',
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'normal',
+                textAlign: 'left',
+              }}
+            >
+              {linkedBill?.confidence === 'exact' ? 'Exact' : 'Possible'}: Bill {linkedBill?.bill_number || `#${row.bill_id}`} — {linkedBill?.vendor_name || 'Linked'} {linkedBill ? fmt(linkedBill.balance_due) : ''} (Unlink)
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: '110px', flex: '0 0 auto' }}>
+          <span style={controlLabelStyle}>Actions</span>
+          {!row.bill_id ? (
+            <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index)}>
+              {hasSplits ? 'Edit Split' : 'Split'}
+            </Button>
+          ) : (
+            <div style={{ color: '#9ca3af', minHeight: '38px', display: 'flex', alignItems: 'center' }}>Linked</div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 });
 
@@ -1073,41 +1102,28 @@ export default function ImportCsv() {
                 />
               )}
 
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflowX: 'hidden', overflowY: 'auto', maxHeight: '65vh' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', color: '#6b7280', textAlign: 'left' }}>
-                      <th style={{ padding: '0.55rem' }}>#</th>
-                      <th style={{ padding: '0.55rem' }}>Date</th>
-                      <th style={{ padding: '0.55rem' }}>Description</th>
-                      <th style={{ padding: '0.55rem' }}>Reference No</th>
-                      <th style={{ padding: '0.55rem', textAlign: 'right' }}>Amount</th>
-                      <th style={{ padding: '0.55rem' }}>Type</th>
-                      <th style={{ padding: '0.55rem' }}>Offset Account</th>
-                      <th style={{ padding: '0.55rem' }}>Contact</th>
-                      <th style={{ padding: '0.55rem' }}>Link to Bill</th>
-                      <th style={{ padding: '0.55rem' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {parsedRows.map((row, idx) => (
-                      <PreviewRow
-                        key={`${row.date}-${row.description}-${idx}`}
-                        row={row}
-                        index={idx}
-                        offsetOptions={offsetAccountOptions}
-                        donorOptions={donorOptions}
-                        payeeOptions={payeeOptions}
-                        onOffsetChange={onOffsetChange}
-                        onReferenceChange={onReferenceChange}
-                        onContactChange={onContactChange}
-                        suggestions={suggestionsByRow[idx + 1] || []}
-                        onBillLink={onBillLink}
-                        onSplitOpen={onSplitOpen}
-                      />
-                    ))}
-                  </tbody>
-                </table>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh' }}>
+                <div style={{ background: '#f8fafc', color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', padding: '0.55rem 0.75rem', borderBottom: '1px solid #e5e7eb' }}>
+                  Preview Rows
+                </div>
+                <div style={{ fontSize: '0.82rem' }}>
+                  {parsedRows.map((row, idx) => (
+                    <PreviewRow
+                      key={`${row.date}-${row.description}-${idx}`}
+                      row={row}
+                      index={idx}
+                      offsetOptions={offsetAccountOptions}
+                      donorOptions={donorOptions}
+                      payeeOptions={payeeOptions}
+                      onOffsetChange={onOffsetChange}
+                      onReferenceChange={onReferenceChange}
+                      onContactChange={onContactChange}
+                      suggestions={suggestionsByRow[idx + 1] || []}
+                      onBillLink={onBillLink}
+                      onSplitOpen={onSplitOpen}
+                    />
+                  ))}
+                </div>
               </div>
             </>
           )}
