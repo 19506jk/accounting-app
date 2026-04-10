@@ -114,7 +114,6 @@ interface TrialBalanceFundRow {
 interface DonorSummaryRow {
   contact_id: number;
   contact_name: string;
-  contact_type: 'DONOR' | 'PAYEE' | 'BOTH';
   contact_class: 'INDIVIDUAL' | 'HOUSEHOLD';
   total: Numeric;
   transaction_count: string | number;
@@ -907,12 +906,11 @@ async function getDonorSummary({ from, to, fundId }: DateRangeArgs): Promise<Don
     .select(
       'c.id as contact_id',
       'c.name as contact_name',
-      'c.type as contact_type',
       'c.contact_class as contact_class',
       db.raw('COALESCE(SUM(je.credit), 0) AS total'),
       db.raw('COUNT(DISTINCT t.id) AS transaction_count')
     )
-    .groupBy('c.id', 'c.name', 'c.type', 'c.contact_class')
+    .groupBy('c.id', 'c.name', 'c.contact_class')
     .orderBy('contact_name', 'asc') as DonorSummaryRow[];
 
   const anonRow = await db('transactions as t')
@@ -936,7 +934,6 @@ async function getDonorSummary({ from, to, fundId }: DateRangeArgs): Promise<Don
   const donors = rows.map((row) => ({
     contact_id: row.contact_id,
     contact_name: row.contact_name,
-    contact_type: row.contact_type,
     contact_class: row.contact_class,
     total: parseFloat(dec(row.total).toFixed(2)),
     transaction_count: parseInt(String(row.transaction_count), 10),

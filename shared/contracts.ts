@@ -998,7 +998,6 @@ export type TrialBalanceDiagnostic = ReportDiagnostic;
 export interface DonorSummaryReportDonor {
   contact_id: number;
   contact_name: string;
-  contact_type: ContactType;
   contact_class: ContactClass;
   total: number;
   transaction_count: number;

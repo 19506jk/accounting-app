@@ -238,8 +238,8 @@ function exportDonorSummary(data, filters) {
     ['Income by Donor — Summary', '', '', ''],
     [`Period: ${filters.from} to ${filters.to}`, '', '', ''],
     [],
-    ['Donor', 'Type', 'Donations', 'Total'],
-    ...(data.donors || []).map((d) => [d.contact_name, d.contact_type, d.transaction_count, d.total]),
+    ['Donor', 'Donations', 'Total'],
+    ...(data.donors || []).map((d) => [d.contact_name, d.transaction_count, d.total]),
     ['Anonymous', '', data.anonymous?.transaction_count || 0, data.anonymous?.total || 0],
     [],
     ['Grand Total', '', '', data.grand_total],
@@ -641,7 +641,7 @@ function DonorSummaryReport({ data }) {
       <table style={{ width: '100%', fontSize: '0.875rem', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
-            {['Donor','Type','Donations','Total'].map((h) => (
+            {['Donor','Donations','Total'].map((h) => (
               <th key={h} style={{ padding: '0.6rem 0.75rem',
                 textAlign: h === 'Donations' || h === 'Total' ? 'right' : 'left',
                 fontWeight: 600, color: '#6b7280', fontSize: '0.775rem', textTransform: 'uppercase' }}>{h}</th>
@@ -652,7 +652,6 @@ function DonorSummaryReport({ data }) {
           {(data.donors || []).map((d) => (
             <tr key={d.contact_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
               <td style={{ padding: '0.55rem 0.75rem', fontWeight: 500 }}>{d.contact_name}</td>
-              <td style={{ padding: '0.55rem 0.75rem' }}><Badge label={d.contact_type?.toLowerCase()} variant={d.contact_type?.toLowerCase()} /></td>
               <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', color: '#6b7280' }}>{d.transaction_count}</td>
               <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', fontWeight: 600 }}>{fmt(d.total)}</td>
             </tr>
