@@ -2,7 +2,7 @@
 
 > **Stack:** raw-http | none | unknown | javascript
 
-> 0 routes | 0 models | 0 components | 15 lib files | 13 env vars | 7 middleware | 234 import links
+> 0 routes | 0 models | 0 components | 15 lib files | 13 env vars | 7 middleware | 238 import links
 > **Token savings:** this file is ~2,200 tokens. Without it, AI exploration would cost ~16,500 tokens. **Saves ~14,300 tokens per conversation.**
 
 ---
@@ -155,13 +155,13 @@
 - `client/src/context/AuthContext.tsx` — imported by **9** files
 - `server/middleware/roles.ts` — imported by **9** files
 - `client/src/api/useAccounts.ts` — imported by **8** files
+- `client/src/api/useContacts.ts` — imported by **7** files
 - `client/src/api/useFunds.ts` — imported by **7** files
 - `client/src/components/ui/Select.jsx` — imported by **7** files
 - `server/utils/date.ts` — imported by **7** files
-- `client/src/api/useContacts.ts` — imported by **6** files
 - `client/src/components/ui/Table.jsx` — imported by **6** files
+- `client/src/components/ui/Modal.jsx` — imported by **6** files
 - `client/src/components/ui/Combobox.jsx` — imported by **6** files
-- `client/src/components/ui/Modal.jsx` — imported by **5** files
 - `client/src/components/ui/Badge.jsx` — imported by **5** files
 - `server/services/churchTimeZone.ts` — imported by **5** files
 

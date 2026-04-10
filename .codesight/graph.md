@@ -13,13 +13,13 @@
 - `client/src/context/AuthContext.tsx` — imported by **9** files
 - `server/middleware/roles.ts` — imported by **9** files
 - `client/src/api/useAccounts.ts` — imported by **8** files
+- `client/src/api/useContacts.ts` — imported by **7** files
 - `client/src/api/useFunds.ts` — imported by **7** files
 - `client/src/components/ui/Select.jsx` — imported by **7** files
 - `server/utils/date.ts` — imported by **7** files
-- `client/src/api/useContacts.ts` — imported by **6** files
 - `client/src/components/ui/Table.jsx` — imported by **6** files
+- `client/src/components/ui/Modal.jsx` — imported by **6** files
 - `client/src/components/ui/Combobox.jsx` — imported by **6** files
-- `client/src/components/ui/Modal.jsx` — imported by **5** files
 - `client/src/components/ui/Badge.jsx` — imported by **5** files
 - `server/services/churchTimeZone.ts` — imported by **5** files
 
