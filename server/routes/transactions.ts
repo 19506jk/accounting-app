@@ -553,6 +553,7 @@ router.post(
         type: 'withdrawal' | 'deposit';
         offset_account_id: number;
         payee_id: number | null;
+        contact_id: number | null;
         bill_id?: number;
         splits?: PreparedSplit[];
       };
@@ -566,6 +567,8 @@ router.post(
       const splitFundRowLabels = new Map<number, string[]>();
       const splitContactIds = new Set<number>();
       const splitContactRowLabels = new Map<number, string[]>();
+      const plainDepositContactIds = new Set<number>();
+      const plainDepositContactRowLabels = new Map<number, string[]>();
       const payeeContactIds = new Set<number>();
       const payeeRowLabels = new Map<number, string[]>();
       const withdrawalExpenseAccountIds = new Set<number>();
@@ -588,6 +591,7 @@ router.post(
         const rowReferenceNo = normalizeImportReference(row.reference_no);
         const rowType = row.type;
         const rowPayeeId = row.payee_id === undefined || row.payee_id === null ? null : Number(row.payee_id);
+        const rowContactId = row.contact_id === undefined || row.contact_id === null ? null : Number(row.contact_id);
         const offsetAccountId = Number(row.offset_account_id);
         const billId = row.bill_id === undefined || row.bill_id === null ? undefined : Number(row.bill_id);
         const hasSplits = Array.isArray(row.splits) && row.splits.length > 0;
@@ -852,6 +856,30 @@ router.post(
           }
         }
 
+        if (rowType === 'deposit' && !hasSplits && billId === undefined && rowContactId !== null) {
+          if (!Number.isInteger(rowContactId) || rowContactId <= 0) {
+            rowErrors.push(`Row ${rowNumber}: contact_id must be a positive integer when provided`);
+          } else {
+            plainDepositContactIds.add(rowContactId);
+            plainDepositContactRowLabels.set(
+              rowContactId,
+              [...(plainDepositContactRowLabels.get(rowContactId) || []), `Row ${rowNumber}`]
+            );
+          }
+        }
+
+        if (rowType === 'withdrawal' && !hasSplits && billId === undefined && rowPayeeId !== null) {
+          if (!Number.isInteger(rowPayeeId) || rowPayeeId <= 0) {
+            rowErrors.push(`Row ${rowNumber}: payee_id must be a positive integer when provided`);
+          } else {
+            payeeContactIds.add(rowPayeeId);
+            payeeRowLabels.set(
+              rowPayeeId,
+              [...(payeeRowLabels.get(rowPayeeId) || []), `Row ${rowNumber}`]
+            );
+          }
+        }
+
         if (rowErrors.length > 0) {
           errors.push(...rowErrors);
           return;
@@ -868,6 +896,7 @@ router.post(
           type: rowType,
           offset_account_id: hasSplits ? 0 : offsetAccountId,
           payee_id: rowPayeeId,
+          contact_id: rowType === 'deposit' && !hasSplits && billId === undefined ? rowContactId : null,
           bill_id: billId,
           splits: preparedSplits,
         });
@@ -900,7 +929,7 @@ router.post(
         }
       }
 
-      const allContactIds = new Set([...splitContactIds, ...payeeContactIds]);
+      const allContactIds = new Set([...splitContactIds, ...payeeContactIds, ...plainDepositContactIds]);
       if (allContactIds.size > 0) {
         const contacts = await db('contacts')
           .whereIn('id', [...allContactIds])
@@ -913,6 +942,9 @@ router.post(
         }
         for (const [id, labels] of payeeRowLabels.entries()) {
           if (!foundIds.has(id)) labels.forEach((label) => errors.push(`${label}: payee contact #${id} does not exist or is inactive`));
+        }
+        for (const [id, labels] of plainDepositContactRowLabels.entries()) {
+          if (!foundIds.has(id)) labels.forEach((label) => errors.push(`${label}: contact #${id} does not exist or is inactive`));
         }
       }
 
@@ -1224,7 +1256,7 @@ router.post(
                 transaction_id: transactionId,
                 account_id: row.offset_account_id,
                 fund_id: fundId,
-                contact_id: null,
+                contact_id: row.type === 'deposit' ? row.contact_id : withdrawalPayeeId,
                 debit: row.type === 'deposit' ? '0.00' : amountFixed,
                 credit: row.type === 'deposit' ? amountFixed : '0.00',
                 memo: null,

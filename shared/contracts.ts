@@ -189,6 +189,7 @@ export interface ImportTransactionRow {
   type: 'withdrawal' | 'deposit';
   offset_account_id?: number;
   payee_id?: number;
+  contact_id?: number;
   bill_id?: number;
   splits?: TransactionSplit[];
 }

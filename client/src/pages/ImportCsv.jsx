@@ -485,7 +485,10 @@ const PreviewRow = memo(function PreviewRow({
   row,
   index,
   offsetOptions,
+  donorOptions,
+  payeeOptions,
   onOffsetChange,
+  onContactChange,
   suggestions,
   onBillLink,
   onSplitOpen,
@@ -529,6 +532,18 @@ const PreviewRow = memo(function PreviewRow({
             value={row.offset_account_id || ''}
             onChange={(value) => onOffsetChange(index, Number(value))}
             placeholder='Offset account…'
+          />
+        )}
+      </td>
+      <td style={{ padding: '0.5rem', minWidth: '160px' }}>
+        {hasSplits || isLinked ? (
+          <span style={{ color: '#9ca3af' }}>—</span>
+        ) : (
+          <Combobox
+            options={isWithdrawal ? payeeOptions : donorOptions}
+            value={isWithdrawal ? (row.payee_id || '') : (row.contact_id || '')}
+            onChange={(value) => onContactChange(index, Number(value) || undefined, row.type)}
+            placeholder={isWithdrawal ? 'Payee…' : 'Donor…'}
           />
         )}
       </td>
@@ -597,6 +612,8 @@ export default function ImportCsv() {
   const { addToast } = useToast();
   const { data: accounts } = useAccounts();
   const { data: funds } = useFunds();
+  const { data: donorContacts = [] } = useContacts({ type: 'DONOR' });
+  const { data: payeeContacts = [] } = useContacts({ type: 'PAYEE' });
   const importTransactions = useImportTransactions();
   const getBillMatches = useGetBillMatches();
 
@@ -653,6 +670,23 @@ export default function ImportCsv() {
     [activeAccounts]
   );
 
+  const donorOptions = useMemo(() => [
+    { value: '', label: 'None' },
+    ...donorContacts
+      .filter((contact) => contact.is_active)
+      .map((contact) => ({
+        value: contact.id,
+        label: contact.donor_id ? `${contact.donor_id} — ${contact.name}` : contact.name,
+      })),
+  ], [donorContacts]);
+
+  const payeeOptions = useMemo(() => [
+    { value: '', label: 'None' },
+    ...payeeContacts
+      .filter((contact) => contact.is_active)
+      .map((contact) => ({ value: contact.id, label: contact.name })),
+  ], [payeeContacts]);
+
   useEffect(() => {
     if (bankAccountId !== '') return;
     if (bankAccountOptions.length === 0) return;
@@ -682,10 +716,28 @@ export default function ImportCsv() {
     });
   }, []);
 
+  const onContactChange = useCallback((index, contactId, type) => {
+    setParsedRows((prev) => {
+      const next = [...prev];
+      if (type === 'withdrawal') {
+        next[index] = { ...next[index], payee_id: contactId || undefined };
+      } else {
+        next[index] = { ...next[index], contact_id: contactId || undefined };
+      }
+      return next;
+    });
+  }, []);
+
   const onBillLink = useCallback((index, billId) => {
     setParsedRows((prev) => {
       const next = [...prev]
-      next[index] = { ...next[index], bill_id: billId || undefined, splits: undefined, payee_id: undefined }
+      next[index] = {
+        ...next[index],
+        bill_id: billId || undefined,
+        splits: undefined,
+        payee_id: undefined,
+        contact_id: undefined,
+      }
       return next
     })
   }, [])
@@ -700,6 +752,7 @@ export default function ImportCsv() {
           splits: undefined,
           offset_account_id: Number(next[index].offset_account_id) || fallbackOffsetId,
           payee_id: undefined,
+          contact_id: undefined,
         }
         return next
       })
@@ -719,6 +772,7 @@ export default function ImportCsv() {
         ...next[index],
         splits: normalizedSplits.length > 0 ? normalizedSplits : undefined,
         payee_id: splitPayload.payee_id || undefined,
+        contact_id: normalizedSplits.length > 0 ? undefined : next[index].contact_id,
         offset_account_id: normalizedSplits.length > 0 ? undefined : Number(next[index].offset_account_id) || 0,
         bill_id: undefined,
       }
@@ -868,6 +922,7 @@ export default function ImportCsv() {
           type: row.type,
           offset_account_id: row.splits?.length > 0 ? undefined : Number(row.offset_account_id),
           payee_id: row.payee_id ? Number(row.payee_id) : undefined,
+          contact_id: row.contact_id ? Number(row.contact_id) : undefined,
           bill_id: row.bill_id,
           splits: row.splits?.length > 0
             ? row.splits.map((split) => ({
@@ -1011,6 +1066,7 @@ export default function ImportCsv() {
                       <th style={{ padding: '0.55rem', textAlign: 'right' }}>Amount</th>
                       <th style={{ padding: '0.55rem' }}>Type</th>
                       <th style={{ padding: '0.55rem' }}>Offset Account</th>
+                      <th style={{ padding: '0.55rem' }}>Contact</th>
                       <th style={{ padding: '0.55rem' }}>Link to Bill</th>
                       <th style={{ padding: '0.55rem' }}>Actions</th>
                     </tr>
@@ -1022,7 +1078,10 @@ export default function ImportCsv() {
                         row={row}
                         index={idx}
                         offsetOptions={offsetAccountOptions}
+                        donorOptions={donorOptions}
+                        payeeOptions={payeeOptions}
                         onOffsetChange={onOffsetChange}
+                        onContactChange={onContactChange}
                         suggestions={suggestionsByRow[idx + 1] || []}
                         onBillLink={onBillLink}
                         onSplitOpen={onSplitOpen}
