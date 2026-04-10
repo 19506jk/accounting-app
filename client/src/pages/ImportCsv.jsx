@@ -222,7 +222,7 @@ const PreviewRow = memo(function PreviewRow({
     <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
       <td style={{ padding: '0.5rem', color: '#6b7280' }}>{index + 1}</td>
       <td style={{ padding: '0.5rem', whiteSpace: 'nowrap' }}>{formatDateOnlyForDisplay(row.date)}</td>
-      <td style={{ padding: '0.5rem', maxWidth: '260px' }}>{row.description}</td>
+      <td style={{ padding: '0.5rem' }}>{row.description}</td>
       <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: 500 }}>{fmt(row.amount)}</td>
       <td style={{ padding: '0.5rem' }}>
         <span style={{
@@ -237,7 +237,7 @@ const PreviewRow = memo(function PreviewRow({
           {row.type === 'deposit' ? 'Deposit' : 'Withdrawal'}
         </span>
       </td>
-      <td style={{ padding: '0.5rem', minWidth: '260px' }}>
+      <td style={{ padding: '0.5rem', minWidth: '160px' }}>
         {hasSplits ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontSize: '0.82rem', color: '#1d4ed8', fontWeight: 500 }}>
@@ -255,7 +255,7 @@ const PreviewRow = memo(function PreviewRow({
           />
         )}
       </td>
-      <td style={{ padding: '0.5rem', minWidth: '260px' }}>
+      <td style={{ padding: '0.5rem', minWidth: '160px' }}>
         {hasSplits && <span style={{ color: '#9ca3af' }}>Unavailable for split rows</span>}
         {!hasSplits && !isWithdrawal && <span style={{ color: '#9ca3af' }}>—</span>}
         {!hasSplits && isWithdrawal && !isLinked && suggestions.length === 0 && (
@@ -277,6 +277,7 @@ const PreviewRow = memo(function PreviewRow({
                   fontWeight: 600,
                   cursor: 'pointer',
                   textAlign: 'left',
+                  whiteSpace: 'normal',
                 }}
               >
                 {suggestion.confidence === 'exact' ? 'Exact' : 'Possible'}: Bill {suggestion.bill_number || `#${suggestion.bill_id}`} — {suggestion.vendor_name || 'Unknown vendor'} {fmt(suggestion.balance_due)}
@@ -296,6 +297,7 @@ const PreviewRow = memo(function PreviewRow({
               fontSize: '0.72rem',
               fontWeight: 600,
               cursor: 'pointer',
+              whiteSpace: 'normal',
             }}
           >
             {linkedBill?.confidence === 'exact' ? 'Exact' : 'Possible'}: Bill {linkedBill?.bill_number || `#${row.bill_id}`} — {linkedBill?.vendor_name || 'Linked'} {linkedBill ? fmt(linkedBill.balance_due) : ''} (Unlink)
@@ -683,8 +685,8 @@ export default function ImportCsv() {
                 />
               )}
 
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'auto', maxHeight: '65vh' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1180px', fontSize: '0.82rem' }}>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflowX: 'hidden', overflowY: 'auto', maxHeight: '65vh' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', color: '#6b7280', textAlign: 'left' }}>
                       <th style={{ padding: '0.55rem' }}>#</th>
