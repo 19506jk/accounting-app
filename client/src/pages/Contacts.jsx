@@ -341,46 +341,42 @@ export default function Contacts() {
         isOpen={!!drawer}
         onClose={closeDrawer}
         title={drawer === 'add' ? 'Add Contact' : 'Edit Contact'}
+        width="600px"
       >
         <ContactForm form={form} setForm={setForm} errors={errors} />
 
-        <div style={{ display: 'flex', justifyContent: 'space-between',
-          alignItems: 'center', marginTop: '1.5rem', paddingTop: '1rem',
+        <div style={{ display: 'flex', justifyContent: activeDrawerContact ? 'space-evenly' : 'flex-end',
+          alignItems: 'center', gap: '0.75rem', marginTop: '1.5rem', paddingTop: '1rem',
           borderTop: '1px solid #f3f4f6' }}>
-          {/* Left — Deactivate / Reactivate (edit only) */}
+          {/* Deactivate / Reactivate (edit only) */}
           {activeDrawerContact && (
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              {activeDrawerContact.is_active ? (
-                <Button variant="ghost" onClick={handleDeactivate}
-                  isLoading={deactivateContact.isPending}
-                  style={{ color: '#dc2626' }}>
-                  Deactivate
-                </Button>
-              ) : (
-                <Button variant="ghost" onClick={handleReactivate}
-                  isLoading={updateContact.isPending}
-                  style={{ color: '#15803d' }}>
-                  Reactivate
-                </Button>
-              )}
-              {isAdmin && (
-                <Button variant="ghost" onClick={handleDelete}
-                  isLoading={deleteContact.isPending}
-                  style={{ color: '#b91c1c' }}>
-                  Delete Contact
-                </Button>
-              )}
-            </div>
+            activeDrawerContact.is_active ? (
+              <Button variant="ghost" onClick={handleDeactivate}
+                isLoading={deactivateContact.isPending}
+                style={{ color: '#dc2626' }}>
+                Deactivate
+              </Button>
+            ) : (
+              <Button variant="ghost" onClick={handleReactivate}
+                isLoading={updateContact.isPending}
+                style={{ color: '#15803d' }}>
+                Reactivate
+              </Button>
+            )
           )}
-          {drawer === 'add' && <span />}
-
-          {/* Right — Cancel / Save */}
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <Button variant="secondary" onClick={closeDrawer}>Cancel</Button>
-            <Button onClick={handleSave} isLoading={isSaving}>
-              {drawer === 'add' ? 'Add Contact' : 'Save Changes'}
+          {activeDrawerContact && isAdmin && (
+            <Button variant="ghost" onClick={handleDelete}
+              isLoading={deleteContact.isPending}
+              style={{ color: '#b91c1c' }}>
+              Delete Contact
             </Button>
-          </div>
+          )}
+
+          {/* Cancel / Save */}
+          <Button variant="secondary" onClick={closeDrawer}>Cancel</Button>
+          <Button onClick={handleSave} isLoading={isSaving}>
+            {drawer === 'add' ? 'Add Contact' : 'Save Changes'}
+          </Button>
         </div>
       </Drawer>
     </div>
