@@ -52,29 +52,38 @@ function AccountLedgerDrawer({ target, onClose }) {
   );
 
   const reportLedgers = data?.data?.ledger || [];
-  const ledger = isFundMode
-    ? (() => {
-        const rows = reportLedgers
-          .flatMap((acctLedger) =>
-            acctLedger.rows.map((row) => ({
-              ...row,
-              account_code: acctLedger.account.code,
-              description: `${acctLedger.account.code} — ${row.description}`,
-            }))
-          )
-          .sort((a, b) => {
-            if (a.date === b.date) return a.account_code.localeCompare(b.account_code);
-            return a.date.localeCompare(b.date);
-          });
-        if (rows.length === 0) return null;
-        return { opening_balance: null, closing_balance: null, rows };
-      })()
-    : reportLedgers[0];
+  const ledger = useMemo(() => {
+    if (!isFundMode) return reportLedgers[0];
+
+    const rows = reportLedgers
+      .flatMap((acctLedger) =>
+        acctLedger.rows.map((row) => ({
+          ...row,
+          account_code: acctLedger.account.code,
+          description: `${acctLedger.account.code} — ${row.description}`,
+        }))
+      )
+      .sort((a, b) => {
+        if (a.date === b.date) return a.account_code.localeCompare(b.account_code);
+        return a.date.localeCompare(b.date);
+      });
+
+    if (rows.length === 0) return null;
+    return { opening_balance: null, closing_balance: null, rows };
+  }, [isFundMode, reportLedgers]);
+
+  const fundTotals = useMemo(() => {
+    if (!isFundMode || !ledger?.rows?.length) return { debit: 0, credit: 0 };
+    return ledger.rows.reduce((totals, row) => ({
+      debit: totals.debit + Number(row.debit || 0),
+      credit: totals.credit + Number(row.credit || 0),
+    }), { debit: 0, credit: 0 });
+  }, [isFundMode, ledger]);
 
   const drawerTitle = !target
     ? ''
     : isFundMode
-      ? `Fund: ${fundTarget.fundName} (${fundTarget.fundCode})`
+      ? `Fund: ${fundTarget.fundName}${fundTarget.fundCode ? ` (${fundTarget.fundCode})` : ''}`
       : `${accountTarget.accountCode} — ${accountTarget.accountName}`;
 
   function exportExcel() {
@@ -114,7 +123,7 @@ function AccountLedgerDrawer({ target, onClose }) {
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
     const exportPrefix = isFundMode
-      ? `fund_${fundTarget.fundCode}`
+      ? `fund_${fundTarget.fundCode || fundTarget.fundId}`
       : `account_${accountTarget.accountCode}`;
     XLSX.writeFile(wb, `ledger_${exportPrefix}_${range.from}_${range.to}.xlsx`);
   }
@@ -134,7 +143,11 @@ function AccountLedgerDrawer({ target, onClose }) {
             alignItems: 'center', marginBottom: '0.75rem' }}>
             <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
               {isFundMode ? (
-                <>Transactions: <strong>{ledger.rows.length}</strong></>
+                <>
+                  Transactions: <strong>{ledger.rows.length}</strong>
+                  &nbsp;•&nbsp;Debits: <strong>{fmt(fundTotals.debit)}</strong>
+                  &nbsp;•&nbsp;Credits: <strong>{fmt(fundTotals.credit)}</strong>
+                </>
               ) : (
                 <>
                   Opening: <strong>{fmt(ledger.opening_balance)}</strong>
@@ -431,7 +444,7 @@ export default function ChartOfAccounts() {
                               mode: 'fund',
                               fundId: fund.id,
                               fundName: fund.name,
-                              fundCode: fund.net_asset_code || a.code,
+                              fundCode: fund.net_asset_code || '',
                               linkedAccountId: a.id,
                             });
                             return;

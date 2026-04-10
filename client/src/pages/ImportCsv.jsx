@@ -17,6 +17,33 @@ import { formatDateOnlyForDisplay } from '../utils/date';
 
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 const MAX_ROUNDING_ADJUSTMENT = new Decimal('0.10');
+// Align with server DB column: migrations/004_transactions.js -> t.string('reference_no')
+const REFERENCE_NO_MAX_LENGTH = 255;
+const PREVIEW_CONTROL_LABEL_STYLE = {
+  fontSize: '0.7rem',
+  color: '#64748b',
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.02em',
+};
+const PREVIEW_CONTROL_GROUP_STYLE = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.35rem',
+  minWidth: '170px',
+  flex: '1 1 220px',
+};
+const SR_ONLY_STYLE = {
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: 0,
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
 const dec = (value) => {
   try {
     return new Decimal(value || 0);
@@ -499,29 +526,15 @@ const PreviewRow = memo(function PreviewRow({
   const hasSplits = row.splits?.length > 0
   const isLinked = isWithdrawal && !!row.bill_id
   const linkedBill = isLinked ? suggestions.find((suggestion) => suggestion.bill_id === row.bill_id) : null
-  const controlLabelStyle = {
-    fontSize: '0.7rem',
-    color: '#64748b',
-    fontWeight: 600,
-    textTransform: 'uppercase',
-    letterSpacing: '0.02em',
-  }
-  const controlGroupStyle = {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.35rem',
-    minWidth: '170px',
-    flex: '1 1 220px',
-  }
 
   return (
-    <div style={{ borderBottom: '1px solid #e5e7eb', padding: '0.65rem 0.75rem' }}>
+    <div role='row' style={{ borderBottom: '1px solid #e5e7eb', padding: '0.65rem 0.75rem' }}>
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', fontSize: '0.9rem', fontWeight: 600 }}>
-        <span style={{ color: '#64748b', fontWeight: 600, minWidth: '2ch' }}>#{index + 1}</span>
-        <span style={{ color: '#334155', whiteSpace: 'nowrap' }}>{formatDateOnlyForDisplay(row.date)}</span>
-        <span style={{ color: '#111827', flex: '1 1 240px', minWidth: '180px' }}>{row.description}</span>
-        <span style={{ color: '#111827', fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt(row.amount)}</span>
-        <span style={{
+        <span role='cell' style={{ color: '#64748b', fontWeight: 600, minWidth: '2ch' }}>#{index + 1}</span>
+        <span role='cell' style={{ color: '#334155', whiteSpace: 'nowrap' }}>{formatDateOnlyForDisplay(row.date)}</span>
+        <span role='cell' style={{ color: '#111827', flex: '1 1 240px', minWidth: '180px' }}>{row.description}</span>
+        <span role='cell' style={{ color: '#111827', fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt(row.amount)}</span>
+        <span role='cell' style={{
           display: 'inline-block',
           padding: '0.2rem 0.5rem',
           borderRadius: '999px',
@@ -535,17 +548,18 @@ const PreviewRow = memo(function PreviewRow({
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', marginTop: '0.7rem', alignItems: 'flex-start' }}>
-        <div style={{ ...controlGroupStyle, flex: '0 1 180px', minWidth: '140px' }}>
-          <span style={controlLabelStyle}>Reference No</span>
+        <div role='cell' style={{ ...PREVIEW_CONTROL_GROUP_STYLE, flex: '0 1 180px', minWidth: '140px' }}>
+          <span style={PREVIEW_CONTROL_LABEL_STYLE}>Reference No</span>
           <Input
             value={row.reference_no || ''}
             onChange={(e) => onReferenceChange(index, e.target.value)}
             placeholder='Reference no...'
+            maxLength={REFERENCE_NO_MAX_LENGTH}
           />
         </div>
 
-        <div style={controlGroupStyle}>
-          <span style={controlLabelStyle}>Offset Account</span>
+        <div role='cell' style={PREVIEW_CONTROL_GROUP_STYLE}>
+          <span style={PREVIEW_CONTROL_LABEL_STYLE}>Offset Account</span>
           {hasSplits ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', minHeight: '38px' }}>
               <span style={{ fontSize: '0.82rem', color: '#1d4ed8', fontWeight: 500 }}>
@@ -564,8 +578,8 @@ const PreviewRow = memo(function PreviewRow({
           )}
         </div>
 
-        <div style={controlGroupStyle}>
-          <span style={controlLabelStyle}>Contact</span>
+        <div role='cell' style={PREVIEW_CONTROL_GROUP_STYLE}>
+          <span style={PREVIEW_CONTROL_LABEL_STYLE}>Contact</span>
           {hasSplits || isLinked ? (
             <div style={{ color: '#9ca3af', minHeight: '38px', display: 'flex', alignItems: 'center' }}>—</div>
           ) : (
@@ -578,8 +592,8 @@ const PreviewRow = memo(function PreviewRow({
           )}
         </div>
 
-        <div style={{ ...controlGroupStyle, flex: '1 1 260px', minWidth: '220px' }}>
-          <span style={controlLabelStyle}>Link to Bill</span>
+        <div role='cell' style={{ ...PREVIEW_CONTROL_GROUP_STYLE, flex: '1 1 260px', minWidth: '220px' }}>
+          <span style={PREVIEW_CONTROL_LABEL_STYLE}>Link to Bill</span>
           {hasSplits && <div style={{ color: '#9ca3af', minHeight: '38px', display: 'flex', alignItems: 'center' }}>Unavailable for split rows</div>}
           {!hasSplits && !isWithdrawal && <div style={{ color: '#9ca3af', minHeight: '38px', display: 'flex', alignItems: 'center' }}>—</div>}
           {!hasSplits && isWithdrawal && !isLinked && suggestions.length === 0 && (
@@ -630,8 +644,8 @@ const PreviewRow = memo(function PreviewRow({
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: '110px', flex: '0 0 auto' }}>
-          <span style={controlLabelStyle}>Actions</span>
+        <div role='cell' style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: '110px', flex: '0 0 auto' }}>
+          <span style={PREVIEW_CONTROL_LABEL_STYLE}>Actions</span>
           {!row.bill_id ? (
             <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index)}>
               {hasSplits ? 'Edit Split' : 'Split'}
@@ -1106,7 +1120,15 @@ export default function ImportCsv() {
                 <div style={{ background: '#f8fafc', color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', padding: '0.55rem 0.75rem', borderBottom: '1px solid #e5e7eb' }}>
                   Preview Rows
                 </div>
-                <div style={{ fontSize: '0.82rem' }}>
+                <div role='table' aria-label='Import transaction preview' style={{ fontSize: '0.82rem' }}>
+                  <div role='rowgroup' style={SR_ONLY_STYLE}>
+                    <div role='row'>
+                      {['#', 'Date', 'Description', 'Amount', 'Type', 'Reference No', 'Offset Account', 'Contact', 'Link to Bill', 'Actions'].map((header) => (
+                        <span key={header} role='columnheader'>{header}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div role='rowgroup'>
                   {parsedRows.map((row, idx) => (
                     <PreviewRow
                       key={`${row.date}-${row.description}-${idx}`}
@@ -1123,6 +1145,7 @@ export default function ImportCsv() {
                       onSplitOpen={onSplitOpen}
                     />
                   ))}
+                  </div>
                 </div>
               </div>
             </>
