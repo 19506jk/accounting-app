@@ -3,18 +3,212 @@ import { useNavigate } from 'react-router-dom';
 import { useImportTransactions, useGetBillMatches } from '../api/useTransactions';
 import { useAccounts } from '../api/useAccounts';
 import { useFunds } from '../api/useFunds';
+import { useContacts } from '../api/useContacts';
 import { useToast } from '../components/ui/Toast';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Combobox from '../components/ui/Combobox';
+import Modal from '../components/ui/Modal';
 import { parseStatementCsv } from '../utils/parseStatementCsv';
 import { formatDateOnlyForDisplay } from '../utils/date';
 
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
+const toCents = (n) => Math.round((Number(n) || 0) * 100);
 
-const PreviewRow = memo(function PreviewRow({ row, index, offsetOptions, onOffsetChange, suggestions, onBillLink }) {
+function SplitModal({
+  isOpen,
+  onClose,
+  onSave,
+  row,
+  defaultFundId,
+  offsetAccountOptions,
+  fundOptions,
+}) {
+  const [lines, setLines] = useState([]);
+  const [attempted, setAttempted] = useState(false);
+  const { data: contacts = [] } = useContacts({ type: 'DONOR' });
+
+  const donorOptions = useMemo(() => [
+    { value: '', label: 'None' },
+    ...contacts.map((contact) => ({
+      value: contact.id,
+      label: contact.donor_id ? `${contact.donor_id} — ${contact.name}` : contact.name,
+    })),
+  ], [contacts]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (row?.splits?.length > 0) {
+      setLines(row.splits.map((split) => ({
+        amount: String(split.amount),
+        offset_account_id: split.offset_account_id,
+        fund_id: split.fund_id,
+        contact_id: split.contact_id ?? '',
+        memo: split.memo || '',
+      })));
+    } else {
+      setLines([{
+        amount: '',
+        offset_account_id: '',
+        fund_id: defaultFundId || '',
+        contact_id: '',
+        memo: row?.description || '',
+      }]);
+    }
+    setAttempted(false);
+  }, [isOpen, row, defaultFundId]);
+
+  if (!isOpen || !row) return null;
+
+  const assignedCents = lines.reduce((sum, line) => sum + toCents(parseFloat(line.amount) || 0), 0);
+  const remainingCents = toCents(row.amount) - assignedCents;
+  const hasValidLines = lines.length > 0 && lines.every((line) => {
+    const amount = Number(line.amount);
+    return Number.isFinite(amount)
+      && amount > 0
+      && Number.isInteger(Number(line.offset_account_id))
+      && Number(line.offset_account_id) > 0
+      && Number.isInteger(Number(line.fund_id))
+      && Number(line.fund_id) > 0;
+  });
+  const isBalanced = remainingCents === 0 && hasValidLines;
+  const showDonor = row.type === 'deposit';
+
+  const updateLine = (index, patch) => {
+    setLines((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], ...patch };
+      return next;
+    });
+  };
+
+  const onAddLine = () => {
+    setLines((prev) => [...prev, {
+      amount: '',
+      offset_account_id: '',
+      fund_id: defaultFundId || '',
+      contact_id: '',
+      memo: row.description || '',
+    }]);
+  };
+
+  const onDeleteLine = (index) => {
+    setLines((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const onFillAmount = (index) => {
+    const currentAmountCents = toCents(parseFloat(lines[index]?.amount) || 0);
+    const nextAmountCents = remainingCents + currentAmountCents;
+    updateLine(index, { amount: (nextAmountCents / 100).toFixed(2) });
+  };
+
+  const onSaveClick = () => {
+    if (!isBalanced) {
+      setAttempted(true);
+      return;
+    }
+    onSave(lines.map((line) => ({
+      amount: parseFloat(line.amount),
+      offset_account_id: Number(line.offset_account_id),
+      fund_id: Number(line.fund_id),
+      contact_id: line.contact_id ? Number(line.contact_id) : null,
+      memo: line.memo ? line.memo.trim() || null : null,
+    })));
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title='Split Transaction' width='820px'>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', color: '#475569', fontSize: '0.82rem' }}>
+          <span>{formatDateOnlyForDisplay(row.date)}</span>
+          <span>{row.description}</span>
+          <span style={{ fontWeight: 600 }}>{fmt(row.amount)}</span>
+        </div>
+
+        <div style={{ maxHeight: '40vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '0.25rem' }}>
+          {lines.map((line, idx) => (
+            <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: showDonor ? '170px 1fr 160px 180px 1fr auto' : '170px 1fr 160px 1fr auto' }}>
+              <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                <Input
+                  value={line.amount}
+                  onChange={(e) => updateLine(idx, { amount: e.target.value })}
+                  placeholder='Amount'
+                />
+                <Button variant='ghost' size='sm' onClick={() => onFillAmount(idx)} title='Fill remaining amount'>
+                  ⚡
+                </Button>
+              </div>
+              <Combobox
+                options={offsetAccountOptions}
+                value={line.offset_account_id}
+                onChange={(value) => updateLine(idx, { offset_account_id: value })}
+                placeholder='Offset account…'
+              />
+              <Combobox
+                options={fundOptions}
+                value={line.fund_id}
+                onChange={(value) => updateLine(idx, { fund_id: value })}
+                placeholder='Fund…'
+              />
+              {showDonor && (
+                <Combobox
+                  options={donorOptions}
+                  value={line.contact_id}
+                  onChange={(value) => updateLine(idx, { contact_id: value })}
+                  placeholder='Donor…'
+                />
+              )}
+              <Input
+                value={line.memo}
+                onChange={(e) => updateLine(idx, { memo: e.target.value })}
+                placeholder='Memo (optional)'
+              />
+              <Button
+                variant='ghost'
+                size='sm'
+                onClick={() => onDeleteLine(idx)}
+                disabled={lines.length === 1}
+              >
+                Delete
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Button variant='secondary' size='sm' onClick={onAddLine}>Add Line</Button>
+          <div style={{ color: remainingCents === 0 ? '#166534' : '#b91c1c', fontSize: '0.82rem', fontWeight: 600 }}>
+            Remaining: {fmt(remainingCents / 100)}
+          </div>
+        </div>
+
+        {attempted && !isBalanced && (
+          <div style={{ color: '#b91c1c', fontSize: '0.8rem' }}>
+            Split lines must be complete and sum exactly to the row amount.
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <Button variant='secondary' onClick={onClose}>Cancel</Button>
+          <Button onClick={onSaveClick} disabled={!isBalanced}>Save Split</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+const PreviewRow = memo(function PreviewRow({
+  row,
+  index,
+  offsetOptions,
+  onOffsetChange,
+  suggestions,
+  onBillLink,
+  onSplitOpen,
+}) {
   const isWithdrawal = row.type === 'withdrawal'
+  const hasSplits = row.splits?.length > 0
   const isLinked = isWithdrawal && !!row.bill_id
   const linkedBill = isLinked ? suggestions.find((suggestion) => suggestion.bill_id === row.bill_id) : null
 
@@ -38,19 +232,30 @@ const PreviewRow = memo(function PreviewRow({ row, index, offsetOptions, onOffse
         </span>
       </td>
       <td style={{ padding: '0.5rem', minWidth: '260px' }}>
-        <Combobox
-          options={offsetOptions}
-          value={row.offset_account_id}
-          onChange={(value) => onOffsetChange(index, Number(value))}
-          placeholder="Offset account…"
-        />
+        {hasSplits ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.82rem', color: '#1d4ed8', fontWeight: 500 }}>
+              Multiple ({row.splits.length} splits)
+            </span>
+            <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index)}>Edit</Button>
+            <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index, true)}>Clear</Button>
+          </div>
+        ) : (
+          <Combobox
+            options={offsetOptions}
+            value={row.offset_account_id || ''}
+            onChange={(value) => onOffsetChange(index, Number(value))}
+            placeholder='Offset account…'
+          />
+        )}
       </td>
       <td style={{ padding: '0.5rem', minWidth: '260px' }}>
-        {!isWithdrawal && <span style={{ color: '#9ca3af' }}>—</span>}
-        {isWithdrawal && !isLinked && suggestions.length === 0 && (
+        {hasSplits && <span style={{ color: '#9ca3af' }}>Unavailable for split rows</span>}
+        {!hasSplits && !isWithdrawal && <span style={{ color: '#9ca3af' }}>—</span>}
+        {!hasSplits && isWithdrawal && !isLinked && suggestions.length === 0 && (
           <span style={{ color: '#9ca3af' }}>No suggested bill</span>
         )}
-        {isWithdrawal && !isLinked && suggestions.length > 0 && (
+        {!hasSplits && isWithdrawal && !isLinked && suggestions.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
             {suggestions.map((suggestion) => (
               <button
@@ -73,7 +278,7 @@ const PreviewRow = memo(function PreviewRow({ row, index, offsetOptions, onOffse
             ))}
           </div>
         )}
-        {isLinked && (
+        {!hasSplits && isLinked && (
           <button
             onClick={() => onBillLink(index, null)}
             style={{
@@ -89,6 +294,13 @@ const PreviewRow = memo(function PreviewRow({ row, index, offsetOptions, onOffse
           >
             {linkedBill?.confidence === 'exact' ? 'Exact' : 'Possible'}: Bill {linkedBill?.bill_number || `#${row.bill_id}`} — {linkedBill?.vendor_name || 'Linked'} {linkedBill ? fmt(linkedBill.balance_due) : ''} (Unlink)
           </button>
+        )}
+      </td>
+      <td style={{ padding: '0.5rem' }}>
+        {!row.bill_id && (
+          <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index)}>
+            {hasSplits ? 'Edit Split' : 'Split'}
+          </Button>
         )}
       </td>
     </tr>
@@ -115,6 +327,7 @@ export default function ImportCsv() {
   const [isParsing, setIsParsing] = useState(false);
   const [suggestionsByRow, setSuggestionsByRow] = useState({});
   const [matchLoadError, setMatchLoadError] = useState('');
+  const [splitModalIndex, setSplitModalIndex] = useState(null);
 
   const activeAccounts = useMemo(
     () => (accounts || []).filter((a) => a.is_active),
@@ -159,7 +372,9 @@ export default function ImportCsv() {
     if (phase !== 'setup') return;
     if (!defaultOffsetAccountId) return;
     const nextId = Number(defaultOffsetAccountId);
-    setParsedRows((prev) => prev.map((row) => ({ ...row, offset_account_id: nextId })));
+    setParsedRows((prev) => prev.map((row) => (
+      row.splits?.length > 0 ? row : { ...row, offset_account_id: nextId }
+    )));
   }, [defaultOffsetAccountId, phase]);
 
   const onOffsetChange = useCallback((index, offsetId) => {
@@ -173,9 +388,42 @@ export default function ImportCsv() {
   const onBillLink = useCallback((index, billId) => {
     setParsedRows((prev) => {
       const next = [...prev]
-      next[index] = { ...next[index], bill_id: billId || undefined }
+      next[index] = { ...next[index], bill_id: billId || undefined, splits: undefined }
       return next
     })
+  }, [])
+
+  const onSplitOpen = useCallback((index, clear = false) => {
+    if (clear) {
+      setParsedRows((prev) => {
+        const next = [...prev]
+        const fallbackOffsetId = defaultOffsetAccountId ? Number(defaultOffsetAccountId) : 0
+        next[index] = {
+          ...next[index],
+          splits: undefined,
+          offset_account_id: Number(next[index].offset_account_id) || fallbackOffsetId,
+        }
+        return next
+      })
+      return
+    }
+    setSplitModalIndex(index)
+  }, [defaultOffsetAccountId])
+
+  const onSplitClose = useCallback(() => setSplitModalIndex(null), [])
+
+  const onSplitSave = useCallback((index, splits) => {
+    setParsedRows((prev) => {
+      const next = [...prev]
+      next[index] = {
+        ...next[index],
+        splits: splits.length > 0 ? splits : undefined,
+        offset_account_id: splits.length > 0 ? undefined : Number(next[index].offset_account_id) || 0,
+        bill_id: undefined,
+      }
+      return next
+    })
+    setSplitModalIndex(null)
   }, [])
 
   const handleBackToSetup = useCallback(() => {
@@ -254,7 +502,9 @@ export default function ImportCsv() {
     setErrors([]);
     setSkippedRows([]);
     const nextRows = defaultOffsetAccountId
-      ? parsedRows.map((row) => ({ ...row, offset_account_id: Number(defaultOffsetAccountId) }))
+      ? parsedRows.map((row) => (
+        row.splits?.length > 0 ? row : { ...row, offset_account_id: Number(defaultOffsetAccountId) }
+      ))
       : parsedRows
     setParsedRows(nextRows);
     setPhase('preview');
@@ -268,11 +518,24 @@ export default function ImportCsv() {
 
     parsedRows.forEach((row, idx) => {
       const rowNumber = idx + 1;
-      const offsetAccountId = Number(row.offset_account_id);
-      if (!Number.isInteger(offsetAccountId) || offsetAccountId <= 0) {
-        nextErrors.push(`Row ${rowNumber}: offset account is required`);
-      } else if (offsetAccountId === nextBankAccountId) {
-        nextErrors.push(`Row ${rowNumber}: offset account cannot be the same as the bank account`);
+      if (row.bill_id && row.splits?.length > 0) {
+        nextErrors.push(`Row ${rowNumber}: cannot combine bill link and split lines`);
+        return;
+      }
+
+      if (row.splits?.length > 0) {
+        const splitTotalCents = row.splits.reduce((sum, split) => sum + toCents(split.amount), 0);
+        const remainingCents = toCents(row.amount) - splitTotalCents;
+        if (remainingCents !== 0) {
+          nextErrors.push(`Row ${rowNumber}: split amounts do not sum to row total (remaining: ${fmt(remainingCents / 100)})`);
+        }
+      } else {
+        const offsetAccountId = Number(row.offset_account_id);
+        if (!Number.isInteger(offsetAccountId) || offsetAccountId <= 0) {
+          nextErrors.push(`Row ${rowNumber}: offset account is required`);
+        } else if (offsetAccountId === nextBankAccountId) {
+          nextErrors.push(`Row ${rowNumber}: offset account cannot be the same as the bank account`);
+        }
       }
     });
 
@@ -292,8 +555,17 @@ export default function ImportCsv() {
           reference_no: row.reference_no,
           amount: row.amount,
           type: row.type,
-          offset_account_id: Number(row.offset_account_id),
+          offset_account_id: row.splits?.length > 0 ? undefined : Number(row.offset_account_id),
           bill_id: row.bill_id,
+          splits: row.splits?.length > 0
+            ? row.splits.map((split) => ({
+              amount: split.amount,
+              offset_account_id: Number(split.offset_account_id),
+              fund_id: Number(split.fund_id),
+              contact_id: split.contact_id ? Number(split.contact_id) : null,
+              memo: split.memo || null,
+            }))
+            : undefined,
         })),
         force,
       });
@@ -393,8 +665,20 @@ export default function ImportCsv() {
                 </div>
               )}
 
+              {splitModalIndex !== null && (
+                <SplitModal
+                  isOpen={true}
+                  onClose={onSplitClose}
+                  onSave={(splits) => onSplitSave(splitModalIndex, splits)}
+                  row={parsedRows[splitModalIndex]}
+                  defaultFundId={Number(fundId)}
+                  offsetAccountOptions={offsetAccountOptions}
+                  fundOptions={fundOptions}
+                />
+              )}
+
               <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'auto', maxHeight: '65vh' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1080px', fontSize: '0.82rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1180px', fontSize: '0.82rem' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', color: '#6b7280', textAlign: 'left' }}>
                       <th style={{ padding: '0.55rem' }}>#</th>
@@ -404,6 +688,7 @@ export default function ImportCsv() {
                       <th style={{ padding: '0.55rem' }}>Type</th>
                       <th style={{ padding: '0.55rem' }}>Offset Account</th>
                       <th style={{ padding: '0.55rem' }}>Link to Bill</th>
+                      <th style={{ padding: '0.55rem' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -416,6 +701,7 @@ export default function ImportCsv() {
                         onOffsetChange={onOffsetChange}
                         suggestions={suggestionsByRow[idx + 1] || []}
                         onBillLink={onBillLink}
+                        onSplitOpen={onSplitOpen}
                       />
                     ))}
                   </tbody>

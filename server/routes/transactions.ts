@@ -510,6 +510,15 @@ router.post(
       const fund = await db('funds').where({ id: fundId, is_active: true }).first() as FundRow | undefined;
       if (!fund) errors.push(`Fund #${fundId} does not exist or is inactive`);
 
+      type PreparedSplit = {
+        amount: Decimal;
+        amount_fixed: string;
+        offset_account_id: number;
+        fund_id: number;
+        contact_id: number | null;
+        memo: string | null;
+      };
+
       type PreparedImportRow = {
         row_index: number;
         date: string;
@@ -521,6 +530,7 @@ router.post(
         type: 'withdrawal' | 'deposit';
         offset_account_id: number;
         bill_id?: number;
+        splits?: PreparedSplit[];
       };
 
       const preparedRows: PreparedImportRow[] = [];
@@ -531,6 +541,7 @@ router.post(
 
       (rows as ImportTransactionRow[]).forEach((row, idx) => {
         const rowNumber = idx + 1;
+        const rowErrors: string[] = [];
         if (!row) {
           errors.push(`Row ${rowNumber}: row is required`);
           return;
@@ -542,38 +553,113 @@ router.post(
         const rowType = row.type;
         const offsetAccountId = Number(row.offset_account_id);
         const billId = row.bill_id === undefined || row.bill_id === null ? undefined : Number(row.bill_id);
+        const hasSplits = Array.isArray(row.splits) && row.splits.length > 0;
         let amount: Decimal;
 
         if (!parseDateOnlyStrict(rowDate)) {
-          errors.push(`Row ${rowNumber}: date must be a valid YYYY-MM-DD value`);
+          rowErrors.push(`Row ${rowNumber}: date must be a valid YYYY-MM-DD value`);
         }
 
         if (!rowDescription) {
-          errors.push(`Row ${rowNumber}: description is required`);
+          rowErrors.push(`Row ${rowNumber}: description is required`);
         }
 
         try {
           amount = dec(row.amount);
         } catch {
-          errors.push(`Row ${rowNumber}: amount is invalid`);
+          rowErrors.push(`Row ${rowNumber}: amount is invalid`);
+          errors.push(...rowErrors);
           return;
         }
 
         if (amount.isZero() || amount.isNegative()) {
-          errors.push(`Row ${rowNumber}: amount must be greater than 0`);
+          rowErrors.push(`Row ${rowNumber}: amount must be greater than 0`);
         } else if (amount.decimalPlaces() > 2) {
-          errors.push(`Row ${rowNumber}: amount cannot have more than 2 decimal places`);
+          rowErrors.push(`Row ${rowNumber}: amount cannot have more than 2 decimal places`);
         }
 
         if (rowType !== 'withdrawal' && rowType !== 'deposit') {
-          errors.push(`Row ${rowNumber}: type must be 'withdrawal' or 'deposit'`);
+          rowErrors.push(`Row ${rowNumber}: type must be 'withdrawal' or 'deposit'`);
         }
 
-        if (!Number.isInteger(offsetAccountId) || offsetAccountId <= 0) {
-          errors.push(`Row ${rowNumber}: offset_account_id must be a positive integer`);
+        if (hasSplits && billId !== undefined) {
+          rowErrors.push(`Row ${rowNumber}: cannot include both bill_id and splits`);
+        }
+
+        let preparedSplits: PreparedSplit[] | undefined;
+
+        if (hasSplits) {
+          let splitTotal = dec(0);
+          preparedSplits = [];
+          let hasSplitValidationError = false;
+          const pushSplitError = (message: string) => {
+            hasSplitValidationError = true;
+            rowErrors.push(message);
+          };
+
+          row.splits!.forEach((split, splitIdx) => {
+            const splitNumber = splitIdx + 1;
+            const splitAmountRaw = split?.amount;
+            const splitOffsetAccountId = Number(split?.offset_account_id);
+            const splitFundId = Number(split?.fund_id);
+            const splitContactId = split?.contact_id === undefined || split?.contact_id === null ? null : Number(split.contact_id);
+
+            let splitAmount: Decimal | null = null;
+            try {
+              splitAmount = dec(splitAmountRaw);
+            } catch {
+              pushSplitError(`Row ${rowNumber}, split ${splitNumber}: amount is invalid`);
+            }
+
+            if (splitAmount) {
+              if (splitAmount.isZero() || splitAmount.isNegative()) {
+                pushSplitError(`Row ${rowNumber}, split ${splitNumber}: amount must be greater than 0`);
+              } else if (splitAmount.decimalPlaces() > 2) {
+                pushSplitError(`Row ${rowNumber}, split ${splitNumber}: amount cannot have more than 2 decimal places`);
+              }
+            }
+
+            if (!Number.isInteger(splitOffsetAccountId) || splitOffsetAccountId <= 0) {
+              pushSplitError(`Row ${rowNumber}, split ${splitNumber}: offset_account_id must be a positive integer`);
+            } else if (splitOffsetAccountId === bankAccountId) {
+              pushSplitError(`Row ${rowNumber}, split ${splitNumber}: offset_account_id cannot be the same as bank_account_id`);
+            }
+
+            if (!Number.isInteger(splitFundId) || splitFundId <= 0) {
+              pushSplitError(`Row ${rowNumber}, split ${splitNumber}: fund_id must be a positive integer`);
+            }
+
+            if (splitContactId !== null && (!Number.isInteger(splitContactId) || splitContactId <= 0)) {
+              pushSplitError(`Row ${rowNumber}, split ${splitNumber}: contact_id must be a positive integer when provided`);
+            }
+
+            if (splitAmount && Number.isInteger(splitOffsetAccountId) && splitOffsetAccountId > 0 && Number.isInteger(splitFundId) && splitFundId > 0) {
+              splitTotal = splitTotal.plus(splitAmount);
+
+              offsetAccountIds.add(splitOffsetAccountId);
+              const existingRows = offsetAccountRows.get(splitOffsetAccountId) || [];
+              existingRows.push(rowNumber);
+              offsetAccountRows.set(splitOffsetAccountId, existingRows);
+
+              preparedSplits!.push({
+                amount: splitAmount,
+                amount_fixed: splitAmount.toFixed(2),
+                offset_account_id: splitOffsetAccountId,
+                fund_id: splitFundId,
+                contact_id: splitContactId,
+                memo: split?.memo ? String(split.memo).trim() || null : null,
+              });
+            }
+          });
+
+          if (!hasSplitValidationError && preparedSplits.length > 0 && !splitTotal.equals(amount)) {
+            rowErrors.push(`Row ${rowNumber}: split total ${splitTotal.toFixed(2)} does not equal row amount ${amount.toFixed(2)}`);
+          }
+        } else if (!Number.isInteger(offsetAccountId) || offsetAccountId <= 0) {
+          rowErrors.push(`Row ${rowNumber}: offset_account_id must be a positive integer`);
         } else {
           if (offsetAccountId === bankAccountId) {
-            errors.push(`Row ${rowNumber}: offset_account_id cannot be the same as bank_account_id`);
+            rowErrors.push(`Row ${rowNumber}: offset_account_id cannot be the same as bank_account_id`);
           }
           offsetAccountIds.add(offsetAccountId);
           const existingRows = offsetAccountRows.get(offsetAccountId) || [];
@@ -583,7 +669,7 @@ router.post(
 
         if (billId !== undefined) {
           if (!Number.isInteger(billId) || billId <= 0) {
-            errors.push(`Row ${rowNumber}: bill_id must be a positive integer`);
+            rowErrors.push(`Row ${rowNumber}: bill_id must be a positive integer`);
           } else {
             billIds.add(billId);
             const existingRows = billRows.get(billId) || [];
@@ -592,7 +678,10 @@ router.post(
           }
         }
 
-        if (errors.length > 0) return;
+        if (rowErrors.length > 0) {
+          errors.push(...rowErrors);
+          return;
+        }
 
         preparedRows.push({
           row_index: rowNumber,
@@ -603,8 +692,9 @@ router.post(
           amount,
           amount_fixed: amount.toFixed(2),
           type: rowType,
-          offset_account_id: offsetAccountId,
+          offset_account_id: hasSplits ? 0 : offsetAccountId,
           bill_id: billId,
+          splits: preparedSplits,
         });
       });
 
@@ -618,6 +708,48 @@ router.post(
             rowNumbers.forEach((rowNumber) => {
               errors.push(`Row ${rowNumber}: offset account #${id} does not exist or is inactive`);
             });
+          }
+        }
+      }
+
+      const splitContactIds = new Set<number>();
+      const splitContactRowLabels = new Map<number, string[]>();
+      const splitFundIds = new Set<number>();
+      const splitFundRowLabels = new Map<number, string[]>();
+
+      preparedRows.forEach((row) => {
+        row.splits?.forEach((split, splitIdx) => {
+          const label = `Row ${row.row_index}, split ${splitIdx + 1}`;
+          splitFundIds.add(split.fund_id);
+          splitFundRowLabels.set(split.fund_id, [...(splitFundRowLabels.get(split.fund_id) || []), label]);
+          if (!split.contact_id) return;
+          splitContactIds.add(split.contact_id);
+          splitContactRowLabels.set(split.contact_id, [...(splitContactRowLabels.get(split.contact_id) || []), label]);
+        });
+      });
+
+      if (splitContactIds.size > 0) {
+        const contacts = await db('contacts')
+          .whereIn('id', [...splitContactIds])
+          .where('is_active', true)
+          .select('id') as { id: number }[];
+        const foundIds = new Set(contacts.map((contact) => contact.id));
+        for (const [id, labels] of splitContactRowLabels.entries()) {
+          if (!foundIds.has(id)) {
+            labels.forEach((label) => errors.push(`${label}: contact #${id} does not exist or is inactive`));
+          }
+        }
+      }
+
+      if (splitFundIds.size > 0) {
+        const splitFunds = await db('funds')
+          .whereIn('id', [...splitFundIds])
+          .where('is_active', true)
+          .select('id') as { id: number }[];
+        const foundIds = new Set(splitFunds.map((splitFund) => splitFund.id));
+        for (const [id, labels] of splitFundRowLabels.entries()) {
+          if (!foundIds.has(id)) {
+            labels.forEach((label) => errors.push(`${label}: fund #${id} does not exist or is inactive`));
           }
         }
       }
@@ -803,59 +935,46 @@ router.post(
           const allEntries = plainRows.flatMap((row, idx) => {
             const transactionId = transactionIds[idx];
             const amountFixed = row.amount.toFixed(2);
-            const bankEntry = row.type === 'deposit'
-              ? {
-                transaction_id: transactionId,
-                account_id: bankAccountId,
-                fund_id: fundId,
-                contact_id: null,
-                debit: amountFixed,
-                credit: '0.00',
-                memo: null,
-                is_reconciled: false,
-                created_at: trx.fn.now(),
-                updated_at: trx.fn.now(),
-              }
-              : {
-                transaction_id: transactionId,
-                account_id: bankAccountId,
-                fund_id: fundId,
-                contact_id: null,
-                debit: '0.00',
-                credit: amountFixed,
-                memo: null,
-                is_reconciled: false,
-                created_at: trx.fn.now(),
-                updated_at: trx.fn.now(),
-              };
+            const bankEntry = {
+              transaction_id: transactionId,
+              account_id: bankAccountId,
+              fund_id: fundId,
+              contact_id: null,
+              debit: row.type === 'deposit' ? amountFixed : '0.00',
+              credit: row.type === 'deposit' ? '0.00' : amountFixed,
+              memo: null,
+              is_reconciled: false,
+              created_at: trx.fn.now(),
+              updated_at: trx.fn.now(),
+            };
 
-            const offsetEntry = row.type === 'deposit'
-              ? {
+            const offsetEntries = row.splits?.length
+              ? row.splits.map((split) => ({
+                transaction_id: transactionId,
+                account_id: split.offset_account_id,
+                fund_id: split.fund_id,
+                contact_id: split.contact_id,
+                debit: row.type === 'deposit' ? '0.00' : split.amount_fixed,
+                credit: row.type === 'deposit' ? split.amount_fixed : '0.00',
+                memo: split.memo,
+                is_reconciled: false,
+                created_at: trx.fn.now(),
+                updated_at: trx.fn.now(),
+              }))
+              : [{
                 transaction_id: transactionId,
                 account_id: row.offset_account_id,
                 fund_id: fundId,
                 contact_id: null,
-                debit: '0.00',
-                credit: amountFixed,
+                debit: row.type === 'deposit' ? '0.00' : amountFixed,
+                credit: row.type === 'deposit' ? amountFixed : '0.00',
                 memo: null,
                 is_reconciled: false,
                 created_at: trx.fn.now(),
                 updated_at: trx.fn.now(),
-              }
-              : {
-                transaction_id: transactionId,
-                account_id: row.offset_account_id,
-                fund_id: fundId,
-                contact_id: null,
-                debit: amountFixed,
-                credit: '0.00',
-                memo: null,
-                is_reconciled: false,
-                created_at: trx.fn.now(),
-                updated_at: trx.fn.now(),
-              };
+              }];
 
-            return [bankEntry, offsetEntry];
+            return [bankEntry, ...offsetEntries];
           });
 
           await trx('journal_entries').insert(allEntries);

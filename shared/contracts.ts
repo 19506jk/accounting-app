@@ -168,14 +168,23 @@ export interface UpdateTransactionInput {
   entries?: TransactionEntryInput[];
 }
 
+export interface TransactionSplit {
+  amount: number;
+  offset_account_id: number;
+  fund_id: number;
+  contact_id?: number | null;
+  memo?: string | null;
+}
+
 export interface ImportTransactionRow {
   date: string;
   description: string;
   reference_no?: string;
   amount: number;
   type: 'withdrawal' | 'deposit';
-  offset_account_id: number;
+  offset_account_id?: number;
   bill_id?: number;
+  splits?: TransactionSplit[];
 }
 
 export interface ImportTransactionsInput {
