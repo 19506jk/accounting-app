@@ -913,7 +913,7 @@ async function getDonorSummary({ from, to, fundId }: DateRangeArgs): Promise<Don
       db.raw('COUNT(DISTINCT t.id) AS transaction_count')
     )
     .groupBy('c.id', 'c.name', 'c.type', 'c.contact_class')
-    .orderBy('total', 'desc') as DonorSummaryRow[];
+    .orderBy('contact_name', 'asc') as DonorSummaryRow[];
 
   const anonRow = await db('transactions as t')
     .join('journal_entries as je', 'je.transaction_id', 't.id')
@@ -1038,7 +1038,7 @@ async function getDonorDetail({ from, to, fundId, contactId }: DonorDetailArgs):
     });
   }
 
-  donors.sort((a, b) => b.total - a.total);
+  donors.sort((a, b) => a.contact_name.localeCompare(b.contact_name));
 
   const anonTransactions = await donationQuery().whereNull('je.contact_id') as DonationQueryRow[];
   const anonTotal = anonTransactions.reduce((sum, tx) => sum.plus(dec(tx.amount)), dec(0));
