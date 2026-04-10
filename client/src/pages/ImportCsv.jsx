@@ -56,11 +56,12 @@ function SplitModal({
       })),
   ], [donorContacts]);
 
-  const payeeOptions = useMemo(() => (
-    payeeContacts
+  const payeeOptions = useMemo(() => ([
+    { value: '', label: 'None' },
+    ...payeeContacts
       .filter((contact) => contact.is_active)
-      .map((contact) => ({ value: contact.id, label: contact.name }))
-  ), [payeeContacts]);
+      .map((contact) => ({ value: String(contact.id), label: contact.name })),
+  ]), [payeeContacts]);
 
   const taxRateOptions = useMemo(() => ([
     { value: '', label: 'Exempt' },
@@ -264,7 +265,7 @@ function SplitModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title='Split Transaction' width='1050px'>
+    <Modal isOpen={isOpen} onClose={onClose} title='Split Transaction' width='1320px'>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <div style={{ display: 'flex', gap: '1rem', color: '#475569', fontSize: '0.95rem', marginBottom: '0.4rem' }}>
           <span>{formatDateOnlyForDisplay(row.date)}</span>
