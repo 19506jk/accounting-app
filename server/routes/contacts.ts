@@ -423,6 +423,28 @@ router.put(
   }
 );
 
+router.patch(
+  '/:id/deactivate',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }>,
+    res: Response<MessageResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const { id } = req.params;
+
+      const contact = await db('contacts').where({ id }).first() as ContactRow | undefined;
+      if (!contact) return res.status(404).json({ error: 'Contact not found' });
+
+      await db('contacts').where({ id }).update({ is_active: false, updated_at: db.fn.now() });
+      res.json({ message: 'Contact deactivated successfully' });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.delete(
   '/:id',
   requireRole('admin'),
@@ -444,13 +466,28 @@ router.delete(
 
       if (parseInt(jeCount?.count || '0', 10) > 0) {
         return res.status(409).json({
-          error: 'Cannot delete — contact is linked to transactions. Deactivate instead.',
+          error: 'Cannot delete — contact is linked to transactions.',
         });
       }
 
-      await db('contacts').where({ id }).update({ is_active: false, updated_at: db.fn.now() });
-      res.json({ message: 'Contact deactivated successfully' });
+      const billCount = await db('bills')
+        .whereNotNull('contact_id')
+        .where({ contact_id: id })
+        .count('id as count')
+        .first() as { count: string } | undefined;
+
+      if (parseInt(billCount?.count || '0', 10) > 0) {
+        return res.status(409).json({
+          error: 'Cannot delete — contact is linked to bills.',
+        });
+      }
+
+      await db('contacts').where({ id }).delete();
+      res.json({ message: 'Contact deleted successfully' });
     } catch (err) {
+      if ((err as { code?: string })?.code === '23503') {
+        return res.status(409).json({ error: 'Cannot delete — contact is linked to other records.' });
+      }
       next(err);
     }
   }

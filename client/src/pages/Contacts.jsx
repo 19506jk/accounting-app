@@ -1,5 +1,13 @@
 import { useState, useCallback }  from 'react';
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact } from '../api/useContacts';
+import {
+  useContacts,
+  useContact,
+  useCreateContact,
+  useUpdateContact,
+  useDeleteContact,
+  useDeactivateContact,
+} from '../api/useContacts';
+import { useAuth }    from '../context/AuthContext';
 import { useToast }   from '../components/ui/Toast';
 import Card    from '../components/ui/Card';
 import Table   from '../components/ui/Table';
@@ -110,6 +118,7 @@ function ContactForm({ form, setForm, errors = {} }) {
 
 export default function Contacts() {
   const { addToast } = useToast();
+  const { user } = useAuth();
 
   const [search,      setSearch]      = useState('');
   const [typeFilter,  setTypeFilter]  = useState('');
@@ -127,6 +136,18 @@ export default function Contacts() {
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
   const deleteContact = useDeleteContact();
+  const deactivateContact = useDeactivateContact();
+
+  const editingContactId = drawer && drawer !== 'add' ? drawer.id : null;
+  const { data: drawerContact } = useContact(editingContactId, {
+    enabled: !!editingContactId,
+    refetchOnMount: false,
+    staleTime: 60_000,
+  });
+  const activeDrawerContact = drawer && drawer !== 'add'
+    ? (drawerContact || drawer)
+    : null;
+  const isAdmin = user?.role === 'admin';
 
   const openAdd = useCallback(() => {
     setForm(EMPTY_FORM);
@@ -185,9 +206,9 @@ export default function Contacts() {
   }
 
   async function handleDeactivate() {
-    if (!confirm(`Deactivate ${drawer.name}?`)) return;
+    if (!activeDrawerContact || !confirm(`Deactivate ${activeDrawerContact.name}?`)) return;
     try {
-      await deleteContact.mutateAsync(drawer.id);
+      await deactivateContact.mutateAsync(activeDrawerContact.id);
       addToast('Contact deactivated.', 'success');
       closeDrawer();
     } catch (err) {
@@ -196,13 +217,25 @@ export default function Contacts() {
   }
 
   async function handleReactivate() {
-    if (!confirm(`Reactivate ${drawer.name}?`)) return;
+    if (!activeDrawerContact || !confirm(`Reactivate ${activeDrawerContact.name}?`)) return;
     try {
-      await updateContact.mutateAsync({ id: drawer.id, is_active: true });
+      await updateContact.mutateAsync({ id: activeDrawerContact.id, is_active: true });
       addToast('Contact reactivated.', 'success');
       closeDrawer();
     } catch (err) {
       addToast(err.response?.data?.error || 'Cannot reactivate contact.', 'error');
+    }
+  }
+
+  async function handleDelete() {
+    if (!activeDrawerContact) return;
+    if (!confirm(`Permanently delete ${activeDrawerContact.name}? This cannot be undone.`)) return;
+    try {
+      await deleteContact.mutateAsync(activeDrawerContact.id);
+      addToast('Contact deleted.', 'success');
+      closeDrawer();
+    } catch (err) {
+      addToast(err.response?.data?.error || 'Cannot delete contact.', 'error');
     }
   }
 
@@ -315,19 +348,29 @@ export default function Contacts() {
           alignItems: 'center', marginTop: '1.5rem', paddingTop: '1rem',
           borderTop: '1px solid #f3f4f6' }}>
           {/* Left — Deactivate / Reactivate (edit only) */}
-          {drawer && drawer !== 'add' && drawer.is_active && (
-            <Button variant="ghost" onClick={handleDeactivate}
-              isLoading={deleteContact.isPending}
-              style={{ color: '#dc2626' }}>
-              Deactivate
-            </Button>
-          )}
-          {drawer && drawer !== 'add' && !drawer.is_active && (
-            <Button variant="ghost" onClick={handleReactivate}
-              isLoading={updateContact.isPending}
-              style={{ color: '#15803d' }}>
-              Reactivate
-            </Button>
+          {activeDrawerContact && (
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              {activeDrawerContact.is_active ? (
+                <Button variant="ghost" onClick={handleDeactivate}
+                  isLoading={deactivateContact.isPending}
+                  style={{ color: '#dc2626' }}>
+                  Deactivate
+                </Button>
+              ) : (
+                <Button variant="ghost" onClick={handleReactivate}
+                  isLoading={updateContact.isPending}
+                  style={{ color: '#15803d' }}>
+                  Reactivate
+                </Button>
+              )}
+              {isAdmin && (
+                <Button variant="ghost" onClick={handleDelete}
+                  isLoading={deleteContact.isPending}
+                  style={{ color: '#b91c1c' }}>
+                  Delete Contact
+                </Button>
+              )}
+            </div>
           )}
           {drawer === 'add' && <span />}
 

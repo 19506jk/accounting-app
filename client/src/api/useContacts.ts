@@ -16,6 +16,12 @@ interface UpdateContactPayload extends UpdateContactInput {
   id: number
 }
 
+interface UseContactOptions {
+  enabled?: boolean
+  refetchOnMount?: boolean
+  staleTime?: number
+}
+
 export function useContacts(params: ContactsQuery = {}) {
   const query = new URLSearchParams()
   if (params.search) query.set('search', params.search)
@@ -32,14 +38,17 @@ export function useContacts(params: ContactsQuery = {}) {
   })
 }
 
-export function useContact(id: number | null | undefined) {
+export function useContact(id: number | null | undefined, options: UseContactOptions = {}) {
+  const { enabled = true, refetchOnMount = true, staleTime } = options
   return useQuery<ContactDetail>({
     queryKey: ['contacts', id],
     queryFn: async () => {
       const { data } = await client.get<{ contact: ContactDetail }>(`/contacts/${id}`)
       return data.contact
     },
-    enabled: !!id,
+    enabled: !!id && enabled,
+    refetchOnMount,
+    staleTime,
   })
 }
 
@@ -63,8 +72,9 @@ export function useUpdateContact() {
       const { data } = await client.put<{ contact: ContactDetail }>(`/contacts/${id}`, payload)
       return data.contact
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['contacts'] })
+      queryClient.invalidateQueries({ queryKey: ['contacts', variables.id] })
     },
   })
 }
@@ -75,8 +85,22 @@ export function useDeleteContact() {
     mutationFn: async (id: number) => {
       await client.delete(`/contacts/${id}`)
     },
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ['contacts'] })
+      queryClient.removeQueries({ queryKey: ['contacts', id] })
+    },
+  })
+}
+
+export function useDeactivateContact() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await client.patch(`/contacts/${id}/deactivate`)
+    },
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+      queryClient.invalidateQueries({ queryKey: ['contacts', id] })
     },
   })
 }
