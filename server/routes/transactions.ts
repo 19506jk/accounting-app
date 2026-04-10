@@ -543,7 +543,8 @@ router.post(
         const rowNumber = idx + 1;
         const rowErrors: string[] = [];
         if (!row) {
-          errors.push(`Row ${rowNumber}: row is required`);
+          rowErrors.push(`Row ${rowNumber}: row is required`);
+          errors.push(...rowErrors);
           return;
         }
 

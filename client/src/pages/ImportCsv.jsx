@@ -135,7 +135,13 @@ function SplitModal({
                   onChange={(e) => updateLine(idx, { amount: e.target.value })}
                   placeholder='Amount'
                 />
-                <Button variant='ghost' size='sm' onClick={() => onFillAmount(idx)} title='Fill remaining amount'>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => onFillAmount(idx)}
+                  title='Fill remaining amount'
+                  disabled={remainingCents <= 0}
+                >
                   ⚡
                 </Button>
               </div>
