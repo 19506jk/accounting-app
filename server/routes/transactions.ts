@@ -44,7 +44,9 @@ import billService = require('../services/bills');
 const router = express.Router();
 router.use(auth);
 
-const dec = (v: Decimal.Value) => new Decimal(v ?? 0);
+const dec = (v: Decimal.Value | null | undefined) => new Decimal(v ?? 0);
+const ROUNDING_ACCOUNT_CODE = '59999';
+const MAX_ROUNDING_ADJUSTMENT = dec('0.10');
 const normalizeImportDescription = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
 const normalizeImportReference = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
@@ -510,6 +512,36 @@ router.post(
       const fund = await db('funds').where({ id: fundId, is_active: true }).first() as FundRow | undefined;
       if (!fund) errors.push(`Fund #${fundId} does not exist or is inactive`);
 
+      const taxRates = await db('tax_rates')
+        .where('is_active', true)
+        .select('id', 'name', 'rate', 'recoverable_account_id') as Array<{
+          id: number;
+          name: string;
+          rate: string | number;
+          recoverable_account_id: number | null;
+        }>;
+      const taxRateMap = new Map(taxRates.map((taxRate) => [taxRate.id, taxRate]));
+
+      type PreparedSplit = {
+        amount: Decimal;
+        amount_fixed: string;
+        fund_id: number;
+        contact_id: number | null;
+        memo: string | null;
+        offset_account_id?: number;
+        expense_account_id?: number;
+        tax_rate_id?: number | null;
+        tax_rate_name?: string | null;
+        recoverable_account_id?: number | null;
+        pre_tax_amount?: Decimal;
+        pre_tax_amount_fixed?: string;
+        rounding_adjustment?: Decimal;
+        rounding_adjustment_fixed?: string;
+        tax_amount?: Decimal;
+        tax_amount_fixed?: string;
+        description?: string | null;
+      };
+
       type PreparedImportRow = {
         row_index: number;
         date: string;
@@ -520,7 +552,10 @@ router.post(
         amount_fixed: string;
         type: 'withdrawal' | 'deposit';
         offset_account_id: number;
+        payee_id: number | null;
+        contact_id: number | null;
         bill_id?: number;
+        splits?: PreparedSplit[];
       };
 
       const preparedRows: PreparedImportRow[] = [];
@@ -528,11 +563,26 @@ router.post(
       const offsetAccountRows = new Map<number, number[]>();
       const billIds = new Set<number>();
       const billRows = new Map<number, number[]>();
+      const splitFundIds = new Set<number>();
+      const splitFundRowLabels = new Map<number, string[]>();
+      const splitContactIds = new Set<number>();
+      const splitContactRowLabels = new Map<number, string[]>();
+      const plainDepositContactIds = new Set<number>();
+      const plainDepositContactRowLabels = new Map<number, string[]>();
+      const payeeContactIds = new Set<number>();
+      const payeeRowLabels = new Map<number, string[]>();
+      const withdrawalExpenseAccountIds = new Set<number>();
+      const withdrawalExpenseAccountLabels = new Map<number, string[]>();
+      const recoverableAccountIds = new Set<number>();
+      const recoverableAccountLabels = new Map<number, string[]>();
+      let requiresRoundingAccount = false;
 
       (rows as ImportTransactionRow[]).forEach((row, idx) => {
         const rowNumber = idx + 1;
+        const rowErrors: string[] = [];
         if (!row) {
-          errors.push(`Row ${rowNumber}: row is required`);
+          rowErrors.push(`Row ${rowNumber}: row is required`);
+          errors.push(...rowErrors);
           return;
         }
 
@@ -540,40 +590,254 @@ router.post(
         const rowDescription = String(row.description || '').trim();
         const rowReferenceNo = normalizeImportReference(row.reference_no);
         const rowType = row.type;
+        const rowPayeeId = row.payee_id === undefined || row.payee_id === null ? null : Number(row.payee_id);
+        const rowContactId = row.contact_id === undefined || row.contact_id === null ? null : Number(row.contact_id);
         const offsetAccountId = Number(row.offset_account_id);
         const billId = row.bill_id === undefined || row.bill_id === null ? undefined : Number(row.bill_id);
+        const hasSplits = Array.isArray(row.splits) && row.splits.length > 0;
         let amount: Decimal;
 
         if (!parseDateOnlyStrict(rowDate)) {
-          errors.push(`Row ${rowNumber}: date must be a valid YYYY-MM-DD value`);
+          rowErrors.push(`Row ${rowNumber}: date must be a valid YYYY-MM-DD value`);
         }
 
         if (!rowDescription) {
-          errors.push(`Row ${rowNumber}: description is required`);
+          rowErrors.push(`Row ${rowNumber}: description is required`);
         }
 
         try {
-          amount = dec(row.amount);
+          amount = dec(row.amount).toDecimalPlaces(2);
         } catch {
-          errors.push(`Row ${rowNumber}: amount is invalid`);
+          rowErrors.push(`Row ${rowNumber}: amount is invalid`);
+          errors.push(...rowErrors);
           return;
         }
 
         if (amount.isZero() || amount.isNegative()) {
-          errors.push(`Row ${rowNumber}: amount must be greater than 0`);
+          rowErrors.push(`Row ${rowNumber}: amount must be greater than 0`);
         } else if (amount.decimalPlaces() > 2) {
-          errors.push(`Row ${rowNumber}: amount cannot have more than 2 decimal places`);
+          rowErrors.push(`Row ${rowNumber}: amount cannot have more than 2 decimal places`);
         }
 
         if (rowType !== 'withdrawal' && rowType !== 'deposit') {
-          errors.push(`Row ${rowNumber}: type must be 'withdrawal' or 'deposit'`);
+          rowErrors.push(`Row ${rowNumber}: type must be 'withdrawal' or 'deposit'`);
         }
 
-        if (!Number.isInteger(offsetAccountId) || offsetAccountId <= 0) {
-          errors.push(`Row ${rowNumber}: offset_account_id must be a positive integer`);
+        if (hasSplits && billId !== undefined) {
+          rowErrors.push(`Row ${rowNumber}: cannot include both bill_id and splits`);
+        }
+
+        let preparedSplits: PreparedSplit[] | undefined;
+
+        if (hasSplits) {
+          let splitTotal = dec(0);
+          preparedSplits = [];
+          let hasSplitValidationError = false;
+          const pushSplitError = (message: string) => {
+            hasSplitValidationError = true;
+            rowErrors.push(message);
+          };
+
+          if (rowType === 'withdrawal') {
+            const normalizedRowPayeeId = rowPayeeId === null ? NaN : Number(rowPayeeId);
+            if (!Number.isInteger(normalizedRowPayeeId) || normalizedRowPayeeId <= 0) {
+              rowErrors.push(`Row ${rowNumber}: payee_id is required for withdrawal split rows`);
+            } else {
+              payeeContactIds.add(normalizedRowPayeeId);
+              payeeRowLabels.set(
+                normalizedRowPayeeId,
+                [...(payeeRowLabels.get(normalizedRowPayeeId) || []), `Row ${rowNumber}`]
+              );
+            }
+          }
+
+          row.splits!.forEach((split, splitIdx) => {
+            const splitNumber = splitIdx + 1;
+            const label = `Row ${rowNumber}, split ${splitNumber}`;
+            const splitFundId = Number(split?.fund_id);
+
+            if (!Number.isInteger(splitFundId) || splitFundId <= 0) {
+              pushSplitError(`${label}: fund_id must be a positive integer`);
+            } else {
+              splitFundIds.add(splitFundId);
+              splitFundRowLabels.set(splitFundId, [...(splitFundRowLabels.get(splitFundId) || []), label]);
+            }
+
+            if (rowType === 'deposit') {
+              const splitAmountRaw = split?.amount;
+              const splitOffsetAccountId = Number(split?.offset_account_id);
+              const splitContactId = split?.contact_id === undefined || split?.contact_id === null ? null : Number(split.contact_id);
+
+              let splitAmount: Decimal | null = null;
+              try {
+                splitAmount = dec(splitAmountRaw).toDecimalPlaces(2);
+              } catch {
+                pushSplitError(`${label}: amount is invalid`);
+              }
+
+              if (splitAmount) {
+                if (splitAmount.isZero() || splitAmount.isNegative()) {
+                  pushSplitError(`${label}: amount must be greater than 0`);
+                } else if (splitAmount.decimalPlaces() > 2) {
+                  pushSplitError(`${label}: amount cannot have more than 2 decimal places`);
+                }
+              }
+
+              if (!Number.isInteger(splitOffsetAccountId) || splitOffsetAccountId <= 0) {
+                pushSplitError(`${label}: offset_account_id must be a positive integer`);
+              } else if (splitOffsetAccountId === bankAccountId) {
+                pushSplitError(`${label}: offset_account_id cannot be the same as bank_account_id`);
+              }
+
+              if (splitContactId !== null && (!Number.isInteger(splitContactId) || splitContactId <= 0)) {
+                pushSplitError(`${label}: contact_id must be a positive integer when provided`);
+              } else if (splitContactId) {
+                splitContactIds.add(splitContactId);
+                splitContactRowLabels.set(splitContactId, [...(splitContactRowLabels.get(splitContactId) || []), label]);
+              }
+
+              if (splitAmount && Number.isInteger(splitOffsetAccountId) && splitOffsetAccountId > 0 && Number.isInteger(splitFundId) && splitFundId > 0) {
+                splitTotal = splitTotal.plus(splitAmount).toDecimalPlaces(2);
+                offsetAccountIds.add(splitOffsetAccountId);
+                const existingRows = offsetAccountRows.get(splitOffsetAccountId) || [];
+                existingRows.push(rowNumber);
+                offsetAccountRows.set(splitOffsetAccountId, existingRows);
+
+                preparedSplits!.push({
+                  amount: splitAmount,
+                  amount_fixed: splitAmount.toFixed(2),
+                  offset_account_id: splitOffsetAccountId,
+                  fund_id: splitFundId,
+                  contact_id: splitContactId,
+                  memo: split?.memo ? String(split.memo).trim() || null : null,
+                });
+              }
+
+              return;
+            }
+
+            const splitExpenseAccountId = Number(split?.expense_account_id);
+            const splitTaxRateId = split?.tax_rate_id === undefined || split?.tax_rate_id === null ? null : Number(split.tax_rate_id);
+            let splitPreTax: Decimal | null = null;
+            let splitRounding: Decimal | null = null;
+            let splitAmount: Decimal | null = null;
+
+            try {
+              splitPreTax = dec(split?.pre_tax_amount).toDecimalPlaces(2);
+            } catch {
+              pushSplitError(`${label}: pre_tax_amount is invalid`);
+            }
+            try {
+              splitRounding = dec(split?.rounding_adjustment ?? 0).toDecimalPlaces(2);
+            } catch {
+              pushSplitError(`${label}: rounding_adjustment is invalid`);
+            }
+            try {
+              splitAmount = dec(split?.amount).toDecimalPlaces(2);
+            } catch {
+              pushSplitError(`${label}: amount is invalid`);
+            }
+
+            if (splitPreTax) {
+              if (splitPreTax.lte(0)) pushSplitError(`${label}: pre_tax_amount must be greater than 0`);
+              if (splitPreTax.decimalPlaces() > 2) pushSplitError(`${label}: pre_tax_amount cannot have more than 2 decimal places`);
+            }
+
+            if (splitRounding) {
+              if (splitRounding.decimalPlaces() > 2) pushSplitError(`${label}: rounding_adjustment cannot have more than 2 decimal places`);
+              if (splitRounding.abs().gt(MAX_ROUNDING_ADJUSTMENT)) {
+                pushSplitError(`${label}: rounding_adjustment cannot exceed ${MAX_ROUNDING_ADJUSTMENT.toFixed(2)} in absolute value`);
+              }
+              if (!splitRounding.isZero()) requiresRoundingAccount = true;
+            }
+
+            if (splitAmount) {
+              if (splitAmount.lte(0)) pushSplitError(`${label}: amount must be greater than 0`);
+              if (splitAmount.decimalPlaces() > 2) pushSplitError(`${label}: amount cannot have more than 2 decimal places`);
+            }
+
+            if (!Number.isInteger(splitExpenseAccountId) || splitExpenseAccountId <= 0) {
+              pushSplitError(`${label}: expense_account_id must be a positive integer`);
+            } else {
+              withdrawalExpenseAccountIds.add(splitExpenseAccountId);
+              withdrawalExpenseAccountLabels.set(
+                splitExpenseAccountId,
+                [...(withdrawalExpenseAccountLabels.get(splitExpenseAccountId) || []), label]
+              );
+            }
+
+            let taxAmount = dec(0);
+            let taxRateName: string | null = null;
+            let recoverableAccountId: number | null = null;
+
+            if (splitTaxRateId !== null) {
+              if (!Number.isInteger(splitTaxRateId) || splitTaxRateId <= 0) {
+                pushSplitError(`${label}: tax_rate_id must be a positive integer when provided`);
+              } else {
+                const taxRate = taxRateMap.get(splitTaxRateId);
+                if (!taxRate) {
+                  pushSplitError(`${label}: tax_rate_id #${splitTaxRateId} does not exist or is inactive`);
+                } else if (!taxRate.recoverable_account_id) {
+                  pushSplitError(`${label}: selected tax rate has no recoverable_account_id configured`);
+                } else if (splitPreTax) {
+                  // PostgreSQL numeric may arrive as string depending on driver; Decimal handles both.
+                  recoverableAccountId = Number(taxRate.recoverable_account_id);
+                  recoverableAccountIds.add(recoverableAccountId);
+                  recoverableAccountLabels.set(
+                    recoverableAccountId,
+                    [...(recoverableAccountLabels.get(recoverableAccountId) || []), label]
+                  );
+                  taxRateName = taxRate.name;
+                  taxAmount = splitPreTax.times(dec(taxRate.rate)).toDecimalPlaces(2);
+                }
+              }
+            }
+
+            if (
+              splitPreTax
+              && splitRounding
+              && splitAmount
+              && Number.isInteger(splitExpenseAccountId)
+              && splitExpenseAccountId > 0
+              && Number.isInteger(splitFundId)
+              && splitFundId > 0
+            ) {
+              const computedGross = splitPreTax.plus(taxAmount).plus(splitRounding).toDecimalPlaces(2);
+              if (!computedGross.equals(splitAmount)) {
+                pushSplitError(`${label}: amount ${splitAmount.toFixed(2)} must equal pre_tax + tax + rounding (${computedGross.toFixed(2)})`);
+                return;
+              }
+
+              splitTotal = splitTotal.plus(computedGross).toDecimalPlaces(2);
+              preparedSplits!.push({
+                amount: computedGross,
+                amount_fixed: computedGross.toFixed(2),
+                fund_id: splitFundId,
+                contact_id: rowPayeeId,
+                memo: null,
+                expense_account_id: splitExpenseAccountId,
+                tax_rate_id: splitTaxRateId,
+                tax_rate_name: taxRateName,
+                recoverable_account_id: recoverableAccountId,
+                pre_tax_amount: splitPreTax,
+                pre_tax_amount_fixed: splitPreTax.toFixed(2),
+                rounding_adjustment: splitRounding,
+                rounding_adjustment_fixed: splitRounding.toFixed(2),
+                tax_amount: taxAmount,
+                tax_amount_fixed: taxAmount.toFixed(2),
+                description: split?.description ? String(split.description).trim() || null : null,
+              });
+            }
+          });
+
+          if (!hasSplitValidationError && preparedSplits.length > 0 && !splitTotal.equals(amount)) {
+            rowErrors.push(`Row ${rowNumber}: split total ${splitTotal.toFixed(2)} does not equal row amount ${amount.toFixed(2)}`);
+          }
+        } else if (!Number.isInteger(offsetAccountId) || offsetAccountId <= 0) {
+          rowErrors.push(`Row ${rowNumber}: offset_account_id must be a positive integer`);
         } else {
           if (offsetAccountId === bankAccountId) {
-            errors.push(`Row ${rowNumber}: offset_account_id cannot be the same as bank_account_id`);
+            rowErrors.push(`Row ${rowNumber}: offset_account_id cannot be the same as bank_account_id`);
           }
           offsetAccountIds.add(offsetAccountId);
           const existingRows = offsetAccountRows.get(offsetAccountId) || [];
@@ -583,7 +847,7 @@ router.post(
 
         if (billId !== undefined) {
           if (!Number.isInteger(billId) || billId <= 0) {
-            errors.push(`Row ${rowNumber}: bill_id must be a positive integer`);
+            rowErrors.push(`Row ${rowNumber}: bill_id must be a positive integer`);
           } else {
             billIds.add(billId);
             const existingRows = billRows.get(billId) || [];
@@ -592,7 +856,34 @@ router.post(
           }
         }
 
-        if (errors.length > 0) return;
+        if (rowType === 'deposit' && !hasSplits && billId === undefined && rowContactId !== null) {
+          if (!Number.isInteger(rowContactId) || rowContactId <= 0) {
+            rowErrors.push(`Row ${rowNumber}: contact_id must be a positive integer when provided`);
+          } else {
+            plainDepositContactIds.add(rowContactId);
+            plainDepositContactRowLabels.set(
+              rowContactId,
+              [...(plainDepositContactRowLabels.get(rowContactId) || []), `Row ${rowNumber}`]
+            );
+          }
+        }
+
+        if (rowType === 'withdrawal' && !hasSplits && billId === undefined && rowPayeeId !== null) {
+          if (!Number.isInteger(rowPayeeId) || rowPayeeId <= 0) {
+            rowErrors.push(`Row ${rowNumber}: payee_id must be a positive integer when provided`);
+          } else {
+            payeeContactIds.add(rowPayeeId);
+            payeeRowLabels.set(
+              rowPayeeId,
+              [...(payeeRowLabels.get(rowPayeeId) || []), `Row ${rowNumber}`]
+            );
+          }
+        }
+
+        if (rowErrors.length > 0) {
+          errors.push(...rowErrors);
+          return;
+        }
 
         preparedRows.push({
           row_index: rowNumber,
@@ -603,8 +894,11 @@ router.post(
           amount,
           amount_fixed: amount.toFixed(2),
           type: rowType,
-          offset_account_id: offsetAccountId,
+          offset_account_id: hasSplits ? 0 : offsetAccountId,
+          payee_id: rowPayeeId,
+          contact_id: rowType === 'deposit' && !hasSplits && billId === undefined ? rowContactId : null,
           bill_id: billId,
+          splits: preparedSplits,
         });
       });
 
@@ -619,6 +913,80 @@ router.post(
               errors.push(`Row ${rowNumber}: offset account #${id} does not exist or is inactive`);
             });
           }
+        }
+      }
+
+      if (splitFundIds.size > 0) {
+        const splitFunds = await db('funds')
+          .whereIn('id', [...splitFundIds])
+          .where('is_active', true)
+          .select('id') as { id: number }[];
+        const foundIds = new Set(splitFunds.map((splitFund) => splitFund.id));
+        for (const [id, labels] of splitFundRowLabels.entries()) {
+          if (!foundIds.has(id)) {
+            labels.forEach((label) => errors.push(`${label}: fund #${id} does not exist or is inactive`));
+          }
+        }
+      }
+
+      const allContactIds = new Set([...splitContactIds, ...payeeContactIds, ...plainDepositContactIds]);
+      if (allContactIds.size > 0) {
+        const contacts = await db('contacts')
+          .whereIn('id', [...allContactIds])
+          .where('is_active', true)
+          .select('id') as { id: number }[];
+        const foundIds = new Set(contacts.map((contact) => contact.id));
+
+        for (const [id, labels] of splitContactRowLabels.entries()) {
+          if (!foundIds.has(id)) labels.forEach((label) => errors.push(`${label}: contact #${id} does not exist or is inactive`));
+        }
+        for (const [id, labels] of payeeRowLabels.entries()) {
+          if (!foundIds.has(id)) labels.forEach((label) => errors.push(`${label}: payee contact #${id} does not exist or is inactive`));
+        }
+        for (const [id, labels] of plainDepositContactRowLabels.entries()) {
+          if (!foundIds.has(id)) labels.forEach((label) => errors.push(`${label}: contact #${id} does not exist or is inactive`));
+        }
+      }
+
+      if (withdrawalExpenseAccountIds.size > 0) {
+        const expenseAccounts = await db('accounts')
+          .whereIn('id', [...withdrawalExpenseAccountIds])
+          .where('is_active', true)
+          .select('id', 'type') as Array<{ id: number; type: string }>;
+        const expenseAccountMap = new Map(expenseAccounts.map((account) => [account.id, account]));
+
+        for (const [id, labels] of withdrawalExpenseAccountLabels.entries()) {
+          const account = expenseAccountMap.get(id);
+          if (!account) {
+            labels.forEach((label) => errors.push(`${label}: expense account #${id} does not exist or is inactive`));
+            continue;
+          }
+          if (account.type !== 'EXPENSE') {
+            labels.forEach((label) => errors.push(`${label}: expense account #${id} must be type EXPENSE`));
+          }
+        }
+      }
+
+      if (recoverableAccountIds.size > 0) {
+        const recoverableAccounts = await db('accounts')
+          .whereIn('id', [...recoverableAccountIds])
+          .where('is_active', true)
+          .select('id') as { id: number }[];
+        const foundRecoverableIds = new Set(recoverableAccounts.map((account) => account.id));
+        for (const [id, labels] of recoverableAccountLabels.entries()) {
+          if (!foundRecoverableIds.has(id)) {
+            labels.forEach((label) => errors.push(`${label}: recoverable account #${id} does not exist or is inactive`));
+          }
+        }
+      }
+
+      let roundingAccount: AccountRow | undefined;
+      if (requiresRoundingAccount) {
+        roundingAccount = await db('accounts')
+          .where({ code: ROUNDING_ACCOUNT_CODE, is_active: true })
+          .first() as AccountRow | undefined;
+        if (!roundingAccount) {
+          errors.push(`Rounding account ${ROUNDING_ACCOUNT_CODE} is missing or inactive`);
         }
       }
 
@@ -803,59 +1171,101 @@ router.post(
           const allEntries = plainRows.flatMap((row, idx) => {
             const transactionId = transactionIds[idx];
             const amountFixed = row.amount.toFixed(2);
-            const bankEntry = row.type === 'deposit'
-              ? {
-                transaction_id: transactionId,
-                account_id: bankAccountId,
-                fund_id: fundId,
-                contact_id: null,
-                debit: amountFixed,
-                credit: '0.00',
-                memo: null,
-                is_reconciled: false,
-                created_at: trx.fn.now(),
-                updated_at: trx.fn.now(),
-              }
-              : {
-                transaction_id: transactionId,
-                account_id: bankAccountId,
-                fund_id: fundId,
-                contact_id: null,
-                debit: '0.00',
-                credit: amountFixed,
-                memo: null,
-                is_reconciled: false,
-                created_at: trx.fn.now(),
-                updated_at: trx.fn.now(),
-              };
+            const withdrawalPayeeId = row.type === 'withdrawal' ? row.payee_id : null;
+            if (row.type === 'withdrawal' && !withdrawalPayeeId) {
+              throw new Error(`Missing payee for withdrawal split row ${row.row_index}`);
+            }
+            const bankEntry = {
+              transaction_id: transactionId,
+              account_id: bankAccountId,
+              fund_id: fundId,
+              contact_id: null,
+              debit: row.type === 'deposit' ? amountFixed : '0.00',
+              credit: row.type === 'deposit' ? '0.00' : amountFixed,
+              memo: null,
+              is_reconciled: false,
+              created_at: trx.fn.now(),
+              updated_at: trx.fn.now(),
+            };
 
-            const offsetEntry = row.type === 'deposit'
-              ? {
+            const offsetEntries = row.splits?.length
+              ? row.type === 'deposit'
+                ? row.splits.map((split) => ({
+                  transaction_id: transactionId,
+                  account_id: split.offset_account_id,
+                  fund_id: split.fund_id,
+                  contact_id: split.contact_id,
+                  debit: '0.00',
+                  credit: split.amount_fixed,
+                  memo: split.memo,
+                  is_reconciled: false,
+                  created_at: trx.fn.now(),
+                  updated_at: trx.fn.now(),
+                }))
+                : row.splits.flatMap((split) => {
+                  const entries = [];
+
+                  entries.push({
+                    transaction_id: transactionId,
+                    account_id: Number(split.expense_account_id),
+                    fund_id: split.fund_id,
+                    contact_id: withdrawalPayeeId,
+                    debit: split.pre_tax_amount_fixed || '0.00',
+                    credit: '0.00',
+                    memo: split.description || row.description,
+                    is_reconciled: false,
+                    created_at: trx.fn.now(),
+                    updated_at: trx.fn.now(),
+                  });
+
+                  if (split.tax_amount && split.tax_amount.gt(0) && split.recoverable_account_id) {
+                    entries.push({
+                      transaction_id: transactionId,
+                      account_id: Number(split.recoverable_account_id),
+                      fund_id: split.fund_id,
+                      contact_id: withdrawalPayeeId,
+                      debit: split.tax_amount_fixed || '0.00',
+                      credit: '0.00',
+                      memo: `${split.tax_rate_name || 'Tax'} on ${split.description || row.description}`,
+                      is_reconciled: false,
+                      created_at: trx.fn.now(),
+                      updated_at: trx.fn.now(),
+                    });
+                  }
+
+                  if (split.rounding_adjustment && !split.rounding_adjustment.isZero() && roundingAccount) {
+                    entries.push({
+                      transaction_id: transactionId,
+                      account_id: roundingAccount.id,
+                      fund_id: split.fund_id,
+                      contact_id: withdrawalPayeeId,
+                      debit: split.rounding_adjustment.gt(0) ? split.rounding_adjustment_fixed || '0.00' : '0.00',
+                      credit: split.rounding_adjustment.lt(0) ? split.rounding_adjustment.abs().toFixed(2) : '0.00',
+                      memo: split.description
+                        ? `Rounding adjustment - ${split.description}`
+                        : 'Rounding adjustment',
+                      is_reconciled: false,
+                      created_at: trx.fn.now(),
+                      updated_at: trx.fn.now(),
+                    });
+                  }
+
+                  return entries;
+                })
+              : [{
                 transaction_id: transactionId,
                 account_id: row.offset_account_id,
                 fund_id: fundId,
-                contact_id: null,
-                debit: '0.00',
-                credit: amountFixed,
+                contact_id: row.type === 'deposit' ? row.contact_id : withdrawalPayeeId,
+                debit: row.type === 'deposit' ? '0.00' : amountFixed,
+                credit: row.type === 'deposit' ? amountFixed : '0.00',
                 memo: null,
                 is_reconciled: false,
                 created_at: trx.fn.now(),
                 updated_at: trx.fn.now(),
-              }
-              : {
-                transaction_id: transactionId,
-                account_id: row.offset_account_id,
-                fund_id: fundId,
-                contact_id: null,
-                debit: amountFixed,
-                credit: '0.00',
-                memo: null,
-                is_reconciled: false,
-                created_at: trx.fn.now(),
-                updated_at: trx.fn.now(),
-              };
+              }];
 
-            return [bankEntry, offsetEntry];
+            return [bankEntry, ...offsetEntries];
           });
 
           await trx('journal_entries').insert(allEntries);
