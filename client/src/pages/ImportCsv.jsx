@@ -44,6 +44,7 @@ const SR_ONLY_STYLE = {
   whiteSpace: 'nowrap',
   border: 0,
 };
+const normalize = (s) => String(s ?? '').trim().toLowerCase();
 const dec = (value) => {
   try {
     return new Decimal(value || 0);
@@ -889,8 +890,25 @@ export default function ImportCsv() {
     setMatchLoadError('');
     try {
       const result = await parseStatementCsv(file);
+      const donorByName = new Map();
+      for (const contact of donorContacts) {
+        if (!contact.is_active) continue;
+        const key = normalize(contact.name);
+        donorByName.set(key, donorByName.has(key) ? null : contact.id);
+      }
+
+      const AUTODEPOSIT_DESC = 'e-transfer - autodeposit';
       const nextOffsetId = defaultOffsetAccountId ? Number(defaultOffsetAccountId) : 0;
-      setParsedRows(result.rows.map((row) => ({ ...row, offset_account_id: nextOffsetId })));
+      const mappedRows = result.rows.map((row, i) => {
+        const base = { ...row, offset_account_id: nextOffsetId };
+        if (row.type !== 'deposit') return base;
+        const metadata = result.metadata?.[i];
+        if (normalize(metadata?.description_1) !== AUTODEPOSIT_DESC) return base;
+        const matchedId = donorByName.get(normalize(metadata?.sender));
+        if (matchedId) base.contact_id = matchedId;
+        return base;
+      });
+      setParsedRows(mappedRows);
       setParseWarnings(result.warnings);
     } catch (err) {
       setParsedRows([]);
