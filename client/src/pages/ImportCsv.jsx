@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect, useCallback, memo } from 'react';
+import Decimal from 'decimal.js';
 import { useNavigate } from 'react-router-dom';
 import { useImportTransactions, useGetBillMatches } from '../api/useTransactions';
 import { useAccounts } from '../api/useAccounts';
 import { useFunds } from '../api/useFunds';
 import { useContacts } from '../api/useContacts';
+import { useTaxRates } from '../api/useTaxRates';
 import { useToast } from '../components/ui/Toast';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -14,7 +16,14 @@ import { parseStatementCsv } from '../utils/parseStatementCsv';
 import { formatDateOnlyForDisplay } from '../utils/date';
 
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
-const toCents = (n) => Math.round((Number(n) || 0) * 100);
+const MAX_ROUNDING_ADJUSTMENT = new Decimal('0.10');
+const dec = (value) => {
+  try {
+    return new Decimal(value || 0);
+  } catch {
+    return new Decimal(0);
+  }
+};
 
 function SplitModal({
   isOpen,
@@ -24,21 +33,83 @@ function SplitModal({
   defaultFundId,
   offsetAccountOptions,
   fundOptions,
+  expenseAccountOptions,
+  activeExpenseAccountIds,
 }) {
   const [lines, setLines] = useState([]);
+  const [payeeId, setPayeeId] = useState('');
   const [attempted, setAttempted] = useState(false);
-  const { data: contacts = [] } = useContacts({ type: 'DONOR' });
+  const { data: donorContacts = [] } = useContacts({ type: 'DONOR' });
+  const { data: payeeContacts = [] } = useContacts({ type: 'PAYEE' });
+  const { data: taxRates = [] } = useTaxRates({ activeOnly: true });
+  const isWithdrawal = row?.type === 'withdrawal';
 
   const donorOptions = useMemo(() => [
     { value: '', label: 'None' },
-    ...contacts.map((contact) => ({
+    ...donorContacts
+      .filter((contact) => contact.is_active)
+      .map((contact) => ({
       value: contact.id,
       label: contact.donor_id ? `${contact.donor_id} — ${contact.name}` : contact.name,
+      })),
+  ], [donorContacts]);
+
+  const payeeOptions = useMemo(() => (
+    payeeContacts
+      .filter((contact) => contact.is_active)
+      .map((contact) => ({ value: contact.id, label: contact.name }))
+  ), [payeeContacts]);
+
+  const taxRateOptions = useMemo(() => ([
+    { value: '', label: 'Exempt' },
+    ...taxRates.map((taxRate) => ({
+      value: String(taxRate.id),
+      label: `${taxRate.name} (${(taxRate.rate * 100).toFixed(2)}%)`,
     })),
-  ], [contacts]);
+  ]), [taxRates]);
+
+  const taxRateMap = useMemo(
+    () => Object.fromEntries(taxRates.map((taxRate) => [String(taxRate.id), taxRate])),
+    [taxRates]
+  );
 
   useEffect(() => {
     if (!isOpen) return;
+
+    if (isWithdrawal) {
+      let nextPayee = row?.payee_id ? String(row.payee_id) : '';
+      if (row?.splits?.length > 0) {
+        setLines(row.splits.map((split) => {
+          const isLegacyMapped = split.expense_account_id === undefined && split.offset_account_id !== undefined;
+          if (!nextPayee && split.contact_id) nextPayee = String(split.contact_id);
+          return {
+            amount: String(split.amount ?? ''),
+            expense_account_id: split.expense_account_id ?? split.offset_account_id ?? '',
+            tax_rate_id: split.tax_rate_id ? String(split.tax_rate_id) : '',
+            pre_tax_amount: String(split.pre_tax_amount ?? split.amount ?? ''),
+            rounding_adjustment: String(split.rounding_adjustment ?? ''),
+            description: split.description ?? split.memo ?? row?.description ?? '',
+            fund_id: split.fund_id || defaultFundId || '',
+            is_legacy_mapped: isLegacyMapped,
+          };
+        }));
+      } else {
+        setLines([{
+          amount: '',
+          expense_account_id: '',
+          tax_rate_id: '',
+          pre_tax_amount: '',
+          rounding_adjustment: '',
+          description: row?.description || '',
+          fund_id: defaultFundId || '',
+          is_legacy_mapped: false,
+        }]);
+      }
+      setPayeeId(nextPayee);
+      setAttempted(false);
+      return;
+    }
+
     if (row?.splits?.length > 0) {
       setLines(row.splits.map((split) => ({
         amount: String(split.amount),
@@ -56,14 +127,26 @@ function SplitModal({
         memo: row?.description || '',
       }]);
     }
+    setPayeeId('');
     setAttempted(false);
-  }, [isOpen, row, defaultFundId]);
+  }, [isOpen, row, defaultFundId, isWithdrawal]);
 
   if (!isOpen || !row) return null;
 
-  const assignedCents = lines.reduce((sum, line) => sum + toCents(parseFloat(line.amount) || 0), 0);
-  const remainingCents = toCents(row.amount) - assignedCents;
-  const hasValidLines = lines.length > 0 && lines.every((line) => {
+  const rowAmount = dec(row.amount).toDecimalPlaces(2);
+  const withdrawalLineTotals = lines.map((line) => {
+    const preTax = dec(line.pre_tax_amount).toDecimalPlaces(2);
+    const rounding = dec(line.rounding_adjustment || 0).toDecimalPlaces(2);
+    const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null;
+    const tax = taxRate ? preTax.times(dec(taxRate.rate)).toDecimalPlaces(2) : dec(0);
+    const gross = preTax.plus(tax).plus(rounding).toDecimalPlaces(2);
+    return { preTax, rounding, tax, gross, taxRate };
+  });
+  const assignedAmount = lines.reduce((sum, line, idx) => (
+    sum.plus(isWithdrawal ? withdrawalLineTotals[idx].gross : dec(line.amount).toDecimalPlaces(2))
+  ), dec(0)).toDecimalPlaces(2);
+  const remainingAmount = rowAmount.minus(assignedAmount).toDecimalPlaces(2);
+  const hasValidDepositLines = lines.length > 0 && lines.every((line) => {
     const amount = Number(line.amount);
     return Number.isFinite(amount)
       && amount > 0
@@ -72,11 +155,38 @@ function SplitModal({
       && Number.isInteger(Number(line.fund_id))
       && Number(line.fund_id) > 0;
   });
-  const isBalanced = remainingCents === 0 && hasValidLines;
+  const hasValidWithdrawalLines = lines.length > 0 && lines.every((line, idx) => {
+    const totals = withdrawalLineTotals[idx];
+    if (!Number.isInteger(Number(line.expense_account_id)) || Number(line.expense_account_id) <= 0) return false;
+    if (!Number.isInteger(Number(line.fund_id)) || Number(line.fund_id) <= 0) return false;
+    if (!line.pre_tax_amount || totals.preTax.lte(0)) return false;
+    if (totals.preTax.decimalPlaces() > 2) return false;
+    if (totals.rounding.decimalPlaces() > 2) return false;
+    if (totals.rounding.abs().gt(MAX_ROUNDING_ADJUSTMENT)) return false;
+    if (line.tax_rate_id && !totals.taxRate) return false;
+    if (totals.taxRate && !totals.taxRate.recoverable_account_id) return false;
+    return true;
+  });
+  const hasValidPayee = Number.isInteger(Number(payeeId)) && Number(payeeId) > 0;
+  const isBalanced = isWithdrawal
+    ? hasValidPayee && hasValidWithdrawalLines && assignedAmount.equals(rowAmount)
+    : hasValidDepositLines && assignedAmount.equals(rowAmount);
   const showDonor = row.type === 'deposit';
   const splitGridTemplateColumns = showDonor
     ? '150px 2fr 150px 160px 1fr auto'
     : '150px 2fr 150px 1fr auto';
+  const withdrawalGridTemplateColumns = 'minmax(190px, 1.35fr) minmax(140px, 0.95fr) 110px 110px minmax(180px, 1.1fr) 110px 120px 46px';
+
+  const legacyWarnings = isWithdrawal
+    ? lines
+      .map((line, idx) => ({ line, idx }))
+      .filter(({ line }) => (
+        line.is_legacy_mapped
+        && Number(line.expense_account_id) > 0
+        && !activeExpenseAccountIds.includes(Number(line.expense_account_id))
+      ))
+      .map(({ idx }) => idx + 1)
+    : [];
 
   const updateLine = (index, patch) => {
     setLines((prev) => {
@@ -87,6 +197,20 @@ function SplitModal({
   };
 
   const onAddLine = () => {
+    if (isWithdrawal) {
+      setLines((prev) => [...prev, {
+        amount: '',
+        expense_account_id: '',
+        tax_rate_id: '',
+        pre_tax_amount: '',
+        rounding_adjustment: '',
+        description: row.description || '',
+        fund_id: defaultFundId || '',
+        is_legacy_mapped: false,
+      }]);
+      return;
+    }
+
     setLines((prev) => [...prev, {
       amount: '',
       offset_account_id: '',
@@ -101,9 +225,9 @@ function SplitModal({
   };
 
   const onFillAmount = (index) => {
-    const currentAmountCents = toCents(parseFloat(lines[index]?.amount) || 0);
-    const nextAmountCents = remainingCents + currentAmountCents;
-    updateLine(index, { amount: (nextAmountCents / 100).toFixed(2) });
+    const currentAmount = dec(lines[index]?.amount).toDecimalPlaces(2);
+    const nextAmount = remainingAmount.plus(currentAmount).toDecimalPlaces(2);
+    updateLine(index, { amount: nextAmount.toFixed(2) });
   };
 
   const onSaveClick = () => {
@@ -111,6 +235,23 @@ function SplitModal({
       setAttempted(true);
       return;
     }
+
+    if (isWithdrawal) {
+      onSave({
+        payee_id: Number(payeeId),
+        splits: lines.map((line, idx) => ({
+          amount: parseFloat(withdrawalLineTotals[idx].gross.toFixed(2)),
+          fund_id: Number(line.fund_id),
+          expense_account_id: Number(line.expense_account_id),
+          tax_rate_id: line.tax_rate_id ? Number(line.tax_rate_id) : null,
+          pre_tax_amount: parseFloat(withdrawalLineTotals[idx].preTax.toFixed(2)),
+          rounding_adjustment: parseFloat(withdrawalLineTotals[idx].rounding.toFixed(2)),
+          description: line.description ? line.description.trim() || null : null,
+        })),
+      });
+      return;
+    }
+
     onSave(lines.map((line) => ({
       amount: parseFloat(line.amount),
       offset_account_id: Number(line.offset_account_id),
@@ -129,88 +270,193 @@ function SplitModal({
           <span style={{ fontWeight: 600 }}>{fmt(row.amount)}</span>
         </div>
 
-        <div style={{ maxHeight: '40vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '0.25rem' }}>
-          <div
-            style={{
-              display: 'grid',
-              gap: '0.5rem',
-              gridTemplateColumns: splitGridTemplateColumns,
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              color: '#64748b',
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-              padding: '0 0.25rem',
-            }}
-          >
-            <span>Amount</span>
-            <span>Offset Account</span>
-            <span>Fund</span>
-            {showDonor && <span>Donor</span>}
-            <span>Memo</span>
-            <span>Action</span>
+        {isWithdrawal && (
+          <div style={{ maxWidth: '360px' }}>
+            <Combobox
+              label='Payee'
+              required
+              options={payeeOptions}
+              value={payeeId}
+              onChange={(value) => setPayeeId(String(value || ''))}
+              placeholder='Select payee...'
+            />
           </div>
-          {lines.map((line, idx) => (
-            <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: splitGridTemplateColumns }}>
-              <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                <Input
-                  value={line.amount}
-                  onChange={(e) => updateLine(idx, { amount: e.target.value })}
-                  placeholder='Amount'
-                />
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  onClick={() => onFillAmount(idx)}
-                  title='Fill remaining amount'
-                  disabled={remainingCents <= 0}
-                >
-                  ⚡
-                </Button>
-              </div>
-              <Combobox
-                options={offsetAccountOptions}
-                value={line.offset_account_id}
-                onChange={(value) => updateLine(idx, { offset_account_id: value })}
-                placeholder='Offset account…'
-              />
-              <Combobox
-                options={fundOptions}
-                value={line.fund_id}
-                onChange={(value) => updateLine(idx, { fund_id: value })}
-                placeholder='Fund…'
-              />
-              {showDonor && (
-                <Combobox
-                  options={donorOptions}
-                  value={line.contact_id}
-                  onChange={(value) => updateLine(idx, { contact_id: value })}
-                  placeholder='Donor…'
-                />
-              )}
-              <Input
-                value={line.memo}
-                onChange={(e) => updateLine(idx, { memo: e.target.value })}
-                placeholder='Memo (optional)'
-              />
-              <Button
-                variant='ghost'
-                size='sm'
-                onClick={() => onDeleteLine(idx)}
-                disabled={lines.length === 1}
+        )}
+
+        <div style={{ maxHeight: '40vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '0.25rem' }}>
+          {isWithdrawal ? (
+            <>
+              <div
+                style={{
+                  display: 'grid',
+                  gap: '0.5rem',
+                  gridTemplateColumns: withdrawalGridTemplateColumns,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#64748b',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.03em',
+                  padding: '0 0.25rem',
+                }}
               >
-                Delete
-              </Button>
-            </div>
-          ))}
+                <span>Expense Account</span>
+                <span>Tax Type</span>
+                <span style={{ textAlign: 'right' }}>Pre-tax</span>
+                <span style={{ textAlign: 'right' }}>Rounding</span>
+                <span>Description</span>
+                <span>Fund</span>
+                <span style={{ textAlign: 'right' }}>Gross</span>
+                <span />
+              </div>
+              {lines.map((line, idx) => (
+                <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: withdrawalGridTemplateColumns, alignItems: 'center' }}>
+                  <Combobox
+                    options={expenseAccountOptions}
+                    value={line.expense_account_id}
+                    onChange={(value) => updateLine(idx, { expense_account_id: value })}
+                    placeholder='Expense account…'
+                  />
+                  <Combobox
+                    options={taxRateOptions}
+                    value={line.tax_rate_id}
+                    onChange={(value) => updateLine(idx, { tax_rate_id: value })}
+                    placeholder='Tax type…'
+                  />
+                  <Input
+                    type='number'
+                    min='0'
+                    step='0.01'
+                    value={line.pre_tax_amount}
+                    onChange={(e) => updateLine(idx, { pre_tax_amount: e.target.value })}
+                    placeholder='0.00'
+                    style={{ textAlign: 'right' }}
+                  />
+                  <Input
+                    type='number'
+                    min={MAX_ROUNDING_ADJUSTMENT.times(-1).toFixed(2)}
+                    max={MAX_ROUNDING_ADJUSTMENT.toFixed(2)}
+                    step='0.01'
+                    value={line.rounding_adjustment}
+                    onChange={(e) => updateLine(idx, { rounding_adjustment: e.target.value })}
+                    placeholder='0.00'
+                    style={{ textAlign: 'right' }}
+                  />
+                  <Input
+                    value={line.description}
+                    onChange={(e) => updateLine(idx, { description: e.target.value })}
+                    placeholder='Line description'
+                  />
+                  <Combobox
+                    options={fundOptions}
+                    value={line.fund_id}
+                    onChange={(value) => updateLine(idx, { fund_id: value })}
+                    placeholder='Fund…'
+                  />
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b' }}>
+                    {fmt(withdrawalLineTotals[idx].gross.toFixed(2))}
+                  </div>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => onDeleteLine(idx)}
+                    disabled={lines.length === 1}
+                  >
+                    ×
+                  </Button>
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <div
+                style={{
+                  display: 'grid',
+                  gap: '0.5rem',
+                  gridTemplateColumns: splitGridTemplateColumns,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#64748b',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.03em',
+                  padding: '0 0.25rem',
+                }}
+              >
+                <span>Amount</span>
+                <span>Offset Account</span>
+                <span>Fund</span>
+                {showDonor && <span>Donor</span>}
+                <span>Memo</span>
+                <span>Action</span>
+              </div>
+              {lines.map((line, idx) => (
+                <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: splitGridTemplateColumns }}>
+                  <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                    <Input
+                      value={line.amount}
+                      onChange={(e) => updateLine(idx, { amount: e.target.value })}
+                      placeholder='Amount'
+                    />
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      onClick={() => onFillAmount(idx)}
+                      title='Fill remaining amount'
+                      disabled={remainingAmount.lte(0)}
+                    >
+                      ⚡
+                    </Button>
+                  </div>
+                  <Combobox
+                    options={offsetAccountOptions}
+                    value={line.offset_account_id}
+                    onChange={(value) => updateLine(idx, { offset_account_id: value })}
+                    placeholder='Offset account…'
+                  />
+                  <Combobox
+                    options={fundOptions}
+                    value={line.fund_id}
+                    onChange={(value) => updateLine(idx, { fund_id: value })}
+                    placeholder='Fund…'
+                  />
+                  {showDonor && (
+                    <Combobox
+                      options={donorOptions}
+                      value={line.contact_id}
+                      onChange={(value) => updateLine(idx, { contact_id: value })}
+                      placeholder='Donor…'
+                    />
+                  )}
+                  <Input
+                    value={line.memo}
+                    onChange={(e) => updateLine(idx, { memo: e.target.value })}
+                    placeholder='Memo (optional)'
+                  />
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => onDeleteLine(idx)}
+                    disabled={lines.length === 1}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              ))}
+            </>
+          )}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Button variant='secondary' size='sm' onClick={onAddLine}>Add Line</Button>
-          <div style={{ color: remainingCents === 0 ? '#166534' : '#b91c1c', fontSize: '0.82rem', fontWeight: 600 }}>
-            Remaining: {fmt(remainingCents / 100)}
+          <div style={{ color: remainingAmount.eq(0) ? '#166534' : '#b91c1c', fontSize: '0.82rem', fontWeight: 600 }}>
+            Remaining: {fmt(remainingAmount.toFixed(2))}
           </div>
         </div>
+
+        {legacyWarnings.length > 0 && (
+          <div style={{ color: '#b45309', fontSize: '0.8rem' }}>
+            Legacy split mapping detected on row {legacyWarnings.join(', ')}. Please select an active EXPENSE account.
+          </div>
+        )}
 
         {attempted && !isBalanced && (
           <div style={{ color: '#b91c1c', fontSize: '0.8rem' }}>
@@ -387,6 +633,18 @@ export default function ImportCsv() {
     [funds]
   );
 
+  const expenseAccountOptions = useMemo(
+    () => activeAccounts
+      .filter((a) => a.type === 'EXPENSE')
+      .map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+    [activeAccounts]
+  );
+
+  const activeExpenseAccountIds = useMemo(
+    () => activeAccounts.filter((a) => a.type === 'EXPENSE').map((a) => a.id),
+    [activeAccounts]
+  );
+
   useEffect(() => {
     if (bankAccountId !== '') return;
     if (bankAccountOptions.length === 0) return;
@@ -419,7 +677,7 @@ export default function ImportCsv() {
   const onBillLink = useCallback((index, billId) => {
     setParsedRows((prev) => {
       const next = [...prev]
-      next[index] = { ...next[index], bill_id: billId || undefined, splits: undefined }
+      next[index] = { ...next[index], bill_id: billId || undefined, splits: undefined, payee_id: undefined }
       return next
     })
   }, [])
@@ -433,6 +691,7 @@ export default function ImportCsv() {
           ...next[index],
           splits: undefined,
           offset_account_id: Number(next[index].offset_account_id) || fallbackOffsetId,
+          payee_id: undefined,
         }
         return next
       })
@@ -443,13 +702,16 @@ export default function ImportCsv() {
 
   const onSplitClose = useCallback(() => setSplitModalIndex(null), [])
 
-  const onSplitSave = useCallback((index, splits) => {
+  const onSplitSave = useCallback((index, payload) => {
     setParsedRows((prev) => {
       const next = [...prev]
+      const splitPayload = Array.isArray(payload) ? { splits: payload } : payload
+      const normalizedSplits = splitPayload.splits || []
       next[index] = {
         ...next[index],
-        splits: splits.length > 0 ? splits : undefined,
-        offset_account_id: splits.length > 0 ? undefined : Number(next[index].offset_account_id) || 0,
+        splits: normalizedSplits.length > 0 ? normalizedSplits : undefined,
+        payee_id: splitPayload.payee_id || undefined,
+        offset_account_id: normalizedSplits.length > 0 ? undefined : Number(next[index].offset_account_id) || 0,
         bill_id: undefined,
       }
       return next
@@ -555,10 +817,20 @@ export default function ImportCsv() {
       }
 
       if (row.splits?.length > 0) {
-        const splitTotalCents = row.splits.reduce((sum, split) => sum + toCents(split.amount), 0);
-        const remainingCents = toCents(row.amount) - splitTotalCents;
-        if (remainingCents !== 0) {
-          nextErrors.push(`Row ${rowNumber}: split amounts do not sum to row total (remaining: ${fmt(remainingCents / 100)})`);
+        const splitTotal = row.splits.reduce((sum, split) => (
+          sum.plus(dec(split.amount).toDecimalPlaces(2))
+        ), dec(0)).toDecimalPlaces(2);
+        const rowAmount = dec(row.amount).toDecimalPlaces(2);
+        const remaining = rowAmount.minus(splitTotal).toDecimalPlaces(2);
+        if (!splitTotal.equals(rowAmount)) {
+          nextErrors.push(`Row ${rowNumber}: split amounts do not sum to row total (remaining: ${fmt(remaining.toFixed(2))})`);
+        }
+
+        if (row.type === 'withdrawal') {
+          const normalizedPayeeId = Number(row.payee_id);
+          if (!Number.isInteger(normalizedPayeeId) || normalizedPayeeId <= 0) {
+            nextErrors.push(`Row ${rowNumber}: payee is required for withdrawal split rows`);
+          }
         }
       } else {
         const offsetAccountId = Number(row.offset_account_id);
@@ -587,14 +859,25 @@ export default function ImportCsv() {
           amount: row.amount,
           type: row.type,
           offset_account_id: row.splits?.length > 0 ? undefined : Number(row.offset_account_id),
+          payee_id: row.payee_id ? Number(row.payee_id) : undefined,
           bill_id: row.bill_id,
           splits: row.splits?.length > 0
             ? row.splits.map((split) => ({
               amount: split.amount,
-              offset_account_id: Number(split.offset_account_id),
               fund_id: Number(split.fund_id),
-              contact_id: split.contact_id ? Number(split.contact_id) : null,
-              memo: split.memo || null,
+              ...(row.type === 'withdrawal'
+                ? {
+                  expense_account_id: Number(split.expense_account_id),
+                  tax_rate_id: split.tax_rate_id ? Number(split.tax_rate_id) : null,
+                  pre_tax_amount: Number(split.pre_tax_amount),
+                  rounding_adjustment: Number(split.rounding_adjustment || 0),
+                  description: split.description || null,
+                }
+                : {
+                  offset_account_id: Number(split.offset_account_id),
+                  contact_id: split.contact_id ? Number(split.contact_id) : null,
+                  memo: split.memo || null,
+                }),
             }))
             : undefined,
         })),
@@ -700,11 +983,13 @@ export default function ImportCsv() {
                 <SplitModal
                   isOpen={true}
                   onClose={onSplitClose}
-                  onSave={(splits) => onSplitSave(splitModalIndex, splits)}
+                  onSave={(payload) => onSplitSave(splitModalIndex, payload)}
                   row={parsedRows[splitModalIndex]}
                   defaultFundId={Number(fundId)}
                   offsetAccountOptions={offsetAccountOptions}
                   fundOptions={fundOptions}
+                  expenseAccountOptions={expenseAccountOptions}
+                  activeExpenseAccountIds={activeExpenseAccountIds}
                 />
               )}
 
