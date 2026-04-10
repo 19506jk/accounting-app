@@ -118,7 +118,7 @@ function SplitModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title='Split Transaction' width='820px'>
+    <Modal isOpen={isOpen} onClose={onClose} title='Split Transaction' width='1050px'>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <div style={{ display: 'flex', gap: '1rem', color: '#475569', fontSize: '0.82rem' }}>
           <span>{formatDateOnlyForDisplay(row.date)}</span>
@@ -128,7 +128,7 @@ function SplitModal({
 
         <div style={{ maxHeight: '40vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '0.25rem' }}>
           {lines.map((line, idx) => (
-            <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: showDonor ? '170px 1fr 160px 180px 1fr auto' : '170px 1fr 160px 1fr auto' }}>
+            <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: showDonor ? '150px 2fr 150px 160px 1fr auto' : '150px 2fr 150px 1fr auto' }}>
               <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
                 <Input
                   value={line.amount}
