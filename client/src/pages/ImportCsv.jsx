@@ -74,6 +74,9 @@ function SplitModal({
   });
   const isBalanced = remainingCents === 0 && hasValidLines;
   const showDonor = row.type === 'deposit';
+  const splitGridTemplateColumns = showDonor
+    ? '150px 2fr 150px 160px 1fr auto'
+    : '150px 2fr 150px 1fr auto';
 
   const updateLine = (index, patch) => {
     setLines((prev) => {
@@ -120,15 +123,35 @@ function SplitModal({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title='Split Transaction' width='1050px'>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <div style={{ display: 'flex', gap: '1rem', color: '#475569', fontSize: '0.82rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', color: '#475569', fontSize: '0.95rem', marginBottom: '0.4rem' }}>
           <span>{formatDateOnlyForDisplay(row.date)}</span>
           <span>{row.description}</span>
           <span style={{ fontWeight: 600 }}>{fmt(row.amount)}</span>
         </div>
 
         <div style={{ maxHeight: '40vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '0.25rem' }}>
+          <div
+            style={{
+              display: 'grid',
+              gap: '0.5rem',
+              gridTemplateColumns: splitGridTemplateColumns,
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: '#64748b',
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              padding: '0 0.25rem',
+            }}
+          >
+            <span>Amount</span>
+            <span>Offset Account</span>
+            <span>Fund</span>
+            {showDonor && <span>Donor</span>}
+            <span>Memo</span>
+            <span>Action</span>
+          </div>
           {lines.map((line, idx) => (
-            <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: showDonor ? '150px 2fr 150px 160px 1fr auto' : '150px 2fr 150px 1fr auto' }}>
+            <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: splitGridTemplateColumns }}>
               <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
                 <Input
                   value={line.amount}
