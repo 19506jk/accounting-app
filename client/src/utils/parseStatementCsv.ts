@@ -5,6 +5,7 @@ import type { ImportTransactionRow } from '@shared/contracts'
 interface RowMetadata {
   description_1: string
   sender: string
+  from: string
 }
 
 interface ParseStatementCsvResult {
@@ -20,6 +21,7 @@ const WITHDRAWAL_ALIASES = ['Withdrawals', 'Debit', 'Amount Debit']
 const DEPOSIT_ALIASES = ['Deposits', 'Credit', 'Amount Credit']
 const REFERENCE_ALIASES = ['Interac Reference Number', 'Reference Number', 'Reference No']
 const SENDER_ALIASES = ['Sender', 'Sender Name']
+const FROM_ALIASES = ['From', 'FROM', 'From Email', 'Sender Email']
 
 function normalizeHeader(value: unknown) {
   return String(value ?? '').trim().toLowerCase()
@@ -97,6 +99,7 @@ export async function parseStatementCsv(file: File): Promise<ParseStatementCsvRe
   const depositCol = getColumnIndex(headerRow, DEPOSIT_ALIASES)
   const referenceCol = getColumnIndex(headerRow, REFERENCE_ALIASES)
   const senderCol = getColumnIndex(headerRow, SENDER_ALIASES)
+  const fromCol = getColumnIndex(headerRow, FROM_ALIASES)
 
   if (dateCol < 0) {
     throw new Error(`Required column '${DATE_ALIASES[0]}' not found`)
@@ -133,6 +136,7 @@ export async function parseStatementCsv(file: File): Promise<ParseStatementCsvRe
     const descriptionPart1 = desc1Col >= 0 ? String(row[desc1Col] ?? '').trim() : ''
     const descriptionPart2 = desc2Col >= 0 ? String(row[desc2Col] ?? '').trim() : ''
     const senderValue = senderCol >= 0 ? String(row[senderCol] ?? '').trim() : ''
+    const fromValue = fromCol >= 0 ? String(row[fromCol] ?? '').trim() : ''
     const description = [descriptionPart1, descriptionPart2].filter(Boolean).join(' — ') || 'Bank statement import'
     const reference = referenceCol >= 0 ? String(row[referenceCol] ?? '').trim() : ''
 
@@ -144,7 +148,7 @@ export async function parseStatementCsv(file: File): Promise<ParseStatementCsvRe
       type: withdrawalAmount > 0 ? 'withdrawal' : 'deposit',
       offset_account_id: 0,
     })
-    metadata.push({ description_1: descriptionPart1, sender: senderValue })
+    metadata.push({ description_1: descriptionPart1, sender: senderValue, from: fromValue })
   }
 
   return {

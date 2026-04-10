@@ -890,11 +890,45 @@ export default function ImportCsv() {
     setMatchLoadError('');
     try {
       const result = await parseStatementCsv(file);
+      const donorByEmail = new Map();
       const donorByName = new Map();
+      const householdEntries = [];
       for (const contact of donorContacts) {
         if (!contact.is_active) continue;
-        const key = normalize(contact.name);
-        donorByName.set(key, donorByName.has(key) ? null : contact.id);
+
+        if (contact.email) {
+          const emailKey = normalize(contact.email);
+          if (!donorByEmail.has(emailKey)) {
+            donorByEmail.set(emailKey, contact);
+          } else {
+            const existing = donorByEmail.get(emailKey);
+            if (!existing) {
+            } else if (contact.contact_class === 'HOUSEHOLD' && existing.contact_class !== 'HOUSEHOLD') {
+              donorByEmail.set(emailKey, contact);
+            } else if (contact.contact_class === existing.contact_class) {
+              donorByEmail.set(emailKey, null);
+            }
+          }
+        }
+
+        const nameKey = normalize(contact.name);
+        if (!donorByName.has(nameKey)) {
+          donorByName.set(nameKey, contact);
+        } else {
+          const existing = donorByName.get(nameKey);
+          if (!existing) {
+          } else if (contact.contact_class === 'HOUSEHOLD' && existing.contact_class !== 'HOUSEHOLD') {
+            donorByName.set(nameKey, contact);
+          } else if (contact.contact_class === existing.contact_class) {
+            donorByName.set(nameKey, null);
+          }
+        }
+      }
+
+      for (const [nameKey, contact] of donorByName) {
+        if (contact && contact.contact_class === 'HOUSEHOLD') {
+          householdEntries.push([nameKey, contact]);
+        }
       }
 
       const AUTODEPOSIT_DESC = 'e-transfer - autodeposit';
@@ -904,7 +938,45 @@ export default function ImportCsv() {
         if (row.type !== 'deposit') return base;
         const metadata = result.metadata?.[i];
         if (normalize(metadata?.description_1) !== AUTODEPOSIT_DESC) return base;
-        const matchedId = donorByName.get(normalize(metadata?.sender));
+
+        const fromEmail = normalize(metadata?.from);
+        const senderName = normalize(metadata?.sender);
+
+        let matchedId = null;
+
+        if (fromEmail) {
+          const emailMatch = donorByEmail.get(fromEmail);
+          if (emailMatch) matchedId = emailMatch.id;
+        }
+
+        if (!matchedId && senderName) {
+          const exactMatch = donorByName.get(senderName);
+
+          let householdPartialId = null;
+          let multipleHouseholdPartials = false;
+          for (const [nameKey, contact] of householdEntries) {
+            if (nameKey === senderName) continue;
+            if (nameKey && (senderName.includes(nameKey) || nameKey.includes(senderName))) {
+              if (householdPartialId !== null) {
+                multipleHouseholdPartials = true;
+                householdPartialId = null;
+                break;
+              }
+              householdPartialId = contact.id;
+            }
+          }
+
+          if (householdPartialId && !multipleHouseholdPartials) {
+            if (exactMatch && exactMatch.contact_class === 'HOUSEHOLD') {
+              matchedId = exactMatch.id;
+            } else {
+              matchedId = householdPartialId;
+            }
+          } else if (exactMatch) {
+            matchedId = exactMatch.id;
+          }
+        }
+
         if (matchedId) base.contact_id = matchedId;
         return base;
       });
