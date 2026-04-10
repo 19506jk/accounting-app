@@ -489,6 +489,7 @@ const PreviewRow = memo(function PreviewRow({
   donorOptions,
   payeeOptions,
   onOffsetChange,
+  onReferenceChange,
   onContactChange,
   suggestions,
   onBillLink,
@@ -504,6 +505,13 @@ const PreviewRow = memo(function PreviewRow({
       <td style={{ padding: '0.5rem', color: '#6b7280' }}>{index + 1}</td>
       <td style={{ padding: '0.5rem', whiteSpace: 'nowrap' }}>{formatDateOnlyForDisplay(row.date)}</td>
       <td style={{ padding: '0.5rem' }}>{row.description}</td>
+      <td style={{ padding: '0.5rem', minWidth: '170px' }}>
+        <Input
+          value={row.reference_no || ''}
+          onChange={(e) => onReferenceChange(index, e.target.value)}
+          placeholder='Reference no...'
+        />
+      </td>
       <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: 500 }}>{fmt(row.amount)}</td>
       <td style={{ padding: '0.5rem' }}>
         <span style={{
@@ -725,6 +733,14 @@ export default function ImportCsv() {
       } else {
         next[index] = { ...next[index], contact_id: contactId || undefined };
       }
+      return next;
+    });
+  }, []);
+
+  const onReferenceChange = useCallback((index, referenceNo) => {
+    setParsedRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], reference_no: referenceNo };
       return next;
     });
   }, []);
@@ -1064,6 +1080,7 @@ export default function ImportCsv() {
                       <th style={{ padding: '0.55rem' }}>#</th>
                       <th style={{ padding: '0.55rem' }}>Date</th>
                       <th style={{ padding: '0.55rem' }}>Description</th>
+                      <th style={{ padding: '0.55rem' }}>Reference No</th>
                       <th style={{ padding: '0.55rem', textAlign: 'right' }}>Amount</th>
                       <th style={{ padding: '0.55rem' }}>Type</th>
                       <th style={{ padding: '0.55rem' }}>Offset Account</th>
@@ -1082,6 +1099,7 @@ export default function ImportCsv() {
                         donorOptions={donorOptions}
                         payeeOptions={payeeOptions}
                         onOffsetChange={onOffsetChange}
+                        onReferenceChange={onReferenceChange}
                         onContactChange={onContactChange}
                         suggestions={suggestionsByRow[idx + 1] || []}
                         onBillLink={onBillLink}
