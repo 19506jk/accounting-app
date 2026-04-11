@@ -421,10 +421,28 @@ export default function Transactions() {
     }
   }
 
+  const TYPE_BADGE = {
+    deposit:    { label: 'Deposit',    bg: '#dcfce7', color: '#15803d' },
+    withdrawal: { label: 'Withdrawal', bg: '#fef2f2', color: '#b91c1c' },
+    transfer:   { label: 'Transfer',   bg: '#f1f5f9', color: '#475569' },
+  };
+
   const COLUMNS = [
     { key: 'date', label: 'Date',
       render: (r) => formatDateOnlyForDisplay(r.date) },
     { key: 'description', label: 'Description', wrap: true },
+    { key: 'transaction_type', label: 'Type',
+      render: (r) => {
+        const badge = TYPE_BADGE[r.transaction_type] || TYPE_BADGE.transfer;
+        return (
+          <span style={{ display: 'inline-block', padding: '0.15rem 0.5rem',
+            borderRadius: '999px', fontSize: '0.72rem', fontWeight: 600,
+            background: badge.bg, color: badge.color, whiteSpace: 'nowrap' }}>
+            {badge.label}
+          </span>
+        );
+      }
+    },
     { key: 'reference_no', label: 'Ref',
       render: (r) => r.reference_no || <span style={{ color: '#d1d5db' }}>—</span> },
     { key: 'total_amount', label: 'Amount', align: 'right',

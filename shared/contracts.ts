@@ -262,6 +262,7 @@ export interface TransactionListItem {
   created_at: string;
   created_by_name: string | null;
   total_amount: number;
+  transaction_type: 'deposit' | 'withdrawal' | 'transfer';
 }
 
 export interface TransactionEntryDetail {

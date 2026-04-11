@@ -266,6 +266,19 @@ router.get(
           'je_totals.transaction_id',
           't.id'
         )
+        .leftJoin(
+          db('journal_entries as je_type')
+            .join('accounts as a_type', 'a_type.id', 'je_type.account_id')
+            .select([
+              'je_type.transaction_id',
+              db.raw(`MAX(CASE WHEN a_type.type = 'INCOME' AND je_type.credit > 0 THEN 1 ELSE 0 END) AS has_income_credit`),
+              db.raw(`MAX(CASE WHEN a_type.type = 'EXPENSE' AND je_type.debit > 0 THEN 1 ELSE 0 END) AS has_expense_debit`),
+            ])
+            .groupBy('je_type.transaction_id')
+            .as('je_type_flags'),
+          'je_type_flags.transaction_id',
+          't.id'
+        )
         .select(
           't.id',
           't.date',
@@ -274,19 +287,27 @@ router.get(
           't.fund_id',
           't.created_at',
           'u.name as created_by_name',
-          db.raw('COALESCE(je_totals.total_amount, 0) AS total_amount')
+          db.raw('COALESCE(je_totals.total_amount, 0) AS total_amount'),
+          db.raw('COALESCE(je_type_flags.has_income_credit, 0) AS has_income_credit'),
+          db.raw('COALESCE(je_type_flags.has_expense_debit, 0) AS has_expense_debit')
         )
         .orderBy('t.date', 'desc')
         .orderBy('t.created_at', 'desc')
         .limit(cap)
-        .offset(off) as TransactionListRow[];
+        .offset(off) as (TransactionListRow & { has_income_credit: number; has_expense_debit: number })[];
 
-      const mapped: TransactionListItem[] = transactions.map((t) => ({
-        ...t,
-        date: normalizeDateOnly(t.date),
-        created_at: String(t.created_at),
-        total_amount: parseFloat(String(t.total_amount)),
-      }));
+      const mapped: TransactionListItem[] = transactions.map((t) => {
+        let transaction_type: TransactionListItem['transaction_type'] = 'transfer';
+        if (Number(t.has_income_credit) > 0) transaction_type = 'deposit';
+        else if (Number(t.has_expense_debit) > 0) transaction_type = 'withdrawal';
+        return {
+          ...t,
+          date: normalizeDateOnly(t.date),
+          created_at: String(t.created_at),
+          total_amount: parseFloat(String(t.total_amount)),
+          transaction_type,
+        };
+      });
 
       res.json({
         transactions: mapped,
