@@ -444,7 +444,6 @@ export default function Transactions() {
           Transactions
         </h1>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <Button variant="secondary" onClick={() => navigate('/transactions/import')}>Import CSV</Button>
           <Button onClick={() => setShowForm(true)}>+ New Transaction</Button>
         </div>
       </div>
