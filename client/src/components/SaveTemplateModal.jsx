@@ -4,7 +4,13 @@ import Button from './ui/Button'
 import Input from './ui/Input'
 import Modal from './ui/Modal'
 
-export default function SaveTemplateModal({ isOpen, onClose, onSave }) {
+export default function SaveTemplateModal({
+  isOpen,
+  onClose,
+  onSave,
+  title = 'Save Expense Template',
+  placeholder = 'e.g., Weekly Office Supplies',
+}) {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
 
@@ -25,7 +31,7 @@ export default function SaveTemplateModal({ isOpen, onClose, onSave }) {
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title='Save Expense Template' width='520px'>
+    <Modal isOpen={isOpen} onClose={onClose} title={title} width='520px'>
       <div style={{ display: 'grid', gap: '1rem' }}>
         <Input
           label='Template Name'
@@ -35,7 +41,7 @@ export default function SaveTemplateModal({ isOpen, onClose, onSave }) {
             setName(event.target.value)
             if (error) setError('')
           }}
-          placeholder='e.g., Weekly Office Supplies'
+          placeholder={placeholder}
           error={error || undefined}
           onKeyDown={(event) => {
             if (event.key === 'Enter') handleSave()

@@ -13,6 +13,7 @@ import Input from '../components/ui/Input'
 import Combobox from '../components/ui/Combobox'
 import ExpenseBreakdown from '../components/ExpenseBreakdown'
 import SaveTemplateModal from '../components/SaveTemplateModal'
+import TemplateDropdown from '../components/TemplateDropdown'
 import { getChurchToday } from '../utils/date'
 
 const dec = (value) => new Decimal(value || 0)
@@ -184,7 +185,6 @@ export default function ExpenseEntry() {
 
   function loadTemplate(template) {
     const knownPayee = payeeOptions.find((option) => String(option.value) === String(template.payee_id))
-    const activeAccountIds = new Set(expenseAccounts.map((option) => String(option.value)))
     const accountValueById = new Map(expenseAccounts.map((option) => [String(option.value), option.value]))
     const activeTaxRateIds = new Set(taxRateOptions.filter((option) => option.value !== '').map((option) => String(option.value)))
 
@@ -197,9 +197,7 @@ export default function ExpenseEntry() {
     setLines(
       template.rows.map((row) => ({
         ...createEmptyLine(`line-${lineIdRef.current++}`),
-        expense_account_id: activeAccountIds.has(String(row.expense_account_id))
-          ? accountValueById.get(String(row.expense_account_id)) || ''
-          : '',
+        expense_account_id: accountValueById.get(String(row.expense_account_id)) || '',
         description: row.description || '',
         tax_rate_id: activeTaxRateIds.has(String(row.tax_rate_id)) ? String(row.tax_rate_id) : '',
       }))
@@ -369,82 +367,21 @@ export default function ExpenseEntry() {
           <Button variant='secondary' size='sm' onClick={() => setSaveModalOpen(true)}>
             Save as Template
           </Button>
-          <div ref={dropdownRef} style={{ position: 'relative' }}>
-            <Button variant='secondary' size='sm' onClick={() => setTemplateDropdownOpen((value) => !value)}>
-              Load Template{templates.length > 0 ? ` (${templates.length})` : ''}
-            </Button>
-            {templateDropdownOpen && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
-                right: 0,
-                marginTop: '4px',
-                background: 'white',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.1)',
-                zIndex: 500,
-                minWidth: '240px',
-                maxHeight: '320px',
-                overflowY: 'auto',
-              }}>
-                {templates.length === 0 ? (
-                  <div style={{ padding: '1rem', fontSize: '0.85rem', color: '#6b7280' }}>
-                    No templates saved yet.
-                  </div>
-                ) : templates.map((template) => (
-                  <div key={template.id} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0.6rem 0.75rem',
-                    borderBottom: '1px solid #f3f4f6',
-                  }}>
-                    <button
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        flex: 1,
-                        fontSize: '0.85rem',
-                        color: '#1e293b',
-                        fontWeight: 500,
-                      }}
-                      onClick={() => loadTemplate(template)}
-                    >
-                      {template.name}
-                      <span style={{ display: 'block', fontSize: '0.75rem', color: '#6b7280', fontWeight: 400 }}>
-                        {template.rows.length} row{template.rows.length !== 1 ? 's' : ''}
-                      </span>
-                    </button>
-                    <button
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: '#dc2626',
-                        fontSize: '1.1rem',
-                        padding: '0.2rem 0.4rem',
-                        lineHeight: 1,
-                      }}
-                      onClick={() => {
-                        const errorMessage = deleteTemplate(template.id)
-                        if (errorMessage) {
-                          addToast(errorMessage, 'error')
-                          return
-                        }
-                        addToast('Template deleted.', 'success')
-                      }}
-                      title='Delete template'
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <TemplateDropdown
+            ref={dropdownRef}
+            templates={templates}
+            isOpen={templateDropdownOpen}
+            onToggle={() => setTemplateDropdownOpen((value) => !value)}
+            onLoad={loadTemplate}
+            onDelete={(id) => {
+              const errorMessage = deleteTemplate(id)
+              if (errorMessage) {
+                addToast(errorMessage, 'error')
+                return
+              }
+              addToast('Template deleted.', 'success')
+            }}
+          />
         </div>
       </div>
 

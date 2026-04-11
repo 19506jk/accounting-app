@@ -1,7 +1,8 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Decimal from 'decimal.js';
 import { useTransactions, useCreateTransaction, useUpdateTransaction, useDeleteTransaction } from '../api/useTransactions';
+import { useTransactionTemplates } from '../api/useTransactionTemplates';
 import { useAccounts }  from '../api/useAccounts';
 import { useFunds }     from '../api/useFunds';
 import { useContacts }  from '../api/useContacts';
@@ -13,6 +14,8 @@ import Input       from '../components/ui/Input';
 import Combobox    from '../components/ui/Combobox';
 import Select      from '../components/ui/Select';
 import SummaryBar  from '../components/ui/SummaryBar';
+import TemplateDropdown from '../components/TemplateDropdown';
+import SaveTemplateModal from '../components/SaveTemplateModal';
 import DateRangePicker from '../components/ui/DateRangePicker';
 import TransactionTable from '../components/ui/TransactionTable';
 import { currentMonthRange, getChurchToday, toDateOnly } from '../utils/date';
@@ -142,6 +145,10 @@ function TransactionForm({ onClose, onSaved }) {
   const [form, setForm] = useState({ date: today, description: '', reference_no: '' });
   const [entries, setEntries] = useState([{ ...EMPTY_ENTRY }, { ...EMPTY_ENTRY }]);
   const [errors, setErrors] = useState([]);
+  const { templates, saveTemplate, deleteTemplate } = useTransactionTemplates();
+  const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
   const accountOptions = (accounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
   const fundOptions    = (funds    || []).filter((f) => f.is_active).map((f) => ({ value: f.id, label: f.name }));
@@ -161,6 +168,19 @@ function TransactionForm({ onClose, onSaved }) {
     });
   }, [defaultFundId]);
 
+  useEffect(() => {
+    if (!templateDropdownOpen) return;
+
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setTemplateDropdownOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [templateDropdownOpen]);
+
   const fundStatuses = useMemo(() => {
     const totals = {};
     entries.forEach((e) => {
@@ -179,6 +199,26 @@ function TransactionForm({ onClose, onSaved }) {
   const totalDebit  = parseFloat(entries.reduce((s, e) => s.plus(dec(e.debit)),  dec(0)).toFixed(2));
   const totalCredit = parseFloat(entries.reduce((s, e) => s.plus(dec(e.credit)), dec(0)).toFixed(2));
   const allBalanced = fundStatuses.every((f) => f.balanced) && Math.abs(totalDebit - totalCredit) < 0.001 && totalDebit > 0;
+
+  function loadTemplate(template) {
+    const accountValueById = new Map(accountOptions.map((option) => [String(option.value), option.value]));
+    const fundValueById = new Map(fundOptions.map((option) => [String(option.value), option.value]));
+    const contactValueById = new Map(contactOptions.map((option) => [String(option.value), option.value]));
+
+    setForm((prev) => ({ ...prev, description: template.description || '' }));
+    setEntries(
+      template.rows.map((row) => ({
+        account_id: accountValueById.get(String(row.account_id)) || '',
+        fund_id: fundValueById.get(String(row.fund_id)) || (defaultFundId || ''),
+        contact_id: contactValueById.get(String(row.contact_id)) || '',
+        memo: row.memo || '',
+        debit: '',
+        credit: '',
+      }))
+    );
+    setTemplateDropdownOpen(false);
+    addToast(`Template "${template.name}" loaded.`, 'success');
+  }
 
   async function handleSubmit() {
     setErrors([]);
@@ -210,6 +250,26 @@ function TransactionForm({ onClose, onSaved }) {
   return (
     <div className="tx-modal-layout">
       <div className="tx-form-main">
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'flex-end' }}>
+          <Button variant="secondary" size="sm" onClick={() => setSaveModalOpen(true)}>
+            Save as Template
+          </Button>
+          <TemplateDropdown
+            ref={dropdownRef}
+            templates={templates}
+            isOpen={templateDropdownOpen}
+            onToggle={() => setTemplateDropdownOpen((value) => !value)}
+            onLoad={loadTemplate}
+            onDelete={(id) => {
+              const errorMessage = deleteTemplate(id);
+              if (errorMessage) {
+                addToast(errorMessage, 'error');
+                return;
+              }
+              addToast('Template deleted.', 'success');
+            }}
+          />
+        </div>
         <div className="tx-top-fields">
           <Input label="Date" required type="date" value={form.date}
             style={{ flex: '1 1 160px', minWidth: '160px' }}
@@ -258,6 +318,20 @@ function TransactionForm({ onClose, onSaved }) {
           Save Transaction
         </Button>
       </div>
+
+      <SaveTemplateModal
+        isOpen={saveModalOpen}
+        onClose={() => setSaveModalOpen(false)}
+        title="Save Transaction Template"
+        placeholder="e.g., Sunday Offering"
+        onSave={(name) => {
+          const errorMessage = saveTemplate(name, form, entries);
+          if (errorMessage) return errorMessage;
+          addToast(`Template "${name.trim()}" saved.`, 'success');
+          setSaveModalOpen(false);
+          return null;
+        }}
+      />
     </div>
   );
 }
