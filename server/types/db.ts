@@ -99,6 +99,8 @@ export interface TransactionListRow {
   date: Date | string;
   description: string;
   reference_no: string | null;
+  contact_name: string | null;
+  has_multiple_contacts: boolean | number;
   fund_id: number;
   created_at: Date | string;
   created_by_name: string | null;

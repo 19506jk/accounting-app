@@ -322,11 +322,27 @@ router.get(
           'je_type_flags.transaction_id',
           't.id'
         )
+        .leftJoin(
+          db('journal_entries as je')
+            .leftJoin('contacts as c', 'c.id', 'je.contact_id')
+            .select([
+              'je.transaction_id',
+              db.raw('COUNT(DISTINCT je.contact_id) AS contact_count'),
+              db.raw('MAX(c.name) AS contact_name'),
+            ])
+            .whereNotNull('je.contact_id')
+            .groupBy('je.transaction_id')
+            .as('je_contacts'),
+          'je_contacts.transaction_id',
+          't.id'
+        )
         .select(
           't.id',
           't.date',
           't.description',
           't.reference_no',
+          db.raw('CASE WHEN je_contacts.contact_count = 1 THEN je_contacts.contact_name ELSE NULL END AS contact_name'),
+          db.raw('COALESCE(CASE WHEN je_contacts.contact_count > 1 THEN 1 ELSE 0 END, 0) AS has_multiple_contacts'),
           't.fund_id',
           't.created_at',
           'u.name as created_by_name',
@@ -348,6 +364,7 @@ router.get(
           date: normalizeDateOnly(t.date),
           created_at: String(t.created_at),
           total_amount: parseFloat(String(t.total_amount)),
+          has_multiple_contacts: Number(t.has_multiple_contacts) > 0,
           transaction_type,
         };
       });

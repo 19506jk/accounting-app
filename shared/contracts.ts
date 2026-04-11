@@ -259,6 +259,8 @@ export interface TransactionListItem {
   date: string;
   description: string;
   reference_no: string | null;
+  contact_name: string | null;
+  has_multiple_contacts: boolean;
   fund_id: number;
   created_at: string;
   created_by_name: string | null;

@@ -463,6 +463,11 @@ export default function Transactions() {
         );
       }
     },
+    { key: 'contact_name', label: 'Donor / Payee',
+      render: (r) => r.contact_name
+        || (r.has_multiple_contacts
+          ? <span style={{ color: '#6b7280' }}>Multiple</span>
+          : <span style={{ color: '#d1d5db' }}>—</span>) },
     { key: 'reference_no', label: 'Ref',
       render: (r) => r.reference_no || <span style={{ color: '#d1d5db' }}>—</span> },
     { key: 'total_amount', label: 'Amount', align: 'right',
