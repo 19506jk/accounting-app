@@ -15,12 +15,12 @@
   - _...5 more_
 - `client/src/api/useContacts.ts`
   - function useContacts: (params) => void
-  - function useContact: (id) => void
+  - function useContact: (id, options) => void
   - function useCreateContact: () => void
   - function useUpdateContact: () => void
   - function useDeleteContact: () => void
-  - function useContactDonations: (id, year?) => void
-  - _...2 more_
+  - function useDeactivateContact: () => void
+  - _...3 more_
 - `client/src/api/useDashboard.ts`
   - function usePLSummary: () => void
   - function useBalanceSheet: () => void
