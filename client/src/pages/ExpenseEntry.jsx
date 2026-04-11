@@ -327,6 +327,7 @@ export default function ExpenseEntry() {
       fund_id: fundId,
       debit: 0,
       credit: parseFloat(totals.computed.toFixed(2)),
+      contact_id: payeeId,
       memo: header.description.trim(),
     }
 

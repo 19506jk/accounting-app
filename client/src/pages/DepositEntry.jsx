@@ -127,12 +127,20 @@ export default function DepositEntry() {
     });
 
     // 2. Map Bank Debits (One per fund involved)
-    const debitEntries = Object.entries(fundTotals).map(([fundId, amount]) => ({
-      account_id: Number(header.bank_account_id),
-      fund_id:    Number(fundId),
-      debit:      amount,
-      credit:     0,
-    }));
+    const debitEntries = Object.entries(fundTotals).map(([fundId, amount]) => {
+      const linesForFund = lines.filter(l => String(l.fund_id) === String(fundId) && dec(l.amount).gt(0));
+      const hasAnonymous = linesForFund.some((l) => !l.contact_id);
+      const uniqueContacts = [...new Set(linesForFund.filter((l) => l.contact_id).map((l) => Number(l.contact_id)))];
+      const contactId = !hasAnonymous && uniqueContacts.length === 1 ? uniqueContacts[0] : null;
+
+      return {
+        account_id: Number(header.bank_account_id),
+        fund_id:    Number(fundId),
+        debit:      amount,
+        credit:     0,
+        contact_id: contactId,
+      };
+    });
 
     // 3. Map Donor Credits
     const creditEntries = lines.filter(l => dec(l.amount).gt(0)).map(l => ({

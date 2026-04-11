@@ -1252,15 +1252,31 @@ router.post(
           const allEntries = plainRows.flatMap((row, idx) => {
             const transactionId = transactionIds[idx];
             const amountFixed = row.amount.toFixed(2);
-            const withdrawalPayeeId = row.type === 'withdrawal' ? row.payee_id : null;
+            const withdrawalPayeeId = row.type === 'withdrawal' ? (row.payee_id ?? null) : null;
             if (row.type === 'withdrawal' && !withdrawalPayeeId) {
               throw new Error(`Missing payee for withdrawal split row ${row.row_index}`);
+            }
+            let bankContactId: number | null = null;
+            if (row.type === 'withdrawal') {
+              bankContactId = withdrawalPayeeId;
+            } else if (row.splits?.length) {
+              const hasAnonymous = row.splits.some((split) => split.contact_id == null);
+              const uniqueContacts = [...new Set(
+                row.splits
+                  .map((split) => split.contact_id)
+                  .filter((contactId): contactId is number => contactId != null),
+              )];
+              if (!hasAnonymous && uniqueContacts.length === 1 && typeof uniqueContacts[0] === 'number') {
+                bankContactId = uniqueContacts[0];
+              }
+            } else {
+              bankContactId = row.contact_id ?? null;
             }
             const bankEntry = {
               transaction_id: transactionId,
               account_id: bankAccountId,
               fund_id: fundId,
-              contact_id: null,
+              contact_id: bankContactId,
               debit: row.type === 'deposit' ? amountFixed : '0.00',
               credit: row.type === 'deposit' ? '0.00' : amountFixed,
               memo: null,
