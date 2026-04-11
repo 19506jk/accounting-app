@@ -7,7 +7,6 @@ import { useFunds }     from '../api/useFunds';
 import { useContacts }  from '../api/useContacts';
 import { useToast }     from '../components/ui/Toast';
 import Card        from '../components/ui/Card';
-import Table       from '../components/ui/Table';
 import Modal       from '../components/ui/Modal';
 import Button      from '../components/ui/Button';
 import Input       from '../components/ui/Input';
@@ -15,10 +14,10 @@ import Combobox    from '../components/ui/Combobox';
 import Select      from '../components/ui/Select';
 import SummaryBar  from '../components/ui/SummaryBar';
 import DateRangePicker from '../components/ui/DateRangePicker';
-import { currentMonthRange, formatDateOnlyForDisplay, getChurchToday, toDateOnly } from '../utils/date';
+import TransactionTable from '../components/ui/TransactionTable';
+import { currentMonthRange, getChurchToday, toDateOnly } from '../utils/date';
 
 const dec = (v) => new Decimal(v || 0);
-const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 
 const EMPTY_ENTRY = { account_id: '', fund_id: '', debit: '', credit: '', contact_id: '', memo: '' };
 const JOURNAL_GRID_TEMPLATE = 'minmax(250px, 2fr) minmax(150px, 1fr) 110px 110px minmax(220px, 1.2fr) minmax(280px, 1.6fr) 28px';
@@ -425,10 +424,6 @@ export default function Transactions() {
   ];
   const transactions = data?.transactions || [];
 
-  function handleRowClick(row) {
-    setExpanded((prev) => (prev === row.id ? null : row.id));
-  }
-
   async function handleDelete(e, id) {
     e.stopPropagation(); // prevent row click from firing
     if (!confirm('Delete this transaction? This cannot be undone.')) return;
@@ -440,47 +435,6 @@ export default function Transactions() {
       addToast(err.response?.data?.error || 'Cannot delete.', 'error');
     }
   }
-
-  const TYPE_BADGE = {
-    deposit:    { label: 'Deposit',    bg: '#dcfce7', color: '#15803d' },
-    withdrawal: { label: 'Withdrawal', bg: '#fef2f2', color: '#b91c1c' },
-    transfer:   { label: 'Transfer',   bg: '#f1f5f9', color: '#475569' },
-  };
-
-  const COLUMNS = [
-    { key: 'date', label: 'Date',
-      render: (r) => formatDateOnlyForDisplay(r.date) },
-    { key: 'description', label: 'Description', wrap: true },
-    { key: 'transaction_type', label: 'Type',
-      render: (r) => {
-        const badge = TYPE_BADGE[r.transaction_type] || TYPE_BADGE.transfer;
-        return (
-          <span style={{ display: 'inline-block', padding: '0.15rem 0.5rem',
-            borderRadius: '999px', fontSize: '0.72rem', fontWeight: 600,
-            background: badge.bg, color: badge.color, whiteSpace: 'nowrap' }}>
-            {badge.label}
-          </span>
-        );
-      }
-    },
-    { key: 'contact_name', label: 'Donor / Payee',
-      render: (r) => r.contact_name
-        || (r.has_multiple_contacts
-          ? <span style={{ color: '#6b7280' }}>Multiple</span>
-          : <span style={{ color: '#d1d5db' }}>—</span>) },
-    { key: 'reference_no', label: 'Ref',
-      render: (r) => r.reference_no || <span style={{ color: '#d1d5db' }}>—</span> },
-    { key: 'total_amount', label: 'Amount', align: 'right',
-      render: (r) => <span style={{ fontWeight: 500 }}>{fmt(r.total_amount)}</span> },
-    { key: 'actions', label: '', align: 'right',
-      render: (r) => (
-        <Button variant="ghost" size="sm" style={{ color: '#dc2626' }}
-          onClick={(e) => handleDelete(e, r.id)}>
-          Delete
-        </Button>
-      ),
-    },
-  ];
 
   return (
     <div>
@@ -515,19 +469,14 @@ export default function Transactions() {
       </div>
 
       <Card>
-        <Table
-          columns={COLUMNS}
+        <TransactionTable
           rows={transactions}
           isLoading={isLoading}
           emptyText="No transactions match the selected filters."
-          onRowClick={handleRowClick}
+          onDelete={handleDelete}
+          onEdit={setEditingTx}
           expandedId={expanded}
-          renderExpanded={(row) => (
-            <TransactionDetail
-              id={row.id}
-              onEdit={setEditingTx}
-            />
-          )}
+          onExpandedChange={setExpanded}
         />
       </Card>
 
@@ -549,73 +498,6 @@ export default function Transactions() {
         )}
       </Modal>
 
-    </div>
-  );
-}
-
-// ── Transaction Detail Panel ─────────────────────────────────────────────────
-function TransactionDetail({ id, onEdit }) {
-  const [detail, setDetail] = useState(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    import('../api/client').then(({ default: apiClient }) => {
-      apiClient.get(`/transactions/${id}`).then(({ data }) => {
-        if (!isMounted) return;
-        setDetail(data.transaction);
-      });
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [id]);
-
-  if (!detail) return (
-    <div style={{ padding: '0.75rem 1rem', background: '#f8fafc',
-      fontSize: '0.8rem', color: '#6b7280' }}>
-      Loading entries…
-    </div>
-  );
-
-  return (
-    <div style={{ padding: '0.75rem 1rem 1rem', background: '#f8fafc' }}>
-      <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ color: '#6b7280' }}>
-            <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Account</th>
-            <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Fund</th>
-            <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Contact</th>
-            <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Description</th>
-            <th style={{ textAlign: 'right', padding: '0.25rem 0.5rem', fontWeight: 600 }}>Debit</th>
-            <th style={{ textAlign: 'right', padding: '0.25rem 0.5rem', fontWeight: 600 }}>Credit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {detail.entries.map((e) => (
-            <tr key={e.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-              <td style={{ padding: '0.3rem 0.5rem' }}>{e.account_code} {e.account_name}</td>
-              <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{e.fund_name}</td>
-              <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{e.contact_name || '—'}</td>
-              <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{e.memo || '—'}</td>
-              <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#15803d' }}>
-                {e.debit  > 0 ? fmt(e.debit)  : ''}
-              </td>
-              <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#b91c1c' }}>
-                {e.credit > 0 ? fmt(e.credit) : ''}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {/* Detail panel action bar */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
-        <Button variant="secondary" size="sm" onClick={() => onEdit(detail)}>
-          Edit
-        </Button>
-      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { usePLSummary, useBalanceSheet, useRecentTransactions } from '../api/useDashboard';
 import Card  from '../components/ui/Card';
-import Table from '../components/ui/Table';
+import TransactionTable, { TYPE_BADGE, txFmt } from '../components/ui/TransactionTable';
 import { formatDateOnlyForDisplay, monthLabelInChurchZone } from '../utils/date';
 
 function fmt(n) {
@@ -38,13 +39,28 @@ const TXN_COLUMNS = [
   { key: 'date', label: 'Date',
     render: (r) => formatDateOnlyForDisplay(r.date) },
   { key: 'description', label: 'Description', wrap: true },
+  { key: 'transaction_type', label: 'Type',
+    render: (r) => {
+      const badge = TYPE_BADGE[r.transaction_type] || TYPE_BADGE.transfer;
+      return (
+        <span style={{ display: 'inline-block', padding: '0.15rem 0.5rem',
+          borderRadius: '999px', fontSize: '0.72rem', fontWeight: 600,
+          background: badge.bg, color: badge.color, whiteSpace: 'nowrap' }}>
+          {badge.label}
+        </span>
+      );
+    },
+  },
   { key: 'contact_name', label: 'Contact',
     render: (r) => r.contact_name || '—' },
+  { key: 'reference_no', label: 'Ref',
+    render: (r) => r.reference_no || <span style={{ color: '#d1d5db' }}>—</span> },
   { key: 'total_amount', label: 'Amount', align: 'right',
-    render: (r) => fmt(r.total_amount) },
+    render: (r) => txFmt(r.total_amount) },
 ];
 
 export default function Dashboard() {
+  const [expanded, setExpanded] = useState(null);
   const pl     = usePLSummary();
   const bs     = useBalanceSheet();
   const recent = useRecentTransactions(10);
@@ -84,12 +100,14 @@ export default function Dashboard() {
             View all →
           </a>
         </div>
-        <Table
+        <TransactionTable
           columns={TXN_COLUMNS}
           rows={recent.data || []}
           isLoading={recent.isLoading}
           emptyText="No transactions recorded yet."
           skeletonRows={5}
+          expandedId={expanded}
+          onExpandedChange={setExpanded}
         />
       </Card>
 
