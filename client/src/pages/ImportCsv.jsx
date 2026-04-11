@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, memo } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import Decimal from 'decimal.js';
 import { useNavigate } from 'react-router-dom';
 import { useImportTransactions, useGetBillMatches } from '../api/useTransactions';
@@ -520,6 +520,8 @@ function SplitModal({
 const PreviewRow = memo(function PreviewRow({
   row,
   index,
+  isSelected,
+  onToggle,
   offsetOptions,
   donorOptions,
   payeeOptions,
@@ -538,6 +540,12 @@ const PreviewRow = memo(function PreviewRow({
   return (
     <div role='row' style={{ borderBottom: '1px solid #e5e7eb', padding: '0.65rem 0.75rem' }}>
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', fontSize: '0.9rem', fontWeight: 600 }}>
+        <input
+          type='checkbox'
+          checked={isSelected}
+          onChange={onToggle}
+          style={{ width: '16px', height: '16px', cursor: 'pointer', flexShrink: 0 }}
+        />
         <span role='cell' style={{ color: '#64748b', fontWeight: 600, minWidth: '2ch' }}>#{index + 1}</span>
         <span role='cell' style={{ color: '#334155', whiteSpace: 'nowrap' }}>{formatDateOnlyForDisplay(row.date)}</span>
         <span role='cell' style={{ color: '#111827', flex: '1 1 240px', minWidth: '180px' }}>{row.description}</span>
@@ -690,6 +698,8 @@ export default function ImportCsv() {
   const [suggestionsByRow, setSuggestionsByRow] = useState({});
   const [matchLoadError, setMatchLoadError] = useState('');
   const [splitModalIndex, setSplitModalIndex] = useState(null);
+  const [selectedRows, setSelectedRows] = useState(new Set());
+  const selectAllRef = useRef(null);
 
   const activeAccounts = useMemo(
     () => (accounts || []).filter((a) => a.is_active),
@@ -848,8 +858,29 @@ export default function ImportCsv() {
     setErrors([]);
     setSkippedRows([]);
     setMatchLoadError('');
+    setSelectedRows(new Set());
     setPhase('setup');
   }, []);
+
+  const onToggleRow = useCallback((index) => {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  const allSelected = parsedRows.length > 0 && selectedRows.size === parsedRows.length;
+  const someSelected = selectedRows.size > 0 && selectedRows.size < parsedRows.length;
+  const onToggleAll = useCallback(() => {
+    setSelectedRows(allSelected ? new Set() : new Set(parsedRows.map((_, i) => i)));
+  }, [allSelected, parsedRows]);
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate = someSelected;
+  }, [someSelected]);
 
   async function loadBillMatches(nextRows, nextBankAccountId) {
     setMatchLoadError('')
@@ -890,6 +921,7 @@ export default function ImportCsv() {
     setSkippedRows([]);
     setSuggestionsByRow({});
     setMatchLoadError('');
+    setSelectedRows(new Set());
     try {
       const result = await parseStatementCsv(file);
       const donorByEmail = new Map();
@@ -1007,16 +1039,23 @@ export default function ImportCsv() {
     setSkippedRows([]);
     const nextRows = parsedRows
     setParsedRows(nextRows);
+    setSelectedRows(new Set(nextRows.map((_, i) => i)));
     setPhase('preview');
     await loadBillMatches(nextRows, Number(bankAccountId));
   }
 
   async function handleImport(force) {
+    if (selectedRows.size === 0) {
+      setErrors(['Please select at least one row to import']);
+      return;
+    }
+
     const nextErrors = [];
     const nextBankAccountId = Number(bankAccountId);
     const nextFundId = Number(fundId);
 
     parsedRows.forEach((row, idx) => {
+      if (!selectedRows.has(idx)) return;
       const rowNumber = idx + 1;
       if (row.bill_id && row.splits?.length > 0) {
         nextErrors.push(`Row ${rowNumber}: cannot combine bill link and split lines`);
@@ -1059,36 +1098,38 @@ export default function ImportCsv() {
       const result = await importTransactions.mutateAsync({
         bank_account_id: nextBankAccountId,
         fund_id: nextFundId,
-        rows: parsedRows.map((row) => ({
-          date: row.date,
-          description: row.description,
-          reference_no: row.reference_no,
-          amount: row.amount,
-          type: row.type,
-          offset_account_id: row.splits?.length > 0 ? undefined : Number(row.offset_account_id),
-          payee_id: row.payee_id ? Number(row.payee_id) : undefined,
-          contact_id: row.contact_id ? Number(row.contact_id) : undefined,
-          bill_id: row.bill_id,
-          splits: row.splits?.length > 0
-            ? row.splits.map((split) => ({
-              amount: split.amount,
-              fund_id: Number(split.fund_id),
-              ...(row.type === 'withdrawal'
-                ? {
-                  expense_account_id: Number(split.expense_account_id),
-                  tax_rate_id: split.tax_rate_id ? Number(split.tax_rate_id) : null,
-                  pre_tax_amount: Number(split.pre_tax_amount),
-                  rounding_adjustment: Number(split.rounding_adjustment || 0),
-                  description: split.description || null,
-                }
-                : {
-                  offset_account_id: Number(split.offset_account_id),
-                  contact_id: split.contact_id ? Number(split.contact_id) : null,
-                  memo: split.memo || null,
-                }),
-            }))
-            : undefined,
-        })),
+        rows: parsedRows
+          .filter((_, i) => selectedRows.has(i))
+          .map((row) => ({
+            date: row.date,
+            description: row.description,
+            reference_no: row.reference_no,
+            amount: row.amount,
+            type: row.type,
+            offset_account_id: row.splits?.length > 0 ? undefined : Number(row.offset_account_id),
+            payee_id: row.payee_id ? Number(row.payee_id) : undefined,
+            contact_id: row.contact_id ? Number(row.contact_id) : undefined,
+            bill_id: row.bill_id,
+            splits: row.splits?.length > 0
+              ? row.splits.map((split) => ({
+                amount: split.amount,
+                fund_id: Number(split.fund_id),
+                ...(row.type === 'withdrawal'
+                  ? {
+                    expense_account_id: Number(split.expense_account_id),
+                    tax_rate_id: split.tax_rate_id ? Number(split.tax_rate_id) : null,
+                    pre_tax_amount: Number(split.pre_tax_amount),
+                    rounding_adjustment: Number(split.rounding_adjustment || 0),
+                    description: split.description || null,
+                  }
+                  : {
+                    offset_account_id: Number(split.offset_account_id),
+                    contact_id: split.contact_id ? Number(split.contact_id) : null,
+                    memo: split.memo || null,
+                  }),
+              }))
+              : undefined,
+          })),
         force,
       });
 
@@ -1195,8 +1236,15 @@ export default function ImportCsv() {
               )}
 
               <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh' }}>
-                <div style={{ background: '#f8fafc', color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', padding: '0.55rem 0.75rem', borderBottom: '1px solid #e5e7eb' }}>
-                  Preview Rows
+                <div style={{ background: '#f8fafc', color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', padding: '0.55rem 0.75rem', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                  <input
+                    ref={selectAllRef}
+                    type='checkbox'
+                    checked={allSelected}
+                    onChange={onToggleAll}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', flexShrink: 0 }}
+                  />
+                  <span>Preview Rows</span>
                 </div>
                 <div role='table' aria-label='Import transaction preview' style={{ fontSize: '0.82rem' }}>
                   <div role='rowgroup' style={SR_ONLY_STYLE}>
@@ -1212,6 +1260,8 @@ export default function ImportCsv() {
                       key={`${row.date}-${row.description}-${idx}`}
                       row={row}
                       index={idx}
+                      isSelected={selectedRows.has(idx)}
+                      onToggle={() => onToggleRow(idx)}
                       offsetOptions={offsetAccountOptions}
                       donorOptions={donorOptions}
                       payeeOptions={payeeOptions}
@@ -1260,12 +1310,12 @@ export default function ImportCsv() {
                     Refresh matches
                   </Button>
                   {skippedRows.length > 0 && (
-                    <Button variant="secondary" onClick={() => handleImport(true)} isLoading={importTransactions.isPending}>
+                    <Button variant="secondary" onClick={() => handleImport(true)} isLoading={importTransactions.isPending} disabled={selectedRows.size === 0}>
                       Import all including duplicates
                     </Button>
                   )}
-                  <Button onClick={() => handleImport(false)} isLoading={importTransactions.isPending}>
-                    Import {parsedRows.length} transactions
+                  <Button onClick={() => handleImport(false)} isLoading={importTransactions.isPending} disabled={selectedRows.size === 0}>
+                    Import {selectedRows.size} transaction(s)
                   </Button>
                 </>
               )}
