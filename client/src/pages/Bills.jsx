@@ -25,6 +25,8 @@ import {
 } from '../utils/date';
 
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
+const MAX_ROUNDING = 0.10;
+const ROUNDING_PATTERN = /^-?\d*(?:\.\d*)?$/;
 
 function currentMonth() {
   return currentMonthRange();
@@ -37,6 +39,7 @@ function createEmptyLineItem(tempId) {
     description: '',
     amount: '',
     tax_rate_id: '',
+    rounding_adjustment: '',
   };
 }
 
@@ -66,6 +69,12 @@ function normalizeLineAmount(value, billType) {
   return billType === 'CREDIT' ? absolute * -1 : absolute;
 }
 
+function parseRoundingAdjustment(value) {
+  if (value === '' || value === '-' || value === '.') return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding = false, readOnly = false }) {
   const { addToast } = useToast();
   const { data: contacts } = useContacts({ type: 'PAYEE' });
@@ -89,6 +98,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
       description: li.description || '',
       amount: Math.abs(parseFloat(li.amount || 0)) || '',
       tax_rate_id: li.tax_rate_id ? String(li.tax_rate_id) : '',
+      rounding_adjustment: li.rounding_adjustment != null ? String(li.rounding_adjustment) : '',
     })) || [createEmptyLineItem('temp-1')],
   } : createEmptyForm());
 
@@ -131,11 +141,14 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
   const lineTotals = useMemo(() => {
     return form.line_items.map(li => {
       const net = normalizeLineAmount(li.amount, form.bill_type);
+      const rounding = parseRoundingAdjustment(li.rounding_adjustment);
       const taxRate = li.tax_rate_id ? taxRateMap[li.tax_rate_id] : null;
-      if (!taxRate || net === 0) return { gross: net, net, tax: 0, taxName: null };
+      if (!taxRate || net === 0) {
+        return { gross: Math.round((net + rounding) * 100) / 100, net, tax: 0, taxName: null, rounding };
+      }
       const tax = Math.round(net * taxRate.rate * 100) / 100;
-      const gross = Math.round((net + tax) * 100) / 100;
-      return { gross, net, tax, taxName: taxRate.name };
+      const gross = Math.round((net + tax + rounding) * 100) / 100;
+      return { gross, net, tax, taxName: taxRate.name, rounding };
     });
   }, [form.bill_type, form.line_items, taxRateMap]);
 
@@ -145,7 +158,8 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
   const totalHST    = useMemo(() => lineTotals.filter(l => l.taxName === 'HST').reduce((sum, l) => sum + l.tax, 0), [lineTotals]);
   const totalGST    = useMemo(() => lineTotals.filter(l => l.taxName === 'GST').reduce((sum, l) => sum + l.tax, 0), [lineTotals]);
   const totalTax    = totalHST + totalGST;
-  const totalNet    = lineTotal - totalTax;
+  const totalRounding = useMemo(() => lineTotals.reduce((sum, l) => sum + l.rounding, 0), [lineTotals]);
+  const totalNet    = useMemo(() => lineTotals.reduce((sum, l) => sum + l.net, 0), [lineTotals]);
   const amountDelta = bill ? Math.abs(lineTotal - (parseFloat(bill.amount) || 0)) : 0;
   const willRecalculateAmount = Boolean(bill && amountDelta > 0.01);
 
@@ -194,6 +208,21 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
         lineErr.amount = 'Required';
         hasLineItemErrors = true;
       }
+      const rawRounding = String(li.rounding_adjustment);
+      const rounding = Number(rawRounding);
+      if (rawRounding !== '' && (rawRounding === '-' || rawRounding === '.' || !ROUNDING_PATTERN.test(rawRounding) || !Number.isFinite(rounding))) {
+        lineErr.rounding_adjustment = 'Invalid number';
+        hasLineItemErrors = true;
+      } else if (Number.isFinite(rounding)) {
+        const parts = rawRounding.split('.');
+        if (parts[1] && parts[1].length > 2) {
+          lineErr.rounding_adjustment = 'Max 2 decimal places';
+          hasLineItemErrors = true;
+        } else if (Math.abs(rounding) > MAX_ROUNDING) {
+          lineErr.rounding_adjustment = `Cannot exceed ${MAX_ROUNDING.toFixed(2)}`;
+          hasLineItemErrors = true;
+        }
+      }
       if (lineErr && Object.keys(lineErr).length > 0) {
         lineItemErrors[idx] = lineErr;
       }
@@ -226,6 +255,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
           expense_account_id: parseInt(li.expense_account_id),
           description: li.description.trim(),
           amount: normalizeLineAmount(li.amount, form.bill_type),
+          rounding_adjustment: parseRoundingAdjustment(li.rounding_adjustment),
           tax_rate_id: li.tax_rate_id ? parseInt(li.tax_rate_id) : null,
         })),
       };
@@ -304,10 +334,11 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '30%', fontWeight: 500, color: '#6b7280' }}>Account</th>
-                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '24%', fontWeight: 500, color: '#6b7280' }}>Description</th>
-                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '16%', fontWeight: 500, color: '#6b7280' }}>Tax</th>
-                <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', width: '18%', fontWeight: 500, color: '#6b7280' }}>Amount (before tax)</th>
+                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '28%', fontWeight: 500, color: '#6b7280' }}>Account</th>
+                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '20%', fontWeight: 500, color: '#6b7280' }}>Description</th>
+                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '14%', fontWeight: 500, color: '#6b7280' }}>Tax</th>
+                <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', width: '16%', fontWeight: 500, color: '#6b7280' }}>Amount (before tax)</th>
+                <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', width: '14%', fontWeight: 500, color: '#6b7280' }}>Rounding</th>
                 <th style={{ textAlign: 'center', padding: '0.5rem 0.75rem', width: '8%', fontWeight: 500, color: '#6b7280' }}></th>
               </tr>
             </thead>
@@ -370,6 +401,20 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
                           Total incl. tax: {fmt(gross)}
                         </div>
                       )}
+                    </td>
+                    <td style={{ padding: '0.5rem' }}>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="-0.10"
+                        max="0.10"
+                        value={line.rounding_adjustment}
+                        onChange={(e) => updateLineItem(idx, 'rounding_adjustment', e.target.value)}
+                        placeholder="0.00"
+                        error={errors.line_items?.[idx]?.rounding_adjustment}
+                        style={{ textAlign: 'right' }}
+                        disabled={readOnly}
+                      />
                     </td>
                     <td style={{ padding: '0.5rem', textAlign: 'center' }}>
                       {form.line_items.length > 1 && !readOnly && (
@@ -434,13 +479,25 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
                   GST: <span style={{ fontWeight: 500, color: '#1e293b', marginLeft: '1rem' }}>{fmt(totalGST)}</span>
                 </div>
               )}
+              {totalRounding !== 0 && (
+                <div style={{ color: '#6b7280' }}>
+                  Rounding: <span style={{ fontWeight: 500, color: '#1e293b', marginLeft: '1rem' }}>{fmt(totalRounding)}</span>
+                </div>
+              )}
               <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '0.3rem', marginTop: '0.1rem' }}>
                 Grand Total: <span style={{ fontWeight: 700, color: '#1e293b', marginLeft: '1rem' }}>{fmt(lineTotal)}</span>
               </div>
             </>
           )}
           {totalTax === 0 && (
-            <span style={{ fontWeight: 600, color: '#1e293b' }}>Total: {fmt(lineTotal)}</span>
+            <>
+              {totalRounding !== 0 && (
+                <div style={{ color: '#6b7280' }}>
+                  Rounding: <span style={{ fontWeight: 500, color: '#1e293b', marginLeft: '1rem' }}>{fmt(totalRounding)}</span>
+                </div>
+              )}
+              <span style={{ fontWeight: 600, color: '#1e293b' }}>Total: {fmt(lineTotal)}</span>
+            </>
           )}
         </div>
 
@@ -452,18 +509,23 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
             <div style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>
               {form.line_items.map((li, idx) => {
                 const account = expenseAccountOptions.find(a => a.value === li.expense_account_id);
-                const { gross, net, tax, taxName } = lineTotals[idx] || {};
+                const { gross, net, tax, taxName, rounding = 0 } = lineTotals[idx] || {};
                 if (!gross || gross === 0) return null;
                 const taxRate = li.tax_rate_id ? taxRateMap[li.tax_rate_id] : null;
 
                 return (
                   <div key={idx}>
                     <div style={{ color: net >= 0 ? '#15803d' : '#b91c1c' }}>
-                      {net >= 0 ? 'Dr' : 'Cr'} {account?.label || 'Expense'} — {fmt(Math.abs(tax !== 0 ? net : gross))}
+                      {net >= 0 ? 'Dr' : 'Cr'} {account?.label || 'Expense'} — {fmt(Math.abs(net))}
                     </div>
                     {tax !== 0 && taxRate && (
                       <div style={{ color: tax >= 0 ? '#15803d' : '#b91c1c', paddingLeft: '1rem', fontSize: '0.8rem' }}>
                         {tax >= 0 ? 'Dr' : 'Cr'} {taxRate.recoverable_account_name || `${taxName} Recoverable`} — {fmt(Math.abs(tax))}
+                      </div>
+                    )}
+                    {rounding !== 0 && (
+                      <div style={{ color: rounding > 0 ? '#15803d' : '#b91c1c', paddingLeft: '1rem', fontSize: '0.8rem' }}>
+                        {rounding > 0 ? 'Dr' : 'Cr'} Rounding (59999) — {fmt(Math.abs(rounding))}
                       </div>
                     )}
                   </div>

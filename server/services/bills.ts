@@ -66,6 +66,7 @@ interface BillLineItemJoinedRow {
   id: number;
   expense_account_id: number;
   amount: Numeric;
+  rounding_adjustment: Numeric;
   description: string | null;
   tax_rate_id: number | null;
   expense_account_code: string;
@@ -260,6 +261,19 @@ function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = fa
             errors.push(`Line ${i + 1}: amount cannot have more than 2 decimal places`);
           }
         }
+        if (line.rounding_adjustment !== undefined && line.rounding_adjustment !== null) {
+          try {
+            const rounding = dec(line.rounding_adjustment);
+            if (rounding.decimalPlaces() > 2) {
+              errors.push(`Line ${i + 1}: rounding_adjustment cannot have more than 2 decimal places`);
+            }
+            if (rounding.abs().gt(dec('0.10'))) {
+              errors.push(`Line ${i + 1}: rounding_adjustment cannot exceed 0.10 in absolute value`);
+            }
+          } catch {
+            errors.push(`Line ${i + 1}: rounding_adjustment is invalid`);
+          }
+        }
         // Line description is now optional - no validation needed
       }
     }
@@ -358,6 +372,7 @@ async function getBillWithLineItems(billId: string | number): Promise<BillDetail
       expense_account_code: li.expense_account_code,
       expense_account_name: li.expense_account_name,
       amount: parseFloat(String(li.amount)),
+      rounding_adjustment: parseFloat(String(li.rounding_adjustment ?? 0)),
       description: li.description,
       tax_rate_id: li.tax_rate_id || null,
       tax_rate_name: li.tax_rate_name || null,
@@ -381,6 +396,7 @@ async function createBillLineItems(
     bill_id: billId,
     expense_account_id: li.expense_account_id,
     amount: dec(li.amount).toFixed(2),
+    rounding_adjustment: dec(li.rounding_adjustment ?? 0).toFixed(2),
     description: li.description?.trim() || null,
     tax_rate_id: li.tax_rate_id || null,
     created_at: trx.fn.now(),
@@ -407,12 +423,13 @@ function calculateGrossTotalFromLineItems(
 ) {
   return lineItems.reduce((sum, line) => {
     const net = dec(line.amount);
+    const rounding = dec(line.rounding_adjustment ?? 0);
     const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null;
 
-    if (!taxRate) return sum.plus(net);
+    if (!taxRate) return sum.plus(net).plus(rounding);
 
     const tax = net.times(dec(taxRate.rate)).toDecimalPlaces(2);
-    return sum.plus(net.plus(tax));
+    return sum.plus(net.plus(tax).plus(rounding));
   }, dec(0));
 }
 
@@ -433,6 +450,16 @@ async function createMultiLineJournalEntries(
     ? await trx('tax_rates').whereIn('id', taxRateIds)
     : [] as TaxRateRow[];
   const taxRateMap = Object.fromEntries((taxRates as TaxRateRow[]).map(tr => [tr.id, tr]));
+  const hasRoundingAdjustment = lineItems.some(line => !dec(line.rounding_adjustment ?? 0).isZero());
+  const roundingAccount = hasRoundingAdjustment
+    ? await trx('accounts')
+      .where({ code: ROUNDING_ACCOUNT_CODE, is_active: true })
+      .first() as AccountRow | undefined
+    : null;
+
+  if (hasRoundingAdjustment && !roundingAccount) {
+    throw new Error(`Rounding account (${ROUNDING_ACCOUNT_CODE}) is missing or inactive`);
+  }
 
   const journalEntries: JournalEntryInsertRow[] = [];
   let apTotal = dec(0);
@@ -463,12 +490,13 @@ async function createMultiLineJournalEntries(
 
   for (const line of lineItems) {
     const net = dec(line.amount);
+    const rounding = dec(line.rounding_adjustment ?? 0);
     const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null;
     const lineMemo = `Bill ${billNumber || ''} - ${line.description || ''}`.trim();
 
     if (taxRate) {
       const tax = net.times(dec(taxRate.rate)).toDecimalPlaces(2);
-      const gross = net.plus(tax);
+      const netPlusTax = net.plus(tax);
       pushSignedEntry(
         line.expense_account_id,
         net,
@@ -483,10 +511,21 @@ async function createMultiLineJournalEntries(
         line.tax_rate_id ?? null,
         true
       );
-      apTotal = apTotal.plus(gross);
+      apTotal = apTotal.plus(netPlusTax);
     } else {
       pushSignedEntry(line.expense_account_id, net, lineMemo, null, false);
       apTotal = apTotal.plus(net);
+    }
+
+    if (!rounding.isZero() && roundingAccount) {
+      pushSignedEntry(
+        roundingAccount.id,
+        rounding,
+        `Rounding adjustment - ${line.description || ''}`.trim(),
+        null,
+        false
+      );
+      apTotal = apTotal.plus(rounding);
     }
   }
 
@@ -503,13 +542,13 @@ async function createMultiLineJournalEntries(
   const totalCredits = journalEntries.reduce((sum, e) => sum.plus(dec(e.credit)), dec(0));
   const diff = totalDebits.minus(totalCredits).abs();
   if (diff.gt(0) && diff.lte(TOLERANCE)) {
-    const roundingAccount = await trx('accounts')
-      .where({ code: ROUNDING_ACCOUNT_CODE })
+    const automaticRoundingAccount = await trx('accounts')
+      .where({ code: ROUNDING_ACCOUNT_CODE, is_active: true })
       .first() as AccountRow | undefined;
-    if (roundingAccount) {
+    if (automaticRoundingAccount) {
       journalEntries.push({
         transaction_id: transactionId,
-        account_id:     roundingAccount.id,
+        account_id:     automaticRoundingAccount.id,
         fund_id:        fundId,
         debit:          totalDebits.lt(totalCredits) ? diff.toFixed(2) : 0,
         credit:         totalDebits.gt(totalCredits) ? diff.toFixed(2) : 0,
@@ -535,6 +574,16 @@ async function validateLineItemAccounts(lineItems: BillLineItemInput[]): Promise
     ? await db('tax_rates').whereIn('id', taxRateIds).where('is_active', true)
     : [] as TaxRateRow[];
   const activeTaxRateIds = new Set((taxRates as TaxRateRow[]).map(tr => tr.id));
+  const hasRoundingAdjustment = lineItems.some(line => !dec(line.rounding_adjustment ?? 0).isZero());
+  const roundingAccount = hasRoundingAdjustment
+    ? await db('accounts')
+      .where({ code: ROUNDING_ACCOUNT_CODE, is_active: true })
+      .first() as AccountRow | undefined
+    : null;
+
+  if (hasRoundingAdjustment && !roundingAccount) {
+    errors.push(`Rounding account (${ROUNDING_ACCOUNT_CODE}) is missing or inactive`);
+  }
 
   for (let i = 0; i < lineItems.length; i++) {
     const line = lineItems[i];

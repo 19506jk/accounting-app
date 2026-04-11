@@ -605,6 +605,7 @@ export interface BillLineItem {
   id: number;
   expense_account_id: number;
   amount: number;
+  rounding_adjustment: number;
   description: string | null;
   expense_account_code?: string;
   expense_account_name?: string;
@@ -666,6 +667,7 @@ export interface BillsQuery {
 export interface BillLineItemInput {
   expense_account_id: number;
   amount: number;
+  rounding_adjustment?: number | null;
   description?: string;
   tax_rate_id?: number | null;
 }
