@@ -218,7 +218,11 @@ router.get(
     next: NextFunction
   ) => {
     try {
-      const { fund_id, account_id, contact_id, from, to, limit = 50, offset = 0 } = req.query;
+      const { fund_id, account_id, contact_id, transaction_type, from, to, limit = 50, offset = 0 } = req.query;
+      const validTransactionTypes: Array<NonNullable<TransactionsQuery['transaction_type']>> = ['deposit', 'withdrawal', 'transfer'];
+      if (transaction_type && !validTransactionTypes.includes(transaction_type)) {
+        return res.status(400).json({ error: 'transaction_type must be one of deposit, withdrawal, transfer' });
+      }
       if (from && !parseDateOnlyStrict(String(from))) {
         return res.status(400).json({ error: 'from is not a valid date (YYYY-MM-DD)' });
       }
@@ -250,6 +254,45 @@ router.get(
               db('journal_entries as je')
                 .where('je.transaction_id', db.raw('t.id'))
                 .where('je.contact_id', contact_id)
+            );
+          }
+          if (transaction_type === 'deposit') {
+            q.whereExists(
+              db('journal_entries as je_type_filter')
+                .join('accounts as a_type_filter', 'a_type_filter.id', 'je_type_filter.account_id')
+                .where('je_type_filter.transaction_id', db.raw('t.id'))
+                .where('a_type_filter.type', 'INCOME')
+                .where('je_type_filter.credit', '>', 0)
+            );
+          }
+          if (transaction_type === 'withdrawal') {
+            q.whereNotExists(
+              db('journal_entries as je_type_filter')
+                .join('accounts as a_type_filter', 'a_type_filter.id', 'je_type_filter.account_id')
+                .where('je_type_filter.transaction_id', db.raw('t.id'))
+                .where('a_type_filter.type', 'INCOME')
+                .where('je_type_filter.credit', '>', 0)
+            ).whereExists(
+              db('journal_entries as je_type_filter')
+                .join('accounts as a_type_filter', 'a_type_filter.id', 'je_type_filter.account_id')
+                .where('je_type_filter.transaction_id', db.raw('t.id'))
+                .where('a_type_filter.type', 'EXPENSE')
+                .where('je_type_filter.debit', '>', 0)
+            );
+          }
+          if (transaction_type === 'transfer') {
+            q.whereNotExists(
+              db('journal_entries as je_type_filter')
+                .join('accounts as a_type_filter', 'a_type_filter.id', 'je_type_filter.account_id')
+                .where('je_type_filter.transaction_id', db.raw('t.id'))
+                .where('a_type_filter.type', 'INCOME')
+                .where('je_type_filter.credit', '>', 0)
+            ).whereNotExists(
+              db('journal_entries as je_type_filter')
+                .join('accounts as a_type_filter', 'a_type_filter.id', 'je_type_filter.account_id')
+                .where('je_type_filter.transaction_id', db.raw('t.id'))
+                .where('a_type_filter.type', 'EXPENSE')
+                .where('je_type_filter.debit', '>', 0)
             );
           }
         });

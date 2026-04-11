@@ -247,6 +247,7 @@ export interface TransactionsQuery {
   fund_id?: string | number;
   account_id?: string | number;
   contact_id?: string | number;
+  transaction_type?: 'deposit' | 'withdrawal' | 'transfer';
   from?: string;
   to?: string;
   limit?: string | number;

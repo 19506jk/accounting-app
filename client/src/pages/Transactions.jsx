@@ -12,6 +12,7 @@ import Modal       from '../components/ui/Modal';
 import Button      from '../components/ui/Button';
 import Input       from '../components/ui/Input';
 import Combobox    from '../components/ui/Combobox';
+import Select      from '../components/ui/Select';
 import SummaryBar  from '../components/ui/SummaryBar';
 import DateRangePicker from '../components/ui/DateRangePicker';
 import { currentMonthRange, formatDateOnlyForDisplay, getChurchToday, toDateOnly } from '../utils/date';
@@ -397,12 +398,31 @@ export default function Transactions() {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const [range,      setRange]      = useState(currentMonthRange());
+  const [typeFilter, setTypeFilter] = useState('');
+  const [accountFilter, setAccountFilter] = useState('');
   const [showForm,   setShowForm]   = useState(false);
   const [expanded,   setExpanded]   = useState(null);
   const [editingTx,  setEditingTx]  = useState(null); // holds the full transaction object
 
-  const { data, isLoading } = useTransactions({ from: range.from, to: range.to, limit: 100 });
+  const { data: accounts } = useAccounts({ include_inactive: true });
+  const { data, isLoading } = useTransactions({
+    from: range.from,
+    to: range.to,
+    limit: 100,
+    account_id: accountFilter || undefined,
+    transaction_type: typeFilter || undefined,
+  });
   const deleteTx = useDeleteTransaction();
+  const typeOptions = [
+    { value: '', label: 'All Types' },
+    { value: 'deposit', label: 'Deposit' },
+    { value: 'withdrawal', label: 'Withdrawal' },
+    { value: 'transfer', label: 'Transfer' },
+  ];
+  const accountOptions = [
+    { value: '', label: 'All Accounts' },
+    ...(accounts || []).map((a) => ({ value: String(a.id), label: `${a.code} — ${a.name}` })),
+  ];
   const transactions = data?.transactions || [];
 
   function handleRowClick(row) {
@@ -470,8 +490,23 @@ export default function Transactions() {
         </div>
       </div>
 
-      <div style={{ marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
         <DateRangePicker from={range.from} to={range.to} onChange={setRange} />
+        <Select
+          label="Type"
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          options={typeOptions}
+          style={{ minWidth: '140px' }}
+        />
+        <Combobox
+          label="Account"
+          options={accountOptions}
+          value={accountFilter}
+          onChange={setAccountFilter}
+          placeholder="All Accounts"
+          style={{ minWidth: '220px' }}
+        />
       </div>
 
       <Card>
@@ -479,7 +514,7 @@ export default function Transactions() {
           columns={COLUMNS}
           rows={transactions}
           isLoading={isLoading}
-          emptyText="No transactions in this date range."
+          emptyText="No transactions match the selected filters."
           onRowClick={handleRowClick}
           expandedId={expanded}
           renderExpanded={(row) => (
