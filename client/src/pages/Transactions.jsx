@@ -33,7 +33,6 @@ function JournalEntryLines({
   accountOptions,
   fundOptions,
   contactOptions,
-  enableDebitAutofill = false,
   defaultFundId = '',
 }) {
   function setEntry(i, key, val) {
@@ -80,18 +79,10 @@ function JournalEntryLines({
                   const value = ev.target.value;
                   setEntries((prev) => {
                     const next = [...prev];
-                    const previousDebit = prev[i]?.debit || '';
                     next[i] = { ...next[i], debit: value };
 
                     if (value) {
                       next[i] = { ...next[i], credit: '' };
-                    }
-
-                    const nextIndex = i + 1;
-                    const nextCredit = prev[nextIndex]?.credit || '';
-                    const canAutofillNextCredit = !nextCredit || nextCredit === previousDebit;
-                    if (enableDebitAutofill && value && nextIndex < next.length && canAutofillNextCredit) {
-                      next[nextIndex] = { ...next[nextIndex], credit: value };
                     }
 
                     return next;
@@ -288,7 +279,6 @@ function TransactionForm({ onClose, onSaved }) {
           <JournalEntryLines
             entries={entries} setEntries={setEntries}
             accountOptions={accountOptions} fundOptions={fundOptions} contactOptions={contactOptions}
-            enableDebitAutofill
             defaultFundId={defaultFundId}
           />
         </div>

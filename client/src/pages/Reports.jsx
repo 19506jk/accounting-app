@@ -33,8 +33,8 @@ function currentMonth() {
 }
 
 const REPORT_TYPES = [
-  { value: 'pl',             label: 'Statement of Activities (P&L)' },
-  { value: 'balance-sheet',  label: 'Statement of Financial Position' },
+  { value: 'pl',             label: 'Profit & Loss' },
+  { value: 'balance-sheet',  label: 'Balance Sheet' },
   { value: 'ledger',         label: 'General Ledger' },
   { value: 'trial-balance',  label: 'Trial Balance' },
   { value: 'donors-summary', label: 'Income by Donor — Summary' },
