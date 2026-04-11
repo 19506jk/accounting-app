@@ -10,6 +10,7 @@ import { useToast } from '../components/ui/Toast'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Combobox from '../components/ui/Combobox'
+import ExpenseBreakdown from '../components/ExpenseBreakdown'
 import { getChurchToday } from '../utils/date'
 
 const dec = (value) => new Decimal(value || 0)
@@ -17,14 +18,13 @@ const fmt = (value) => '$' + Number(value || 0).toLocaleString('en-CA', { minimu
 const ROUNDING_ACCOUNT_CODE = '59999'
 const MAX_ROUNDING_ADJUSTMENT = new Decimal('0.10')
 const EPSILON = new Decimal('0.001')
-const BREAKDOWN_GRID_TEMPLATE = 'minmax(200px, 1.4fr) minmax(120px, 0.8fr) 96px 96px minmax(180px, 1.2fr) 130px 44px'
 
 function createEmptyLine(id) {
   return {
     id,
     expense_account_id: '',
     tax_rate_id: '',
-    pre_tax_amount: '',
+    amount: '',
     rounding_adjustment: '',
     description: '',
   }
@@ -100,7 +100,7 @@ export default function ExpenseEntry() {
 
   const calculatedRows = useMemo(() => {
     return lines.map((line) => {
-      const preTax = dec(line.pre_tax_amount)
+      const preTax = dec(line.amount)
       const rounding = dec(line.rounding_adjustment)
       const rate = line.tax_rate_id ? taxRateMap[line.tax_rate_id]?.rate : 0
       const tax = rate ? preTax.times(dec(rate)).toDecimalPlaces(2) : dec(0)
@@ -108,6 +108,16 @@ export default function ExpenseEntry() {
       return { preTax, rounding, tax, gross }
     })
   }, [lines, taxRateMap])
+
+  const expenseLineTotals = useMemo(() => {
+    return calculatedRows.map((row, index) => ({
+      gross: Number(row.gross),
+      net: Number(row.preTax),
+      tax: Number(row.tax),
+      taxName: lines[index].tax_rate_id ? taxRateMap[lines[index].tax_rate_id]?.name ?? null : null,
+      rounding: Number(row.rounding),
+    }))
+  }, [calculatedRows, lines, taxRateMap])
 
   const totals = useMemo(() => {
     const preTax = calculatedRows.reduce((sum, row) => sum.plus(row.preTax), dec(0))
@@ -170,12 +180,12 @@ export default function ExpenseEntry() {
 
     lines.forEach((line, index) => {
       const row = index + 1
-      const preTax = dec(line.pre_tax_amount)
+      const preTax = dec(line.amount)
       const rounding = dec(line.rounding_adjustment)
       const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null
 
       if (!line.expense_account_id) nextErrors.push(`Row ${row}: Expense account is required`)
-      if (!line.pre_tax_amount || preTax.lte(0)) nextErrors.push(`Row ${row}: Pre-tax amount must be greater than zero`)
+      if (!line.amount || preTax.lte(0)) nextErrors.push(`Row ${row}: Pre-tax amount must be greater than zero`)
       if (preTax.decimalPlaces() > 2) nextErrors.push(`Row ${row}: Pre-tax amount must have at most 2 decimal places`)
       if (rounding.decimalPlaces() > 2) nextErrors.push(`Row ${row}: Rounding adjustment must have at most 2 decimal places`)
       if (rounding.abs().gt(MAX_ROUNDING_ADJUSTMENT)) {
@@ -380,126 +390,16 @@ export default function ExpenseEntry() {
         Expense Breakdown
       </div>
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', marginBottom: '1rem', overflowX: 'auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: BREAKDOWN_GRID_TEMPLATE, minWidth: '1080px', gap: '1rem', padding: '0.5rem 0.75rem', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', fontSize: '0.75rem', fontWeight: 600, color: '#6b7280' }}>
-          <span>Expense Account</span>
-          <span>Tax Type</span>
-          <span style={{ textAlign: 'right' }}>Pre-tax</span>
-          <span style={{ textAlign: 'right' }}>Rounding</span>
-          <span>Description</span>
-          <span style={{ textAlign: 'right' }}>Gross</span>
-          <span />
-        </div>
-
-        {lines.map((line, index) => {
-          const rowTotals = calculatedRows[index] || { tax: dec(0), gross: dec(0) }
-          return (
-            <div
-              key={line.id}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: BREAKDOWN_GRID_TEMPLATE,
-                minWidth: '1080px',
-                gap: '1rem',
-                padding: '0.5rem 0.75rem',
-                borderBottom: index < lines.length - 1 ? '1px solid #f3f4f6' : 'none',
-                alignItems: 'center',
-              }}
-            >
-              <Combobox
-                options={expenseAccounts}
-                value={line.expense_account_id}
-                onChange={(value) => setLine(index, 'expense_account_id', value)}
-                placeholder="Expense account..."
-              />
-
-              <Combobox
-                options={taxRateOptions}
-                value={line.tax_rate_id}
-                onChange={(value) => setLine(index, 'tax_rate_id', value)}
-                placeholder="Tax type..."
-              />
-
-              <div style={{ paddingInline: '0.15rem' }}>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={line.pre_tax_amount}
-                  onChange={(event) => setLine(index, 'pre_tax_amount', event.target.value)}
-                  placeholder="0.00"
-                  style={{
-                    padding: '0.4rem 0.5rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '0.85rem',
-                    textAlign: 'right',
-                    width: '100%',
-                  }}
-                />
-              </div>
-
-              <div style={{ paddingInline: '0.15rem' }}>
-                <input
-                  type="number"
-                  min={MAX_ROUNDING_ADJUSTMENT.times(-1).toFixed(2)}
-                  max={MAX_ROUNDING_ADJUSTMENT.toFixed(2)}
-                  step="0.01"
-                  value={line.rounding_adjustment}
-                  onChange={(event) => setLine(index, 'rounding_adjustment', event.target.value)}
-                  placeholder="0.00"
-                  style={{
-                    padding: '0.4rem 0.5rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '0.85rem',
-                    textAlign: 'right',
-                    width: '100%',
-                  }}
-                />
-              </div>
-
-              <div style={{ paddingInline: '0.15rem' }}>
-                <input
-                  type="text"
-                  value={line.description}
-                  onChange={(event) => setLine(index, 'description', event.target.value)}
-                  placeholder="Line description"
-                  style={{
-                    padding: '0.4rem 0.5rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '0.85rem',
-                    width: '100%',
-                  }}
-                />
-              </div>
-
-              <div style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b' }}>{fmt(rowTotals.gross.toFixed(2))}</div>
-
-              <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <button
-                  onClick={() => removeLine(index)}
-                  disabled={lines.length <= 1}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: lines.length > 1 ? 'pointer' : 'not-allowed',
-                    color: lines.length > 1 ? '#ef4444' : '#e5e7eb',
-                    fontSize: '1.2rem',
-                    width: '28px',
-                    height: '28px',
-                    padding: 0,
-                    lineHeight: 1,
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      <ExpenseBreakdown
+        lines={lines}
+        lineTotals={expenseLineTotals}
+        expenseAccountOptions={expenseAccounts}
+        taxRateOptions={taxRateOptions}
+        onChange={setLine}
+        onRemove={removeLine}
+        showGrossColumn
+        minWidth={1080}
+      />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
         <Button variant="secondary" size="sm" onClick={addLine}>+ Add Line</Button>

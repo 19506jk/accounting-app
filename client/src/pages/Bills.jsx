@@ -16,6 +16,7 @@ import Select from '../components/ui/Select';
 import Combobox from '../components/ui/Combobox';
 import Badge from '../components/ui/Badge';
 import DateRangePicker from '../components/ui/DateRangePicker';
+import ExpenseBreakdown from '../components/ExpenseBreakdown';
 import {
   currentMonthRange,
   formatDateOnlyForDisplay,
@@ -330,117 +331,18 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
           </label>
         </div>
 
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'visible', marginBottom: '1rem' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-            <thead>
-              <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '28%', fontWeight: 500, color: '#6b7280' }}>Account</th>
-                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '20%', fontWeight: 500, color: '#6b7280' }}>Description</th>
-                <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', width: '14%', fontWeight: 500, color: '#6b7280' }}>Tax</th>
-                <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', width: '16%', fontWeight: 500, color: '#6b7280' }}>Amount (before tax)</th>
-                <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', width: '14%', fontWeight: 500, color: '#6b7280' }}>Rounding</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem 0.75rem', width: '8%', fontWeight: 500, color: '#6b7280' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {form.line_items.map((line, idx) => {
-                const { gross, net, tax, taxName } = lineTotals[idx] || { gross: 0, net: 0, tax: 0, taxName: null };
-                const hasAccount = !!line.expense_account_id;
-                const taxDisabled = !hasAccount;
-
-                return (
-                  <tr key={line.id} style={{ borderBottom: idx < form.line_items.length - 1 ? '1px solid #e5e7eb' : 'none' }}>
-                    <td style={{ padding: '0.5rem' }}>
-                      <Combobox
-                        options={expenseAccountOptions}
-                        value={line.expense_account_id}
-                        onChange={(v) => updateLineItem(idx, 'expense_account_id', v)}
-                        placeholder="Select..."
-                        error={errors.line_items?.[idx]?.expense_account_id}
-                        disabled={readOnly}
-                      />
-                    </td>
-                    <td style={{ padding: '0.5rem' }}>
-                      <Input
-                        value={line.description}
-                        onChange={(e) => updateLineItem(idx, 'description', e.target.value)}
-                        placeholder="Description"
-                        error={errors.line_items?.[idx]?.description}
-                        disabled={readOnly}
-                      />
-                    </td>
-                    <td style={{ padding: '0.5rem' }}>
-                      <div>
-                        <Select
-                          options={taxRateOptions}
-                          value={line.tax_rate_id}
-                          onChange={(e) => updateLineItem(idx, 'tax_rate_id', e.target.value)}
-                          disabled={readOnly || taxDisabled}
-                          style={{ opacity: taxDisabled ? 0.5 : 1 }}
-                        />
-                        {tax !== 0 && (
-                          <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.2rem', textAlign: 'right' }}>
-                            {taxName}: {fmt(tax)}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ padding: '0.5rem' }}>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={line.amount}
-                        onChange={(e) => updateLineItem(idx, 'amount', e.target.value)}
-                        placeholder="0.00"
-                        error={errors.line_items?.[idx]?.amount}
-                        style={{ textAlign: 'right' }}
-                        disabled={readOnly}
-                      />
-                      {tax !== 0 && (
-                        <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.2rem', textAlign: 'right' }}>
-                          Total incl. tax: {fmt(gross)}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '0.5rem' }}>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="-0.10"
-                        max="0.10"
-                        value={line.rounding_adjustment}
-                        onChange={(e) => updateLineItem(idx, 'rounding_adjustment', e.target.value)}
-                        placeholder="0.00"
-                        error={errors.line_items?.[idx]?.rounding_adjustment}
-                        style={{ textAlign: 'right' }}
-                        disabled={readOnly}
-                      />
-                    </td>
-                    <td style={{ padding: '0.5rem', textAlign: 'center' }}>
-                      {form.line_items.length > 1 && !readOnly && (
-                        <button
-                          type="button"
-                          onClick={() => removeLineItem(idx)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: '#dc2626',
-                            fontSize: '1rem',
-                            padding: '0.25rem',
-                          }}
-                          title="Remove line"
-                        >
-                          🗑️
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <ExpenseBreakdown
+          lines={form.line_items}
+          lineTotals={lineTotals}
+          expenseAccountOptions={expenseAccountOptions}
+          taxRateOptions={taxRateOptions}
+          onChange={updateLineItem}
+          onRemove={removeLineItem}
+          errors={errors.line_items}
+          readOnly={readOnly}
+          showGrossColumn={false}
+          minWidth={700}
+        />
 
         {!readOnly && (
           <Button variant="secondary" size="sm" onClick={addLineItem} style={{ marginBottom: '1.5rem' }}>
@@ -1221,7 +1123,7 @@ export default function Bills() {
       </Card>
 
       <Drawer isOpen={!!drawer} onClose={() => setDrawer(null)}
-        title={isAddDrawer ? 'New Bill' : isViewDrawer ? 'Bill Details' : 'Edit Bill'} width="750px">
+        title={isAddDrawer ? 'New Bill' : isViewDrawer ? 'Bill Details' : 'Edit Bill'} width="850px">
         {activeBill && (
           <BillForm
             bill={activeBill}
