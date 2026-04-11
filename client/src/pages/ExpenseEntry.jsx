@@ -287,12 +287,15 @@ export default function ExpenseEntry() {
       await createTx.mutateAsync(payload)
       addToast('Expense recorded successfully.', 'success')
       setErrors([])
-      setHeader((prev) => ({
-        ...prev,
+      setHeader({
+        date: getChurchToday(),
         reference_no: '',
+        payee_id: '',
         description: '',
         total_amount: '',
-      }))
+        payment_account_id: '',
+        fund_id: '',
+      })
       setLines([createEmptyLine(`line-${lineIdRef.current++}`)])
     } catch (err) {
       const apiErrors = err.response?.data?.errors || [err.response?.data?.error || 'Failed to record expense.']
