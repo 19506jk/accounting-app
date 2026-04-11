@@ -6,11 +6,13 @@ import { useAccounts } from '../api/useAccounts'
 import { useFunds } from '../api/useFunds'
 import { useContacts } from '../api/useContacts'
 import { useTaxRates } from '../api/useTaxRates'
+import { useExpenseTemplates } from '../api/useExpenseTemplates'
 import { useToast } from '../components/ui/Toast'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Combobox from '../components/ui/Combobox'
 import ExpenseBreakdown from '../components/ExpenseBreakdown'
+import SaveTemplateModal from '../components/SaveTemplateModal'
 import { getChurchToday } from '../utils/date'
 
 const dec = (value) => new Decimal(value || 0)
@@ -51,6 +53,10 @@ export default function ExpenseEntry() {
   const lineIdRef = useRef(2)
   const [lines, setLines] = useState([createEmptyLine('line-1')])
   const [errors, setErrors] = useState([])
+  const { templates, saveTemplate, deleteTemplate } = useExpenseTemplates()
+  const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false)
+  const [saveModalOpen, setSaveModalOpen] = useState(false)
+  const dropdownRef = useRef(null)
 
   const payeeOptions = useMemo(
     () => (contacts || []).filter((c) => c.is_active).map((c) => ({ value: c.id, label: c.name })),
@@ -76,10 +82,10 @@ export default function ExpenseEntry() {
     [funds]
   )
 
-  const taxRateOptions = [
+  const taxRateOptions = useMemo(() => [
     { value: '', label: 'Exempt' },
     ...taxRates.map((tr) => ({ value: String(tr.id), label: `${tr.name} (${(tr.rate * 100).toFixed(2)}%)` })),
-  ]
+  ], [taxRates])
 
   const taxRateMap = useMemo(() => Object.fromEntries(taxRates.map((tr) => [String(tr.id), tr])), [taxRates])
   const accountMap = useMemo(() => Object.fromEntries((accounts || []).map((a) => [a.id, a])), [accounts])
@@ -97,6 +103,19 @@ export default function ExpenseEntry() {
       setHeader((prev) => ({ ...prev, fund_id: fundOptions[0].value }))
     }
   }, [paymentAccounts, fundOptions, header.payment_account_id, header.fund_id])
+
+  useEffect(() => {
+    if (!templateDropdownOpen) return
+
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setTemplateDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [templateDropdownOpen])
 
   const calculatedRows = useMemo(() => {
     return lines.map((line) => {
@@ -161,6 +180,33 @@ export default function ExpenseEntry() {
   function removeLine(index) {
     if (lines.length <= 1) return
     setLines((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function loadTemplate(template) {
+    const knownPayee = payeeOptions.find((option) => String(option.value) === String(template.payee_id))
+    const activeAccountIds = new Set(expenseAccounts.map((option) => String(option.value)))
+    const accountValueById = new Map(expenseAccounts.map((option) => [String(option.value), option.value]))
+    const activeTaxRateIds = new Set(taxRateOptions.filter((option) => option.value !== '').map((option) => String(option.value)))
+
+    setHeader((prev) => ({
+      ...prev,
+      description: template.description || '',
+      payee_id: knownPayee ? knownPayee.value : '',
+    }))
+
+    setLines(
+      template.rows.map((row) => ({
+        ...createEmptyLine(`line-${lineIdRef.current++}`),
+        expense_account_id: activeAccountIds.has(String(row.expense_account_id))
+          ? accountValueById.get(String(row.expense_account_id)) || ''
+          : '',
+        description: row.description || '',
+        tax_rate_id: activeTaxRateIds.has(String(row.tax_rate_id)) ? String(row.tax_rate_id) : '',
+      }))
+    )
+
+    setTemplateDropdownOpen(false)
+    addToast(`Template "${template.name}" loaded.`, 'success')
   }
 
   const validationErrors = useMemo(() => {
@@ -319,6 +365,87 @@ export default function ExpenseEntry() {
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
           Record Expense
         </h1>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <Button variant='secondary' size='sm' onClick={() => setSaveModalOpen(true)}>
+            Save as Template
+          </Button>
+          <div ref={dropdownRef} style={{ position: 'relative' }}>
+            <Button variant='secondary' size='sm' onClick={() => setTemplateDropdownOpen((value) => !value)}>
+              Load Template{templates.length > 0 ? ` (${templates.length})` : ''}
+            </Button>
+            {templateDropdownOpen && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: '4px',
+                background: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.1)',
+                zIndex: 500,
+                minWidth: '240px',
+                maxHeight: '320px',
+                overflowY: 'auto',
+              }}>
+                {templates.length === 0 ? (
+                  <div style={{ padding: '1rem', fontSize: '0.85rem', color: '#6b7280' }}>
+                    No templates saved yet.
+                  </div>
+                ) : templates.map((template) => (
+                  <div key={template.id} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.6rem 0.75rem',
+                    borderBottom: '1px solid #f3f4f6',
+                  }}>
+                    <button
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        flex: 1,
+                        fontSize: '0.85rem',
+                        color: '#1e293b',
+                        fontWeight: 500,
+                      }}
+                      onClick={() => loadTemplate(template)}
+                    >
+                      {template.name}
+                      <span style={{ display: 'block', fontSize: '0.75rem', color: '#6b7280', fontWeight: 400 }}>
+                        {template.rows.length} row{template.rows.length !== 1 ? 's' : ''}
+                      </span>
+                    </button>
+                    <button
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: '#dc2626',
+                        fontSize: '1.1rem',
+                        padding: '0.2rem 0.4rem',
+                        lineHeight: 1,
+                      }}
+                      onClick={() => {
+                        const errorMessage = deleteTemplate(template.id)
+                        if (errorMessage) {
+                          addToast(errorMessage, 'error')
+                          return
+                        }
+                        addToast('Template deleted.', 'success')
+                      }}
+                      title='Delete template'
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
@@ -428,6 +555,18 @@ export default function ExpenseEntry() {
           Save Expense
         </Button>
       </div>
+
+      <SaveTemplateModal
+        isOpen={saveModalOpen}
+        onClose={() => setSaveModalOpen(false)}
+        onSave={(name) => {
+          const errorMessage = saveTemplate(name, header, lines)
+          if (errorMessage) return errorMessage
+          addToast(`Template "${name}" saved.`, 'success')
+          setSaveModalOpen(false)
+          return null
+        }}
+      />
     </div>
   )
 }
