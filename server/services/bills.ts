@@ -126,6 +126,14 @@ interface JournalEntryInsertRow {
   updated_at: unknown;
 }
 
+interface BillLineItemComparisonRow {
+  expense_account_id: number;
+  amount: Numeric;
+  rounding_adjustment: Numeric;
+  description: string | null;
+  tax_rate_id: number | null;
+}
+
 type AgingBill = AgingSourceBillRow & {
   amount: number;
   amount_paid: number;
@@ -1165,6 +1173,47 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
     }
   }
 
+  let hasPartialPayments = dec(bill.amount_paid).gt(0);
+  let hasLineItemChanges = false;
+  if (payload.line_items !== undefined) {
+    const existingLineItems = await db('bill_line_items')
+      .where({ bill_id: id })
+      .orderBy('id', 'asc')
+      .select('expense_account_id', 'amount', 'rounding_adjustment', 'description', 'tax_rate_id') as BillLineItemComparisonRow[];
+
+    const normaliseExistingLineItem = (line: BillLineItemComparisonRow) => ({
+      expense_account_id: Number(line.expense_account_id),
+      amount: dec(line.amount).toFixed(2),
+      rounding_adjustment: dec(line.rounding_adjustment ?? 0).toFixed(2),
+      description: line.description?.trim() || null,
+      tax_rate_id: line.tax_rate_id ?? null,
+    });
+
+    const normalisePayloadLineItem = (line: BillLineItemInput) => ({
+      expense_account_id: Number(line.expense_account_id),
+      amount: dec(line.amount).toFixed(2),
+      rounding_adjustment: dec(line.rounding_adjustment ?? 0).toFixed(2),
+      description: line.description?.trim() || null,
+      tax_rate_id: line.tax_rate_id ?? null,
+    });
+
+    const normalisedExisting = existingLineItems.map(normaliseExistingLineItem);
+    const normalisedIncoming = payload.line_items.map(normalisePayloadLineItem);
+    hasLineItemChanges =
+      normalisedExisting.length !== normalisedIncoming.length
+      || normalisedExisting.some((line, index) => {
+        const next = normalisedIncoming[index];
+        if (!next) return true;
+        return (
+          line.expense_account_id !== next.expense_account_id
+          || line.amount !== next.amount
+          || line.rounding_adjustment !== next.rounding_adjustment
+          || line.description !== next.description
+          || line.tax_rate_id !== next.tax_rate_id
+        );
+      });
+  }
+
   if (hasAppliedCredits && payload.confirm_unapply_credits) {
     const unapplied = await unapplyBillCredits(id, userId);
     if (unapplied.errors) return { errors: unapplied.errors };
@@ -1173,20 +1222,23 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
     if (bill.status !== 'UNPAID') {
       return { errors: [`Cannot edit ${bill.status} bills`] };
     }
+    hasPartialPayments = dec(bill.amount_paid).gt(0);
   }
 
-  if (payload.line_items !== undefined && dec(bill.amount_paid).gt(0)) {
+  if (hasPartialPayments && hasLineItemChanges) {
     return { errors: ['Cannot edit a bill that has partial payments. Reverse all payments first.'] };
   }
 
-  const newLineItems = payload.line_items || [];
+  const shouldRewriteLineItems = payload.line_items !== undefined && hasLineItemChanges;
+  const newLineItems = shouldRewriteLineItems ? payload.line_items || [] : [];
   const taxRateMap = newLineItems.length > 0 ? await resolveTaxRateMap(newLineItems, db) : {};
   const newTotalAmount = newLineItems.length > 0
     ? calculateGrossTotalFromLineItems(newLineItems, taxRateMap)
     : dec(bill.amount);
-  const isSettledAfterUpdate = isSettledOutstanding(newTotalAmount);
+  const nextOutstanding = newTotalAmount.minus(dec(bill.amount_paid));
+  const isSettledAfterUpdate = isSettledOutstanding(nextOutstanding);
 
-  if (payload.line_items !== undefined || Boolean(bill.created_transaction_id)) {
+  if (shouldRewriteLineItems) {
     await db.transaction(async (trx: Knex.Transaction) => {
       await trx('bill_line_items')
         .where({ bill_id: id })
@@ -1232,12 +1284,12 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
     due_date: payload.due_date !== undefined ? (payload.due_date || null) : bill.due_date,
     bill_number: payload.bill_number !== undefined ? payload.bill_number?.trim() || null : bill.bill_number,
     description: payload.description !== undefined ? payload.description.trim() : bill.description,
-    amount: newTotalAmount.toFixed(2),
-    amount_paid: isSettledAfterUpdate ? newTotalAmount.toFixed(2) : 0,
-    status: isSettledAfterUpdate ? 'PAID' : 'UNPAID',
-    paid_by: isSettledAfterUpdate ? userId : null,
-    paid_at: isSettledAfterUpdate ? db.fn.now() : null,
-    transaction_id: isSettledAfterUpdate ? bill.transaction_id : null,
+    amount: shouldRewriteLineItems ? newTotalAmount.toFixed(2) : bill.amount,
+    amount_paid: shouldRewriteLineItems ? (isSettledAfterUpdate ? newTotalAmount.toFixed(2) : bill.amount_paid) : bill.amount_paid,
+    status: shouldRewriteLineItems ? toBillStatus(nextOutstanding) : bill.status,
+    paid_by: shouldRewriteLineItems ? (isSettledAfterUpdate ? userId : null) : bill.paid_by,
+    paid_at: shouldRewriteLineItems ? (isSettledAfterUpdate ? db.fn.now() : null) : bill.paid_at,
+    transaction_id: shouldRewriteLineItems ? (isSettledAfterUpdate ? bill.transaction_id : null) : bill.transaction_id,
     fund_id: payload.fund_id !== undefined ? payload.fund_id : bill.fund_id,
     updated_at: db.fn.now(),
   };
