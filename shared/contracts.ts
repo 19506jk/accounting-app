@@ -699,6 +699,8 @@ export interface PayBillInput {
   payment_date?: string;
   bank_account_id?: number;
   memo?: string;
+  amount?: number;
+  reference_no?: string;
 }
 
 export interface BillCreditApplication {

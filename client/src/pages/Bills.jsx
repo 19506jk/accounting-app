@@ -629,14 +629,13 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
       return;
     }
 
-    if (Math.abs(paymentAmount - roundedLatestOutstanding) > 0.009) {
-      setPayment((p) => ({ ...p, amount: roundedLatestOutstanding }));
-      addToast('Payment amount reset to current outstanding balance.', 'error');
+    if (paymentAmount > roundedLatestOutstanding + 0.009) {
+      addToast(`Payment cannot exceed the outstanding balance (${fmt(roundedLatestOutstanding)}).`, 'error');
       return;
     }
 
     try {
-      await payBill.mutateAsync({
+      const result = await payBill.mutateAsync({
         id: latestBill.id,
         payment_date: payment.payment_date,
         amount: paymentAmount,
@@ -644,7 +643,8 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
         reference_no: payment.reference_no,
         memo: payment.memo,
       });
-      addToast('Bill paid.', 'success');
+      const isFullyPaid = result?.status === 'PAID';
+      addToast(isFullyPaid ? 'Bill paid in full.' : 'Partial payment recorded.', 'success');
       onPaid?.();
       onClose();
     } catch (err) {
@@ -658,10 +658,11 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
       {activeBill && (
         <>
           <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', margin: '-1.5rem -1.5rem 1rem' }}>
-            <div style={{ fontSize: '0.85rem', color: '#6b7280', display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.75rem' }}>
+            <div style={{ fontSize: '0.85rem', color: '#6b7280', display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '0.75rem' }}>
               <div><strong>Vendor:</strong> {activeBill.vendor_name}</div>
               <div><strong>Bill #:</strong> {activeBill.bill_number || '—'}</div>
               <div><strong>Amount:</strong> {fmt(activeBill.amount)}</div>
+              <div><strong>Paid to Date:</strong> {fmt(activeBill.amount_paid)}</div>
               <div><strong>Outstanding:</strong> <span style={{ color: outstandingColor, fontWeight: 600 }}>{fmt(outstanding)}</span></div>
             </div>
           </div>
@@ -820,10 +821,10 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
                 </div>
                 <div style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>
                   <div style={{ color: '#15803d' }}>
-                    Dr Accounts Payable (20000) — {fmt(payableOutstanding)}
+                    Dr Accounts Payable (20000) — {fmt(payment.amount || 0)}
                   </div>
                   <div style={{ color: '#b91c1c' }}>
-                    Cr {bankAccountOptions.find(a => a.value === payment.bank_account_id)?.label || 'Bank Account'} — {fmt(payableOutstanding)}
+                    Cr {bankAccountOptions.find(a => a.value === payment.bank_account_id)?.label || 'Bank Account'} — {fmt(payment.amount || 0)}
                   </div>
                 </div>
               </div>
@@ -1012,11 +1013,23 @@ export default function Bills() {
       key: 'status',
       label: 'Status',
       render: (b) => {
-        const displayStatus = b.status === 'VOID' || b.is_voided ? 'VOID' : b.status;
+        const displayStatus = b.status === 'VOID' || b.is_voided
+          ? 'VOID'
+          : b.status === 'UNPAID' && parseFloat(b.amount_paid) > 0
+            ? 'PARTIAL'
+            : b.status;
         return (
           <Badge
             label={displayStatus}
-            variant={displayStatus === 'PAID' ? 'success' : displayStatus === 'VOID' ? 'secondary' : 'warning'}
+            variant={
+              displayStatus === 'PAID'
+                ? 'success'
+                : displayStatus === 'VOID'
+                  ? 'secondary'
+                  : displayStatus === 'PARTIAL'
+                    ? 'info'
+                    : 'warning'
+            }
           />
         );
       },

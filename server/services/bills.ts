@@ -28,11 +28,6 @@ const db = require('../db') as Knex;
 
 type Numeric = string | number;
 
-type PaymentBillInput = PayBillInput & {
-  amount?: Numeric;
-  reference_no?: string;
-};
-
 type BillServiceResult = { errors: string[]; outstanding?: number } | { errors?: undefined };
 type BillMutationResult = BillServiceResult & { bill?: BillDetail | null; transaction?: TransactionRow | null };
 
@@ -1180,6 +1175,10 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
     }
   }
 
+  if (payload.line_items !== undefined && dec(bill.amount_paid).gt(0)) {
+    return { errors: ['Cannot edit a bill that has partial payments. Reverse all payments first.'] };
+  }
+
   const newLineItems = payload.line_items || [];
   const taxRateMap = newLineItems.length > 0 ? await resolveTaxRateMap(newLineItems, db) : {};
   const newTotalAmount = newLineItems.length > 0
@@ -1252,7 +1251,7 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
   return { bill: billWithLineItems };
 }
 
-async function payBill(id: string, paymentData: PaymentBillInput, userId: number): Promise<BillMutationResult> {
+async function payBill(id: string, paymentData: PayBillInput, userId: number): Promise<BillMutationResult> {
   const bill = await getBillWithLineItems(id);
   if (!bill) {
     return { errors: ['Bill not found'] };
@@ -1287,13 +1286,23 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
   }
   
   if (paymentData.amount !== undefined) {
-    const paymentAmount = dec(paymentData.amount);
-    if (!paymentAmount.equals(outstanding)) {
-      return { 
-        errors: [`Payment amount must equal outstanding balance ($${outstanding.toFixed(2)})`],
-        outstanding: parseFloat(outstanding.toFixed(2))
-      };
+    if (typeof paymentData.amount !== 'number' || !Number.isFinite(paymentData.amount)) {
+      return { errors: ['Payment amount must be a valid number'], outstanding: parseFloat(outstanding.toFixed(2)) };
     }
+  }
+
+  const paymentAmount = paymentData.amount !== undefined ? dec(paymentData.amount) : outstanding;
+  if (paymentAmount.lte(0)) {
+    return { errors: ['Payment amount must be greater than zero'], outstanding: parseFloat(outstanding.toFixed(2)) };
+  }
+  if (paymentAmount.decimalPlaces() > 2) {
+    return { errors: ['Payment amount cannot have more than 2 decimal places'], outstanding: parseFloat(outstanding.toFixed(2)) };
+  }
+  if (paymentAmount.gt(outstanding)) {
+    return {
+      errors: [`Payment amount ($${paymentAmount.toFixed(2)}) exceeds outstanding balance ($${outstanding.toFixed(2)})`],
+      outstanding: parseFloat(outstanding.toFixed(2)),
+    };
   }
 
   const apAccount = await db('accounts')
@@ -1319,12 +1328,7 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
       .returning('*') as TransactionRow[];
     if (!transaction) throw new Error('Failed to create payment transaction');
 
-    const amount = outstanding.toFixed(2);
-    const fullAmount = dec(bill.amount).toFixed(2);
-    const creditAmount = (bill.applied_credits || []).reduce(
-      (sum: Decimal, c: { amount: number }) => sum.plus(dec(c.amount)),
-      dec(0),
-    );
+    const amount = paymentAmount.toFixed(2);
 
     const billRef = bill.bill_number || `#${bill.id}`;
     const journalLines: object[] = [
@@ -1333,7 +1337,7 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
         account_id: apAccount.id,
         fund_id: bill.fund_id,
         contact_id: bill.contact_id,
-        debit: fullAmount,
+        debit: amount,
         credit: 0,
         memo: `Payment for bill ${billRef}`,
         is_reconciled: false,
@@ -1354,31 +1358,20 @@ async function payBill(id: string, paymentData: PaymentBillInput, userId: number
       },
     ];
 
-    if (creditAmount.gt(0)) {
-      journalLines.push({
-        transaction_id: transaction.id,
-        account_id: apAccount.id,
-        fund_id: bill.fund_id,
-        contact_id: bill.contact_id,
-        debit: 0,
-        credit: creditAmount.toFixed(2),
-        memo: `Applied credit(s) for bill ${billRef}`,
-        is_reconciled: false,
-        created_at: trx.fn.now(),
-        updated_at: trx.fn.now(),
-      });
-    }
-
     await trx('journal_entries').insert(journalLines);
+
+    const newAmountPaid = dec(bill.amount_paid).plus(paymentAmount);
+    const newOutstanding = dec(bill.amount).minus(newAmountPaid);
+    const isFullyPaid = isSettledOutstanding(newOutstanding);
 
     const [updatedBill] = await trx('bills')
       .where({ id })
       .update({
-        amount_paid: dec(bill.amount).toFixed(2),
-        status: 'PAID',
+        amount_paid: newAmountPaid.toFixed(2),
+        status: toBillStatus(newOutstanding),
         transaction_id: transaction.id,
-        paid_by: userId,
-        paid_at: trx.fn.now(),
+        paid_by: isFullyPaid ? userId : null,
+        paid_at: isFullyPaid ? trx.fn.now() : null,
         updated_at: trx.fn.now(),
       })
       .returning('*') as BillRow[];
@@ -1399,6 +1392,10 @@ async function voidBill(id: string, userId: number): Promise<BillMutationResult>
 
   if (bill.status === 'PAID') {
     return { errors: ['Cannot void a paid bill'] };
+  }
+
+  if (dec(bill.amount_paid).gt(0)) {
+    return { errors: ['Cannot void a bill that has partial payments. Reverse all payments first.'] };
   }
 
   if (bill.status === 'VOID') {

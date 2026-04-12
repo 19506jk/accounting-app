@@ -13,6 +13,7 @@ const COLORS = {
   both:   { bg: '#ede9fe', color: '#6d28d9' },
   // Generic
   success: { bg: '#dcfce7', color: '#15803d' },
+  info:    { bg: '#dbeafe', color: '#1d4ed8' },
   warning: { bg: '#fef9c3', color: '#a16207' },
   error:   { bg: '#fee2e2', color: '#b91c1c' },
 };
