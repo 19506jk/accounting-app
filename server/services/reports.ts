@@ -518,6 +518,25 @@ async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<Bala
 }
 
 async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<LedgerReportData> {
+  const txContactRollup = db('journal_entries as je_tx')
+    .join('transactions as t_tx', 't_tx.id', 'je_tx.transaction_id')
+    .leftJoin('contacts as c_tx', 'c_tx.id', 'je_tx.contact_id')
+    .join('accounts as a_tx', 'a_tx.id', 'je_tx.account_id')
+    .where('t_tx.is_voided', false)
+    .modify((query) => {
+      if (from) query.where('t_tx.date', '>=', from);
+      if (to) query.where('t_tx.date', '<=', to);
+      if (fundId) query.where('je_tx.fund_id', fundId);
+    })
+    .select(
+      'je_tx.transaction_id',
+      db.raw('COUNT(DISTINCT je_tx.contact_id) AS contact_count'),
+      db.raw('MAX(c_tx.name) AS contact_name'),
+      db.raw(`COALESCE(SUM(CASE WHEN je_tx.contact_id IS NULL AND a_tx.type <> 'ASSET' THEN 1 ELSE 0 END), 0) AS missing_contact_non_asset_count`)
+    )
+    .groupBy('je_tx.transaction_id')
+    .as('tx_contacts');
+
   const accountQuery = db('accounts as a')
     .where('a.is_active', true)
     .orderBy('a.code', 'asc');
@@ -544,12 +563,20 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
   for (const account of accounts) {
     const entries = await baseQuery({ from, to, fundId })
       .leftJoin('contacts as c', 'c.id', 'je.contact_id')
+      .leftJoin(txContactRollup, 'tx_contacts.transaction_id', 'je.transaction_id')
       .where('je.account_id', account.id)
       .select(
         't.date',
         't.description',
         't.reference_no',
-        'c.name as contact_name',
+        db.raw(`CASE
+          WHEN c.name IS NOT NULL THEN c.name
+          WHEN a.type = 'ASSET'
+            AND COALESCE(tx_contacts.contact_count, 0) = 1
+            AND COALESCE(tx_contacts.missing_contact_non_asset_count, 0) = 0
+          THEN tx_contacts.contact_name
+          ELSE NULL
+        END AS contact_name`),
         'f.name as fund_name',
         'je.debit',
         'je.credit',
