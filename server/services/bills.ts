@@ -23,6 +23,7 @@ import {
   toUtcIsoString,
 } from '../utils/date.js';
 import { getChurchTimeZone } from './churchTimeZone.js';
+import { assertNotClosedPeriod } from '../utils/hardCloseGuard.js';
 
 const db = require('../db') as Knex;
 
@@ -754,6 +755,13 @@ async function unapplyBillCredits(
 
     const transactionIds = [...new Set(applications.map((app) => app.apply_transaction_id).filter((id): id is number => Boolean(id)))];
     if (transactionIds.length > 0) {
+      const existingTransactions = await trx('transactions')
+        .whereIn('id', transactionIds)
+        .select('date') as Array<Pick<TransactionRow, 'date'>>;
+      for (const existingTransaction of existingTransactions) {
+        await assertNotClosedPeriod(normalizeDateOnly(existingTransaction.date), trx);
+      }
+
       await trx('transactions')
         .whereIn('id', transactionIds)
         .update({
@@ -874,9 +882,12 @@ async function applyBillCredits(
       .first() as AccountRow | undefined;
     if (!apAccount) return { errors: [`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`] };
 
+    const creditAppDate = getChurchToday(getChurchTimeZone());
+    await assertNotClosedPeriod(creditAppDate, trx);
+
     const [applyTransaction] = await trx('transactions')
       .insert({
-        date: getChurchToday(getChurchTimeZone()),
+        date: creditAppDate,
         description: `Apply vendor credit(s) to bill ${formatBillReference(target)}`,
         reference_no: target.bill_number || null,
         fund_id: target.fund_id,
@@ -1047,6 +1058,8 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
   const isSettledOnCreate = isSettledOutstanding(totalAmount);
 
   const result = await db.transaction(async (trx: Knex.Transaction) => {
+    await assertNotClosedPeriod(payload.date, trx);
+
     const [bill] = await trx('bills')
       .insert({
         contact_id: payload.contact_id,
@@ -1238,8 +1251,23 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
   const nextOutstanding = newTotalAmount.minus(dec(bill.amount_paid));
   const isSettledAfterUpdate = isSettledOutstanding(nextOutstanding);
 
-  if (shouldRewriteLineItems) {
-    await db.transaction(async (trx: Knex.Transaction) => {
+  await db.transaction(async (trx: Knex.Transaction) => {
+    if (!bill.created_transaction_id) {
+      throw Object.assign(new Error('Bill has no linked transaction'), { status: 422 });
+    }
+    const existingBillTx = await trx('transactions')
+      .where({ id: bill.created_transaction_id })
+      .select('date')
+      .first() as Pick<TransactionRow, 'date'> | undefined;
+    if (!existingBillTx) {
+      throw Object.assign(new Error('Linked transaction not found'), { status: 422 });
+    }
+    const existingDate = normalizeDateOnly(existingBillTx.date);
+    const proposedDate = payload.date !== undefined ? payload.date : existingDate;
+    await assertNotClosedPeriod(existingDate, trx);
+    await assertNotClosedPeriod(proposedDate, trx);
+
+    if (shouldRewriteLineItems) {
       await trx('bill_line_items')
         .where({ bill_id: id })
         .delete();
@@ -1275,29 +1303,29 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
           trx
         );
       }
-    });
-  }
+    }
 
-  const updateData = {
-    contact_id: payload.contact_id !== undefined ? payload.contact_id : bill.contact_id,
-    date: payload.date !== undefined ? payload.date : bill.date,
-    due_date: payload.due_date !== undefined ? (payload.due_date || null) : bill.due_date,
-    bill_number: payload.bill_number !== undefined ? payload.bill_number?.trim() || null : bill.bill_number,
-    description: payload.description !== undefined ? payload.description.trim() : bill.description,
-    amount: shouldRewriteLineItems ? newTotalAmount.toFixed(2) : bill.amount,
-    amount_paid: shouldRewriteLineItems ? (isSettledAfterUpdate ? newTotalAmount.toFixed(2) : bill.amount_paid) : bill.amount_paid,
-    status: shouldRewriteLineItems ? toBillStatus(nextOutstanding) : bill.status,
-    paid_by: shouldRewriteLineItems ? (isSettledAfterUpdate ? userId : null) : bill.paid_by,
-    paid_at: shouldRewriteLineItems ? (isSettledAfterUpdate ? db.fn.now() : null) : bill.paid_at,
-    transaction_id: shouldRewriteLineItems ? (isSettledAfterUpdate ? bill.transaction_id : null) : bill.transaction_id,
-    fund_id: payload.fund_id !== undefined ? payload.fund_id : bill.fund_id,
-    updated_at: db.fn.now(),
-  };
+    const updateData = {
+      contact_id: payload.contact_id !== undefined ? payload.contact_id : bill.contact_id,
+      date: payload.date !== undefined ? payload.date : bill.date,
+      due_date: payload.due_date !== undefined ? (payload.due_date || null) : bill.due_date,
+      bill_number: payload.bill_number !== undefined ? payload.bill_number?.trim() || null : bill.bill_number,
+      description: payload.description !== undefined ? payload.description.trim() : bill.description,
+      amount: shouldRewriteLineItems ? newTotalAmount.toFixed(2) : bill.amount,
+      amount_paid: shouldRewriteLineItems ? (isSettledAfterUpdate ? newTotalAmount.toFixed(2) : bill.amount_paid) : bill.amount_paid,
+      status: shouldRewriteLineItems ? toBillStatus(nextOutstanding) : bill.status,
+      paid_by: shouldRewriteLineItems ? (isSettledAfterUpdate ? userId : null) : bill.paid_by,
+      paid_at: shouldRewriteLineItems ? (isSettledAfterUpdate ? trx.fn.now() : null) : bill.paid_at,
+      transaction_id: shouldRewriteLineItems ? (isSettledAfterUpdate ? bill.transaction_id : null) : bill.transaction_id,
+      fund_id: payload.fund_id !== undefined ? payload.fund_id : bill.fund_id,
+      updated_at: trx.fn.now(),
+    };
 
-  await db('bills')
-    .where({ id })
-    .update(updateData)
-    .returning('*');
+    await trx('bills')
+      .where({ id })
+      .update(updateData)
+      .returning('*');
+  });
 
   const billWithLineItems = await getBillWithLineItems(id);
   return { bill: billWithLineItems };
@@ -1367,6 +1395,8 @@ async function payBill(id: string, paymentData: PayBillInput, userId: number): P
   }
 
   const result = await db.transaction(async (trx: Knex.Transaction) => {
+    await assertNotClosedPeriod(paymentData.payment_date!, trx);
+
     const [transaction] = await trx('transactions')
       .insert({
         date: paymentData.payment_date,
@@ -1466,6 +1496,13 @@ async function voidBill(id: string, userId: number): Promise<BillMutationResult>
   const result = await db.transaction(async (trx: Knex.Transaction) => {
     // Set is_voided flag on the original transaction
     if (bill.created_transaction_id) {
+      const existingBillTransaction = await trx('transactions')
+        .where({ id: bill.created_transaction_id })
+        .select('date')
+        .first() as Pick<TransactionRow, 'date'> | undefined;
+      if (!existingBillTransaction) throw new Error('Linked transaction not found');
+      await assertNotClosedPeriod(normalizeDateOnly(existingBillTransaction.date), trx);
+
       await trx('transactions')
         .where({ id: bill.created_transaction_id })
         .update({

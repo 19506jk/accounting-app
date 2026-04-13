@@ -35,6 +35,7 @@ import type {
 } from '../types/db';
 import { addDaysDateOnly, compareDateOnly, getChurchToday, normalizeDateOnly, parseDateOnlyStrict } from '../utils/date.js';
 import { getChurchTimeZone } from '../services/churchTimeZone.js';
+import { assertNotClosedPeriod } from '../utils/hardCloseGuard.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth');
@@ -1231,6 +1232,8 @@ router.post(
           const transactionIds: number[] = [];
 
           for (const row of plainRows) {
+            await assertNotClosedPeriod(row.date, trx);
+
             const inserted = await trx('transactions')
               .insert({
                 date: row.date,
@@ -1418,6 +1421,8 @@ router.post(
         const firstEntry = entries[0];
         if (!firstEntry) throw new Error('At least one entry is required');
 
+        await assertNotClosedPeriod(date, trx);
+
         const [transaction] = await trx('transactions')
           .insert({
             date,
@@ -1501,6 +1506,16 @@ router.put(
       const nextReferenceNo = reference_no !== undefined ? reference_no?.trim() || null : transaction.reference_no;
 
       await db.transaction(async (trx: Knex.Transaction) => {
+        const existingTx = await trx('transactions')
+          .where({ id })
+          .select('date')
+          .first() as Pick<TransactionRow, 'date'> | undefined;
+        if (!existingTx) {
+          throw Object.assign(new Error('Transaction not found'), { status: 404 });
+        }
+        await assertNotClosedPeriod(normalizeDateOnly(existingTx.date), trx);
+        await assertNotClosedPeriod(nextDate, trx);
+
         if (entries !== undefined) {
           const validationPayload: CreateTransactionInput = {
             date: nextDate,
@@ -1629,20 +1644,29 @@ router.delete(
     try {
       const { id } = req.params;
 
-      const transaction = await db('transactions').where({ id }).first() as TransactionRow | undefined;
-      if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
+      await db.transaction(async (trx: Knex.Transaction) => {
+        const transaction = await trx('transactions')
+          .where({ id })
+          .select('date', 'is_closing_entry')
+          .first() as (Pick<TransactionRow, 'date'> & { is_closing_entry: boolean }) | undefined;
+        if (!transaction) throw Object.assign(new Error('Transaction not found'), { status: 404 });
 
-      const reconciledEntry = await db('journal_entries')
-        .where({ transaction_id: id, is_reconciled: true })
-        .first() as JournalEntryRow | undefined;
+        if (transaction.is_closing_entry) {
+          throw Object.assign(new Error('Closing entries cannot be deleted. Use the Reopen Period utility.'), { status: 422 });
+        }
 
-      if (reconciledEntry) {
-        return res.status(409).json({
-          error: 'Transaction cannot be deleted — one or more entries have been reconciled.',
-        });
-      }
+        await assertNotClosedPeriod(normalizeDateOnly(transaction.date), trx);
 
-      await db('transactions').where({ id }).delete();
+        const reconciledEntry = await trx('journal_entries')
+          .where({ transaction_id: id, is_reconciled: true })
+          .first() as JournalEntryRow | undefined;
+
+        if (reconciledEntry) {
+          throw Object.assign(new Error('Transaction cannot be deleted — one or more entries have been reconciled.'), { status: 409 });
+        }
+
+        await trx('transactions').where({ id }).delete();
+      });
       res.json({ message: 'Transaction deleted successfully' });
     } catch (err) {
       next(err);

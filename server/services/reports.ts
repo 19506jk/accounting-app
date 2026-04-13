@@ -226,6 +226,7 @@ function baseQuery({ from, to, asOf, fundId }: BaseQueryArgs = {}): Knex.QueryBu
 async function getPL({ from, to, fundId }: DateRangeArgs): Promise<PLReportData> {
   const rows = await baseQuery({ from, to, fundId })
     .whereIn('a.type', ['INCOME', 'EXPENSE'])
+    .where('t.is_closing_entry', false)
     .select(
       'a.id',
       'a.code',
@@ -281,6 +282,13 @@ async function getPL({ from, to, fundId }: DateRangeArgs): Promise<PLReportData>
 
 async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<BalanceSheetReportData> {
   const balanceAsOf = asOf || normalizeDateOnly(new Date());
+  const lastClosedPeriod = await db('fiscal_periods')
+    .where('period_end', '<=', balanceAsOf)
+    .orderBy('period_end', 'desc')
+    .select('period_end', 'fiscal_year')
+    .first() as { period_end: string | Date; fiscal_year: number } | undefined;
+  const last_hard_close_date = lastClosedPeriod ? normalizeDateOnly(lastClosedPeriod.period_end) : null;
+
   const rows = await baseQuery({ asOf: balanceAsOf, fundId })
     .whereIn('a.type', ['ASSET', 'LIABILITY', 'EQUITY'])
     .select(
@@ -352,6 +360,7 @@ async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<Bala
     .whereIn('a.type', ['INCOME', 'EXPENSE'])
     .modify((query) => {
       if (fundId) query.where('je.fund_id', fundId);
+      if (last_hard_close_date) query.where('t.date', '>', last_hard_close_date);
     })
     .select(
       'je.fund_id',
@@ -369,6 +378,9 @@ async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<Bala
     .whereIn('a.type', ['INCOME', 'EXPENSE'])
     .modify((query) => {
       if (fundId) query.where('je.fund_id', fundId);
+      if (last_hard_close_date && last_hard_close_date >= fiscalYearStart) {
+        query.where('t.date', '>', last_hard_close_date);
+      }
     })
     .select(
       'je.fund_id',
@@ -514,6 +526,7 @@ async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<Bala
     total_liabilities_and_equity: parseFloat(totalLiabilitiesAndEquity.toFixed(2)),
     is_balanced: isBalanced,
     diagnostics: dedupedDiagnostics,
+    last_hard_close_date,
   };
 }
 
@@ -656,6 +669,13 @@ async function getLedger({ from, to, fundId, accountId }: LedgerArgs): Promise<L
 
 async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<TrialBalanceReportData> {
   const trialAsOf = asOf || normalizeDateOnly(new Date());
+  const lastClosedPeriod = await db('fiscal_periods')
+    .where('period_end', '<=', trialAsOf)
+    .orderBy('period_end', 'desc')
+    .select('period_end', 'fiscal_year')
+    .first() as { period_end: string | Date; fiscal_year: number } | undefined;
+  const last_hard_close_date = lastClosedPeriod ? normalizeDateOnly(lastClosedPeriod.period_end) : null;
+
   const fiscalYearStartMonthRow = await db('settings')
     .where({ key: 'fiscal_year_start' })
     .select('value')
@@ -694,6 +714,9 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
     .whereIn('a.type', ['INCOME', 'EXPENSE'])
     .modify((query) => {
       if (fundId) query.where('je.fund_id', fundId);
+      if (last_hard_close_date && last_hard_close_date >= fiscalYearStart) {
+        query.where('t.date', '>', last_hard_close_date);
+      }
     })
     .select(
       'je.account_id',
@@ -775,6 +798,7 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
     .whereIn('a.type', ['INCOME', 'EXPENSE'])
     .modify((query) => {
       if (fundId) query.where('je.fund_id', fundId);
+      if (last_hard_close_date) query.where('t.date', '>', last_hard_close_date);
     })
     .select(
       'je.fund_id',
@@ -914,6 +938,7 @@ async function getTrialBalance({ asOf, fundId }: TrialBalanceArgs): Promise<Tria
     as_of: trialAsOf,
     fiscal_year_start: fiscalYearStart,
     diagnostics,
+    last_hard_close_date,
   };
 }
 

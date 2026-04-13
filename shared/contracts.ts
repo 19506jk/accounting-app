@@ -848,6 +848,48 @@ export type BillServiceError = {
   outstanding?: number;
 };
 
+export interface FiscalPeriod {
+  id: number;
+  fiscal_year: number;
+  period_start: string;
+  period_end: string;
+  status: 'HARD_CLOSED';
+  closing_transaction_id: number | null;
+  closed_by: number | null;
+  closed_at: string;
+}
+
+export interface HardCloseProFormaLine {
+  account_id: number;
+  account_code: string;
+  account_name: string;
+  account_type: 'INCOME' | 'EXPENSE' | 'EQUITY';
+  fund_id: number;
+  fund_name: string;
+  debit: number;
+  credit: number;
+}
+
+export interface HardClosePreflightResult {
+  trial_balance_plugs: boolean;
+  per_fund_balanced: boolean;
+  all_asset_accounts_reconciled: boolean;
+  no_unmapped_funds: boolean;
+}
+
+export interface HardCloseInvestigateResponse {
+  fiscal_year: number;
+  period_start: string;
+  period_end: string;
+  pro_forma_lines: HardCloseProFormaLine[];
+  preflight: HardClosePreflightResult;
+}
+
+export interface HardCloseExecuteResponse {
+  fiscal_period: FiscalPeriod;
+  closing_transaction_id: number;
+}
+
 export type ReportType =
   | 'pl'
   | 'balance-sheet'
@@ -929,6 +971,7 @@ export interface BalanceSheetReportData {
   total_liabilities_and_equity: number;
   is_balanced: boolean;
   diagnostics: ReportDiagnostic[];
+  last_hard_close_date: string | null;
 }
 
 export interface LedgerReportRow {
@@ -985,7 +1028,7 @@ export interface ReportInvestigateFilters {
 }
 
 export interface ReportDiagnostic {
-  code: 'ABNORMAL_BALANCE' | 'UNMAPPED_FUND_NET_ASSET' | 'MISSING_EQUITY_ACCOUNTS' | 'BALANCED' | 'UNBALANCED' | 'SUGGEST_HARD_CLOSE';
+  code: 'ABNORMAL_BALANCE' | 'UNMAPPED_FUND_NET_ASSET' | 'MISSING_EQUITY_ACCOUNTS' | 'BALANCED' | 'UNBALANCED' | 'SUGGEST_HARD_CLOSE' | 'PERIOD_HARD_CLOSED';
   severity: 'warning' | 'info';
   message: string;
   account_id: number | null;
@@ -1001,6 +1044,7 @@ export interface TrialBalanceReportData {
   as_of: string;
   fiscal_year_start: string;
   diagnostics: ReportDiagnostic[];
+  last_hard_close_date: string | null;
 }
 
 /** @deprecated use ReportDiagnostic */

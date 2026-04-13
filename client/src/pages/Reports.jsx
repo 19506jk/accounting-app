@@ -15,6 +15,7 @@ import Combobox from '../components/ui/Combobox';
 import MultiSelectCombobox from '../components/ui/MultiSelectCombobox';
 import DateRangePicker from '../components/ui/DateRangePicker';
 import Badge   from '../components/ui/Badge';
+import HardCloseWizard from './HardClose';
 import {
   currentMonthRange,
   currentYearValue,
@@ -439,7 +440,7 @@ function DiagnosticsPanel({ diagnostics, onInvestigate }) {
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => onInvestigate?.(item.investigate_filters)}
+                onClick={() => onInvestigate?.(item)}
               >
                 Investigate
               </Button>
@@ -812,6 +813,7 @@ export default function Reports() {
   const [ctcId,   setCtcId]   = useState('');
   const [donorAcctIds, setDonorAcctIds] = useState([]);
   const [enabled, setEnabled] = useState(false);
+  const [hardCloseOpen, setHardCloseOpen] = useState(false);
 
   const { data: funds    } = useFunds();
   const { data: accounts } = useAccounts();
@@ -867,7 +869,12 @@ export default function Reports() {
     exportMap[type]?.();
   }
 
-  function handleInvestigate(filters) {
+  function handleInvestigate(item) {
+    if (item?.code === 'SUGGEST_HARD_CLOSE') {
+      setHardCloseOpen(true)
+      return
+    }
+    const filters = item?.investigate_filters || item
     if (!filters) return
     setType('ledger')
     setRange({ from: filters.from, to: filters.to })
@@ -989,6 +996,12 @@ export default function Reports() {
           No data found for the selected filters.
         </div></Card>
       )}
+
+      <HardCloseWizard
+        open={hardCloseOpen}
+        onClose={() => setHardCloseOpen(false)}
+        onSuccess={() => activeQuery?.refetch?.()}
+      />
     </div>
   );
 }
