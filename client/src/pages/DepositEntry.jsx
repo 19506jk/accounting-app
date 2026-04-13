@@ -48,7 +48,7 @@ export default function DepositEntry() {
   // -- State --
   const [header, setHeader] = useState({
     date: today,
-    description: 'Sunday Offering',
+    description: '',
     reference_no: '',
     total_amount: '',
     bank_account_id: ''

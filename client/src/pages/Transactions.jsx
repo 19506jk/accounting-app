@@ -268,7 +268,7 @@ function TransactionForm({ onClose, onSaved }) {
           <Input label="Description" required value={form.description}
             style={{ flex: '2 1 320px', minWidth: '280px' }}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            placeholder="Sunday Offering" />
+            placeholder="" />
           <Input label="Reference No" value={form.reference_no}
             style={{ flex: '1 1 160px', minWidth: '160px' }}
             onChange={(e) => setForm((f) => ({ ...f, reference_no: e.target.value }))}
@@ -313,7 +313,7 @@ function TransactionForm({ onClose, onSaved }) {
         isOpen={saveModalOpen}
         onClose={() => setSaveModalOpen(false)}
         title="Save Transaction Template"
-        placeholder="e.g., Sunday Offering"
+        placeholder="Template Name"
         onSave={(name) => {
           const errorMessage = saveTemplate(name, form, entries);
           if (errorMessage) return errorMessage;
@@ -413,7 +413,7 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
           <Input label="Description" required value={form.description}
             style={{ flex: '2 1 320px', minWidth: '280px' }}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            placeholder="Sunday Offering" />
+            placeholder="" />
           <Input label="Reference No" value={form.reference_no}
             style={{ flex: '1 1 160px', minWidth: '160px' }}
             onChange={(e) => setForm((f) => ({ ...f, reference_no: e.target.value }))}
