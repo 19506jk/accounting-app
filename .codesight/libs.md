@@ -25,6 +25,7 @@
   - function usePLSummary: () => void
   - function useBalanceSheet: () => void
   - function useRecentTransactions: (limit) => void
+- `client/src/api/useExpenseTemplates.ts` — function useExpenseTemplates: () => void
 - `client/src/api/useFunds.ts`
   - function useFunds: (params) => void
   - function useCreateFund: () => void
@@ -50,6 +51,7 @@
   - function useTaxRates: ({...}) => void
   - function useUpdateTaxRate: () => void
   - function useToggleTaxRate: () => void
+- `client/src/api/useTransactionTemplates.ts` — function useTransactionTemplates: () => void
 - `client/src/api/useTransactions.ts`
   - function useTransactions: (params) => void
   - function useTransaction: (id) => void
