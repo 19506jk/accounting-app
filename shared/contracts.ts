@@ -247,6 +247,7 @@ export interface TransactionsQuery {
   fund_id?: string | number;
   account_id?: string | number;
   contact_id?: string | number;
+  include_inactive?: boolean | 'true' | 'false';
   transaction_type?: 'deposit' | 'withdrawal' | 'transfer';
   from?: string;
   to?: string;
@@ -266,6 +267,7 @@ export interface TransactionListItem {
   created_by_name: string | null;
   total_amount: number;
   transaction_type: 'deposit' | 'withdrawal' | 'transfer';
+  is_voided: boolean;
 }
 
 export interface TransactionEntryDetail {
@@ -293,6 +295,7 @@ export interface TransactionDetail {
   created_at: string;
   created_by_name?: string | null;
   total_amount?: number;
+  is_voided: boolean;
   entries?: TransactionEntryDetail[];
 }
 

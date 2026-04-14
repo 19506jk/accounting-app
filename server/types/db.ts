@@ -41,6 +41,8 @@ export interface TransactionRow {
   description: string;
   reference_no: string | null;
   fund_id: number;
+  is_voided: boolean;
+  is_closing_entry: boolean;
   created_by: number;
   created_at: Date | string;
   updated_at: Date | string;
@@ -105,6 +107,7 @@ export interface TransactionListRow {
   created_at: Date | string;
   created_by_name: string | null;
   total_amount: string | number;
+  is_voided: boolean | null;
 }
 
 export interface TransactionEntryDetailRow {

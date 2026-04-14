@@ -463,6 +463,7 @@ export default function Transactions() {
   const [range,      setRange]      = useState(currentMonthRange());
   const [typeFilter, setTypeFilter] = useState('');
   const [accountFilter, setAccountFilter] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   const [showForm,   setShowForm]   = useState(false);
   const [expanded,   setExpanded]   = useState(null);
   const [editingTx,  setEditingTx]  = useState(null); // holds the full transaction object
@@ -474,6 +475,7 @@ export default function Transactions() {
     limit: 100,
     account_id: accountFilter || undefined,
     transaction_type: typeFilter || undefined,
+    include_inactive: showInactive ? 'true' : undefined,
   });
   const deleteTx = useDeleteTransaction();
   const typeOptions = [
@@ -529,6 +531,21 @@ export default function Transactions() {
           placeholder="All Accounts"
           style={{ minWidth: '220px' }}
         />
+        <label style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          fontSize: '0.875rem',
+          color: '#334155',
+          marginBottom: '0.35rem',
+        }}>
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={(e) => setShowInactive(e.target.checked)}
+          />
+          Show inactive
+        </label>
       </div>
 
       <Card>

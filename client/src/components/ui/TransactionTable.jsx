@@ -9,6 +9,8 @@ export const TYPE_BADGE = {
   transfer:   { label: 'Transfer',   bg: '#f1f5f9', color: '#475569' },
 };
 
+const INACTIVE_BADGE = { label: 'Inactive', bg: '#f1f5f9', color: '#64748b' };
+
 export function txFmt(n) {
   return '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 }
@@ -69,7 +71,13 @@ function TransactionDetail({ id, onEdit }) {
         </tbody>
       </table>
 
-      {onEdit && (
+      {detail.is_voided && (
+        <div style={{ marginTop: '0.75rem', fontSize: '0.78rem', color: '#64748b' }}>
+          This transaction is inactive and cannot be edited.
+        </div>
+      )}
+
+      {onEdit && !detail.is_voided && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
           <Button variant="secondary" size="sm" onClick={() => onEdit(detail)}>
             Edit
@@ -94,7 +102,19 @@ export default function TransactionTable({
   const baseColumns = useMemo(() => ([
     { key: 'date', label: 'Date',
       render: (r) => formatDateOnlyForDisplay(r.date) },
-    { key: 'description', label: 'Description', wrap: true },
+    { key: 'description', label: 'Description', wrap: true,
+      render: (r) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <span style={{ color: r.is_voided ? '#64748b' : '#1e293b' }}>{r.description}</span>
+          {r.is_voided && (
+            <span style={{ display: 'inline-block', padding: '0.15rem 0.5rem',
+              borderRadius: '999px', fontSize: '0.72rem', fontWeight: 600,
+              background: INACTIVE_BADGE.bg, color: INACTIVE_BADGE.color, whiteSpace: 'nowrap' }}>
+              {INACTIVE_BADGE.label}
+            </span>
+          )}
+        </div>
+      ) },
     { key: 'transaction_type', label: 'Type',
       render: (r) => {
         const badge = TYPE_BADGE[r.transaction_type] || TYPE_BADGE.transfer;
@@ -115,7 +135,11 @@ export default function TransactionTable({
     { key: 'reference_no', label: 'Ref',
       render: (r) => r.reference_no || <span style={{ color: '#d1d5db' }}>—</span> },
     { key: 'total_amount', label: 'Amount', align: 'right',
-      render: (r) => <span style={{ fontWeight: 500 }}>{txFmt(r.total_amount)}</span> },
+      render: (r) => (
+        <span style={{ fontWeight: 500, color: r.is_voided ? '#64748b' : '#1e293b' }}>
+          {txFmt(r.total_amount)}
+        </span>
+      ) },
   ]), []);
 
   const finalColumns = useMemo(() => {
@@ -128,7 +152,7 @@ export default function TransactionTable({
         key: 'actions',
         label: '',
         align: 'right',
-        render: (row) => (
+        render: (row) => row.is_voided ? null : (
           <Button
             variant="ghost"
             size="sm"

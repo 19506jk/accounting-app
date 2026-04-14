@@ -1,14 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSettings, useUpdateSettings } from '../api/useSettings';
 import { useTaxRates, useUpdateTaxRate, useToggleTaxRate } from '../api/useTaxRates';
+import { useFiscalPeriods, useReopenFiscalPeriod } from '../api/useFiscalPeriods';
 import { useAccounts } from '../api/useAccounts';
 import { useToast }   from '../components/ui/Toast';
 import Card    from '../components/ui/Card';
 import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
 import Button  from '../components/ui/Button';
+import Table   from '../components/ui/Table';
+import Modal   from '../components/ui/Modal';
 import Combobox from '../components/ui/Combobox';
-import { DEFAULT_CHURCH_TIMEZONE } from '../utils/date';
+import { DEFAULT_CHURCH_TIMEZONE, formatDateOnlyForDisplay } from '../utils/date';
 
 const PROVINCES = [
   'AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT',
@@ -37,6 +40,8 @@ export default function Settings() {
   const { data: taxRates = [], isLoading: taxRatesLoading } = useTaxRates();
   const updateTaxRate = useUpdateTaxRate();
   const toggleTaxRate = useToggleTaxRate();
+  const { data: fiscalPeriods = [], isLoading: periodsLoading } = useFiscalPeriods();
+  const reopenPeriod = useReopenFiscalPeriod();
 
   const { data: accounts = [] } = useAccounts();
   const offsetAccountOptions = useMemo(() => [
@@ -52,6 +57,8 @@ export default function Settings() {
   const [savingRate, setSavingRate] = useState({});
 
   const [form, setForm] = useState({});
+  const [confirmId, setConfirmId] = useState(null);
+  const latestPeriodId = fiscalPeriods[0]?.id ?? null;
 
   // Populate form when settings load
   useEffect(() => {
@@ -111,6 +118,21 @@ export default function Settings() {
     } catch {
       addToast('Failed to save settings. Please try again.', 'error');
     }
+  }
+
+  async function handleReopen() {
+    if (confirmId === null) return;
+    try {
+      await reopenPeriod.mutateAsync(confirmId);
+      addToast('Period reopened.', 'success');
+      setConfirmId(null);
+    } catch (err) {
+      addToast(err.response?.data?.error || 'Failed to reopen period.', 'error');
+    }
+  }
+
+  function formatDate(value) {
+    return formatDateOnlyForDisplay(value) || '—';
   }
 
   if (isLoading) {
@@ -200,6 +222,41 @@ export default function Settings() {
             options={TIMEZONES}
           />
         </div>
+      </Card>
+
+      <Card style={{ marginBottom: '1.25rem' }}>
+        <h2 style={{ fontSize: '0.9rem', fontWeight: 600, color: '#374151',
+          marginBottom: '1.25rem', marginTop: 0 }}>
+          Closed Fiscal Periods
+        </h2>
+        <Table
+          columns={[
+            { key: 'fiscal_year', label: 'Fiscal Year' },
+            { key: 'period_start', label: 'Start', render: (p) => formatDate(p.period_start) },
+            { key: 'period_end', label: 'End', render: (p) => formatDate(p.period_end) },
+            { key: 'closed_at', label: 'Closed', render: (p) => formatDate(p.closed_at) },
+            {
+              key: 'actions',
+              label: '',
+              align: 'right',
+              render: (p) => (
+                p.id === latestPeriodId ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setConfirmId(p.id)}
+                    disabled={reopenPeriod.isPending}
+                  >
+                    Reopen
+                  </Button>
+                ) : null
+              ),
+            },
+          ]}
+          rows={fiscalPeriods}
+          isLoading={periodsLoading}
+          emptyText="No closed fiscal periods."
+        />
       </Card>
 
       <Card style={{ marginBottom: '1.25rem' }}>
@@ -334,6 +391,25 @@ export default function Settings() {
           Save Settings
         </Button>
       </div>
+
+      <Modal
+        isOpen={confirmId !== null}
+        onClose={() => setConfirmId(null)}
+        title="Reopen Fiscal Period?"
+      >
+        <p style={{ margin: 0, color: '#374151', fontSize: '0.875rem', lineHeight: 1.5 }}>
+          This will void the closing entry and unlock the period for new transactions.
+          This cannot be undone without running Hard Close again.
+        </p>
+        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+          <Button variant="ghost" onClick={() => setConfirmId(null)} disabled={reopenPeriod.isPending}>
+            Cancel
+          </Button>
+          <Button variant="primary" isLoading={reopenPeriod.isPending} onClick={handleReopen}>
+            Confirm Reopen
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

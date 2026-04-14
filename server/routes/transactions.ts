@@ -168,6 +168,7 @@ async function getTransactionDetailById(id: string | number): Promise<Transactio
       't.reference_no',
       't.fund_id',
       't.created_at',
+      't.is_voided',
       'u.name as created_by_name'
     )
     .first() as (TransactionRow & { created_by_name: string | null }) | undefined;
@@ -219,8 +220,19 @@ router.get(
     next: NextFunction
   ) => {
     try {
-      const { fund_id, account_id, contact_id, transaction_type, from, to, limit = 50, offset = 0 } = req.query;
+      const {
+        fund_id,
+        account_id,
+        contact_id,
+        include_inactive,
+        transaction_type,
+        from,
+        to,
+        limit = 50,
+        offset = 0,
+      } = req.query;
       const validTransactionTypes: Array<NonNullable<TransactionsQuery['transaction_type']>> = ['deposit', 'withdrawal', 'transfer'];
+      const includeInactive = include_inactive === true || String(include_inactive).toLowerCase() === 'true';
       if (transaction_type && !validTransactionTypes.includes(transaction_type)) {
         return res.status(400).json({ error: 'transaction_type must be one of deposit, withdrawal, transfer' });
       }
@@ -240,6 +252,7 @@ router.get(
       const baseQuery = () => db('transactions as t')
         .leftJoin('users as u', 'u.id', 't.created_by')
         .modify((q: Knex.QueryBuilder) => {
+          if (!includeInactive) q.where('t.is_voided', false);
           if (fund_id) q.where('t.fund_id', fund_id);
           if (from) q.where('t.date', '>=', from);
           if (to) q.where('t.date', '<=', to);
@@ -346,6 +359,7 @@ router.get(
           db.raw('COALESCE(CASE WHEN je_contacts.contact_count > 1 THEN 1 ELSE 0 END, 0) AS has_multiple_contacts'),
           't.fund_id',
           't.created_at',
+          't.is_voided',
           'u.name as created_by_name',
           db.raw('COALESCE(je_totals.total_amount, 0) AS total_amount'),
           db.raw('COALESCE(je_type_flags.has_income_credit, 0) AS has_income_credit'),
@@ -364,6 +378,7 @@ router.get(
           ...t,
           date: normalizeDateOnly(t.date),
           created_at: String(t.created_at),
+          is_voided: Boolean(t.is_voided),
           total_amount: parseFloat(String(t.total_amount)),
           has_multiple_contacts: Number(t.has_multiple_contacts) > 0,
           transaction_type,
@@ -1488,6 +1503,7 @@ router.put(
 
       const transaction = await db('transactions').where({ id }).first() as TransactionRow | undefined;
       if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
+      if (transaction.is_voided) return res.status(422).json({ error: 'Voided transactions cannot be edited.' });
 
       if (date) {
         if (!parseDateOnlyStrict(date)) {
@@ -1508,10 +1524,13 @@ router.put(
       await db.transaction(async (trx: Knex.Transaction) => {
         const existingTx = await trx('transactions')
           .where({ id })
-          .select('date')
-          .first() as Pick<TransactionRow, 'date'> | undefined;
+          .select('date', 'is_voided')
+          .first() as Pick<TransactionRow, 'date' | 'is_voided'> | undefined;
         if (!existingTx) {
           throw Object.assign(new Error('Transaction not found'), { status: 404 });
+        }
+        if (existingTx.is_voided) {
+          throw Object.assign(new Error('Voided transactions cannot be edited.'), { status: 422 });
         }
         await assertNotClosedPeriod(normalizeDateOnly(existingTx.date), trx);
         await assertNotClosedPeriod(nextDate, trx);
@@ -1647,9 +1666,13 @@ router.delete(
       await db.transaction(async (trx: Knex.Transaction) => {
         const transaction = await trx('transactions')
           .where({ id })
-          .select('date', 'is_closing_entry')
-          .first() as (Pick<TransactionRow, 'date'> & { is_closing_entry: boolean }) | undefined;
+          .select('date', 'is_closing_entry', 'is_voided')
+          .first() as Pick<TransactionRow, 'date' | 'is_closing_entry' | 'is_voided'> | undefined;
         if (!transaction) throw Object.assign(new Error('Transaction not found'), { status: 404 });
+
+        if (transaction.is_voided) {
+          throw Object.assign(new Error('Voided transactions cannot be deleted.'), { status: 422 });
+        }
 
         if (transaction.is_closing_entry) {
           throw Object.assign(new Error('Closing entries cannot be deleted. Use the Reopen Period utility.'), { status: 422 });
