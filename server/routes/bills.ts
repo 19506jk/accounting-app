@@ -32,7 +32,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/roles');
 import billService = require('../services/bills');
-import { getChurchToday, isValidDateOnly } from '../utils/date.js';
+import { getChurchToday, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
 import { getChurchTimeZone } from '../services/churchTimeZone.js';
 
 const {
@@ -149,8 +149,8 @@ router.get(
       res.json({
         bills: bills.map((b) => ({
           ...b,
-          date: String(b.date),
-          due_date: b.due_date ? String(b.due_date) : null,
+          date: normalizeDateOnly(b.date),
+          due_date: b.due_date ? normalizeDateOnly(b.due_date) : null,
           paid_at: b.paid_at ? String(b.paid_at) : null,
           created_at: String(b.created_at),
           updated_at: String(b.updated_at),

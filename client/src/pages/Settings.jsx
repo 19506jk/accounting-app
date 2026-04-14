@@ -58,7 +58,16 @@ export default function Settings() {
 
   const [form, setForm] = useState({});
   const [confirmId, setConfirmId] = useState(null);
-  const latestPeriodId = fiscalPeriods[0]?.id ?? null;
+  const latestPeriodId = useMemo(() => {
+    if (!fiscalPeriods.length) return null;
+    const latest = fiscalPeriods.reduce((current, period) => {
+      if (!current) return period;
+      if (period.period_end > current.period_end) return period;
+      if (period.period_end < current.period_end) return current;
+      return period.id > current.id ? period : current;
+    }, null);
+    return latest?.id ?? null;
+  }, [fiscalPeriods]);
 
   // Populate form when settings load
   useEffect(() => {
@@ -133,6 +142,26 @@ export default function Settings() {
 
   function formatDate(value) {
     return formatDateOnlyForDisplay(value) || '—';
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '—';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '—';
+    const timeZone = form.church_timezone || DEFAULT_CHURCH_TIMEZONE;
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(parsed).replace(',', '');
+    } catch {
+      return parsed.toISOString().replace('T', ' ').slice(0, 16);
+    }
   }
 
   if (isLoading) {
@@ -234,7 +263,7 @@ export default function Settings() {
             { key: 'fiscal_year', label: 'Fiscal Year' },
             { key: 'period_start', label: 'Start', render: (p) => formatDate(p.period_start) },
             { key: 'period_end', label: 'End', render: (p) => formatDate(p.period_end) },
-            { key: 'closed_at', label: 'Closed', render: (p) => formatDate(p.closed_at) },
+            { key: 'closed_at', label: 'Closed', render: (p) => formatDateTime(p.closed_at) },
             {
               key: 'actions',
               label: '',

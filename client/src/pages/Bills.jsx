@@ -76,6 +76,17 @@ function parseRoundingAdjustment(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function coerceDateOnly(value) {
+  if (value == null) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  const directDateOnly = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (directDateOnly?.[1]) return directDateOnly[1];
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return toDateOnly(raw);
+}
+
 function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding = false, readOnly = false }) {
   const { addToast } = useToast();
   const { data: contacts } = useContacts({ type: 'PAYEE' });
@@ -88,8 +99,8 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
   const [form, setForm] = useState(bill ? {
     bill_type: parseFloat(bill.amount) < 0 ? 'CREDIT' : 'BILL',
     contact_id: String(bill.contact_id),
-    date: toDateOnly(String(bill.date)),
-    due_date: bill.due_date ? toDateOnly(String(bill.due_date)) : '',
+    date: coerceDateOnly(bill.date),
+    due_date: coerceDateOnly(bill.due_date),
     bill_number: bill.bill_number || '',
     description: bill.description || '',
     fund_id: String(bill.fund_id),
