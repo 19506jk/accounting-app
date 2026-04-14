@@ -13,6 +13,7 @@ import { getDonationLines, type DonationLine } from './donorDonations.js';
 const db = require('../db') as Knex;
 
 const TEMPLATE_VARIABLES = [
+  'receipt_serial_number',
   'donor_name',
   'donor_id',
   'donor_address',
@@ -28,12 +29,10 @@ const TEMPLATE_VARIABLES = [
   'church_city',
   'church_province',
   'church_postal_code',
+  'church_phone',
   'cra_charitable_registration_number',
   'fiscal_year',
-  'fiscal_year_start_date',
-  'fiscal_year_end_date',
   'total_amount',
-  'donation_lines',
   'generated_date',
 ] as const;
 
@@ -43,10 +42,11 @@ const DEFAULT_TEMPLATE = `# Official Donation Receipt
 **{{church_name}}**  
 {{church_address}}  
 {{church_city}}, {{church_province}} {{church_postal_code}}  
+Phone: {{church_phone}}  
 CRA Charitable Registration No: {{cra_charitable_registration_number}}
 
 Receipt for fiscal year {{fiscal_year}}  
-Period: {{fiscal_year_start_date}} to {{fiscal_year_end_date}}  
+Receipt serial number: {{receipt_serial_number}}  
 Generated: {{generated_date}}
 
 ## Donor
@@ -55,10 +55,6 @@ Generated: {{generated_date}}
 Donor ID: {{donor_id}}  
 {{donor_address}}  
 {{donor_city}}, {{donor_province}} {{donor_postal_code}}
-
-## Donations
-
-{{donation_lines}}
 
 **Total eligible amount: {{total_amount}}**
 `;
@@ -87,6 +83,7 @@ interface ReceiptData {
   total: Decimal;
   lines: DonationLine[];
   warnings: string[];
+  serial_number: string;
 }
 
 function dec(value: string | number | Decimal | null | undefined) {
@@ -301,40 +298,26 @@ function groupReceipts(lines: DonationLine[], contactsById: Map<number, ContactR
     const warnings: string[] = [];
     if (!contact.donor_id) warnings.push(`Missing donor_id for ${contact.name} (contact ${contact.id})`);
     if (!compactJoin([contact.address_line1, contact.address_line2])) warnings.push(`Missing donor address for ${contact.name}`);
-    receipts.push({ contact, total, lines: donorLines, warnings });
+    receipts.push({ contact, total, lines: donorLines, warnings, serial_number: '' });
   }
 
   receipts.sort((a, b) => a.contact.name.localeCompare(b.contact.name));
+  receipts.forEach((receipt, index) => {
+    receipt.serial_number = `5-${String(index + 1).padStart(3, '0')}`;
+  });
   return receipts;
-}
-
-function donationLinesMarkdown(lines: DonationLine[]) {
-  const includeReference = lines.some((line) => Boolean(line.reference_no));
-  const headers = includeReference
-    ? ['Date', 'Account', 'Reference', 'Amount']
-    : ['Date', 'Account', 'Amount'];
-  const rows = lines.map((line) => includeReference
-    ? [line.date, line.account_name, line.reference_no || '', money(line.amount)]
-    : [line.date, line.account_name, money(line.amount)]);
-
-  return [
-    `| ${headers.join(' | ')} |`,
-    `| ${headers.map(() => '---').join(' | ')} |`,
-    ...rows.map((row) => `| ${row.join(' | ')} |`),
-  ].join('\n');
 }
 
 function renderReceiptMarkdown(
   template: string,
   receipt: ReceiptData,
   settings: Record<string, string | null>,
-  fiscalYear: number,
-  periodStart: string,
-  periodEnd: string
+  fiscalYear: number
 ) {
   const donorAddress = compactJoin([receipt.contact.address_line1, receipt.contact.address_line2], '\n');
   const churchAddress = compactJoin([settings.church_address_line1, settings.church_address_line2], '\n');
   const values: Record<string, string> = {
+    receipt_serial_number: receipt.serial_number,
     donor_name: receipt.contact.name,
     donor_id: receipt.contact.donor_id || '',
     donor_address: donorAddress,
@@ -350,12 +333,10 @@ function renderReceiptMarkdown(
     church_city: settings.church_city || '',
     church_province: settings.church_province || '',
     church_postal_code: settings.church_postal_code || '',
+    church_phone: settings.church_phone || '',
     cra_charitable_registration_number: settings.church_registration_no || '',
     fiscal_year: String(fiscalYear),
-    fiscal_year_start_date: periodStart,
-    fiscal_year_end_date: periodEnd,
     total_amount: money(receipt.total),
-    donation_lines: donationLinesMarkdown(receipt.lines),
     generated_date: new Date().toISOString().slice(0, 10),
   };
 
@@ -366,11 +347,9 @@ function renderReceiptHtml(
   template: string,
   receipt: ReceiptData,
   settings: Record<string, string | null>,
-  fiscalYear: number,
-  periodStart: string,
-  periodEnd: string
+  fiscalYear: number
 ) {
-  return markdownToHtml(renderReceiptMarkdown(template, receipt, settings, fiscalYear, periodStart, periodEnd));
+  return markdownToHtml(renderReceiptMarkdown(template, receipt, settings, fiscalYear));
 }
 
 function wrapDocument(receiptHtml: string[], title: string) {
@@ -520,7 +499,7 @@ export async function previewReceipt(
   }
 
   return {
-    html: renderReceiptHtml(data.template, firstReceipt, data.settings, data.fiscalYear, data.periodStart, data.periodEnd),
+    html: renderReceiptHtml(data.template, firstReceipt, data.settings, data.fiscalYear),
     warnings: data.warnings,
     donor_count: data.receipts.length,
   };
@@ -533,7 +512,7 @@ export async function generateReceipts(
 ): Promise<{ html: string; meta: DonationReceiptGenerateMeta }> {
   const data = await buildReceipts(fiscalYear, accountIds, markdownBody);
   const receipts = data.receipts.map((receipt) =>
-    renderReceiptHtml(data.template, receipt, data.settings, data.fiscalYear, data.periodStart, data.periodEnd)
+    renderReceiptHtml(data.template, receipt, data.settings, data.fiscalYear)
   );
 
   return {
