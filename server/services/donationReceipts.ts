@@ -4,7 +4,7 @@ import Decimal from 'decimal.js';
 import type {
   DonationReceiptAccount,
   DonationReceiptAccountsResponse,
-  DonationReceiptGenerateMeta,
+  DonationReceiptGenerateResponse,
   DonationReceiptPreviewResponse,
   DonationReceiptTemplateResponse,
 } from '@shared/contracts';
@@ -98,15 +98,6 @@ function compactJoin(parts: Array<string | null | undefined>, separator = ' ') {
   return parts.map((part) => String(part || '').trim()).filter(Boolean).join(separator);
 }
 
-function escapeHtml(value: string | number | null | undefined) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function validateTemplate(markdownBody: string) {
   const unknown = new Set<string>();
   const matches = markdownBody.matchAll(/{{\s*([a-zA-Z0-9_]+)\s*}}/g);
@@ -115,114 +106,6 @@ function validateTemplate(markdownBody: string) {
     if (variable && !VARIABLE_SET.has(variable)) unknown.add(variable);
   }
   return [...unknown];
-}
-
-function markdownToHtml(markdown: string) {
-  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
-  const html: string[] = [];
-  let paragraph: string[] = [];
-  let tableBuffer: string[] = [];
-  let listBuffer: Array<{ type: 'ul' | 'ol'; item: string }> = [];
-
-  function flushParagraph() {
-    if (!paragraph.length) return;
-    html.push(`<p>${paragraph.join('<br>')}</p>`);
-    paragraph = [];
-  }
-
-  function flushTable() {
-    if (!tableBuffer.length) return;
-    if (tableBuffer.length >= 2 && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(tableBuffer[1] || '')) {
-      const rows = tableBuffer.filter((_, index) => index !== 1).map((row) =>
-        row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim())
-      );
-      const [header, ...body] = rows;
-      if (header) {
-        html.push('<table>');
-        html.push(`<thead><tr>${header.map((cell) => `<th>${cell}</th>`).join('')}</tr></thead>`);
-        html.push('<tbody>');
-        for (const row of body) html.push(`<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`);
-        html.push('</tbody></table>');
-      }
-    } else {
-      html.push(...tableBuffer.map((line) => `<p>${line}</p>`));
-    }
-    tableBuffer = [];
-  }
-
-  function flushList() {
-    if (!listBuffer.length) return;
-    let currentType = listBuffer[0]?.type || 'ul';
-    html.push(`<${currentType}>`);
-    for (const entry of listBuffer) {
-      if (entry.type !== currentType) {
-        html.push(`</${currentType}>`);
-        html.push(`<${entry.type}>`);
-        currentType = entry.type;
-      }
-      html.push(`<li>${entry.item}</li>`);
-    }
-    html.push(`</${currentType}>`);
-    listBuffer = [];
-  }
-
-  function inline(text: string) {
-    return escapeHtml(text)
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>');
-  }
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('|')) {
-      flushParagraph();
-      flushList();
-      tableBuffer.push(inline(trimmed));
-      continue;
-    }
-    flushTable();
-
-    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
-    const numberedMatch = trimmed.match(/^\d+\.\s+(.+)$/);
-    if (bulletMatch?.[1] || numberedMatch?.[1]) {
-      flushParagraph();
-      listBuffer.push({
-        type: bulletMatch ? 'ul' : 'ol',
-        item: inline(bulletMatch?.[1] || numberedMatch?.[1] || ''),
-      });
-      continue;
-    }
-    flushList();
-
-    if (!trimmed) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    if (trimmed.startsWith('### ')) {
-      flushParagraph();
-      html.push(`<h3>${inline(trimmed.slice(4))}</h3>`);
-      continue;
-    }
-    if (trimmed.startsWith('## ')) {
-      flushParagraph();
-      html.push(`<h2>${inline(trimmed.slice(3))}</h2>`);
-      continue;
-    }
-    if (trimmed.startsWith('# ')) {
-      flushParagraph();
-      html.push(`<h1>${inline(trimmed.slice(2))}</h1>`);
-      continue;
-    }
-
-    paragraph.push(inline(trimmed.replace(/\s{2}$/, '')));
-  }
-
-  flushParagraph();
-  flushList();
-  flushTable();
-  return html.join('\n');
 }
 
 async function getSettingsMap() {
@@ -343,44 +226,6 @@ function renderReceiptMarkdown(
   return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, variable: string) => values[variable] ?? '');
 }
 
-function renderReceiptHtml(
-  template: string,
-  receipt: ReceiptData,
-  settings: Record<string, string | null>,
-  fiscalYear: number
-) {
-  return markdownToHtml(renderReceiptMarkdown(template, receipt, settings, fiscalYear));
-}
-
-function wrapDocument(receiptHtml: string[], title: string) {
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>${escapeHtml(title)}</title>
-  <style>
-    body { color: #111827; font-family: Georgia, "Times New Roman", serif; margin: 0; background: #f3f4f6; }
-    .receipt { box-sizing: border-box; width: 8.5in; min-height: 11in; margin: 0 auto 24px; padding: 0.75in; background: white; }
-    h1 { font-size: 22px; margin: 0 0 18px; }
-    h2 { font-size: 16px; margin: 22px 0 10px; }
-    h3 { font-size: 14px; margin: 18px 0 8px; }
-    p { line-height: 1.45; margin: 0 0 12px; }
-    table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 13px; }
-    th, td { border-bottom: 1px solid #e5e7eb; padding: 7px 6px; text-align: left; vertical-align: top; }
-    th:last-child, td:last-child { text-align: right; }
-    @media print {
-      body { background: white; }
-      .receipt { width: auto; min-height: auto; margin: 0; padding: 0.5in; break-after: page; }
-      .receipt:last-child { break-after: auto; }
-    }
-  </style>
-</head>
-<body>
-${receiptHtml.map((html) => `<section class="receipt">${html}</section>`).join('\n')}
-</body>
-</html>`;
-}
-
 async function buildReceipts(fiscalYear: number, accountIds: number[], markdownBody?: string) {
   const validAccountIds = await validateIncomeAccountIds(accountIds);
   const { startDate, endDate } = await getFiscalYearRange(fiscalYear);
@@ -492,14 +337,14 @@ export async function previewReceipt(
   const firstReceipt = data.receipts[0];
   if (!firstReceipt) {
     return {
-      html: '<p>No donors found for the selected fiscal year and accounts.</p>',
+      markdown: null,
       warnings: data.warnings,
       donor_count: 0,
     };
   }
 
   return {
-    html: renderReceiptHtml(data.template, firstReceipt, data.settings, data.fiscalYear),
+    markdown: renderReceiptMarkdown(data.template, firstReceipt, data.settings, data.fiscalYear),
     warnings: data.warnings,
     donor_count: data.receipts.length,
   };
@@ -509,14 +354,14 @@ export async function generateReceipts(
   fiscalYear: number,
   accountIds: number[],
   markdownBody?: string
-): Promise<{ html: string; meta: DonationReceiptGenerateMeta }> {
+): Promise<DonationReceiptGenerateResponse> {
   const data = await buildReceipts(fiscalYear, accountIds, markdownBody);
   const receipts = data.receipts.map((receipt) =>
-    renderReceiptHtml(data.template, receipt, data.settings, data.fiscalYear)
+    renderReceiptMarkdown(data.template, receipt, data.settings, data.fiscalYear)
   );
 
   return {
-    html: wrapDocument(receipts, `Donation Receipts ${fiscalYear}`),
+    receipts,
     meta: {
       fiscal_year: data.fiscalYear,
       period_start: data.periodStart,

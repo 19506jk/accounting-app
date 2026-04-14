@@ -1159,7 +1159,7 @@ export interface DonationReceiptPreviewInput {
 }
 
 export interface DonationReceiptPreviewResponse {
-  html: string;
+  markdown: string | null;
   warnings: string[];
   donor_count: number;
 }
@@ -1176,6 +1176,11 @@ export interface DonationReceiptGenerateMeta {
   period_end: string;
   donor_count: number;
   warnings: string[];
+}
+
+export interface DonationReceiptGenerateResponse {
+  receipts: string[];
+  meta: DonationReceiptGenerateMeta;
 }
 
 export interface SettingItem {

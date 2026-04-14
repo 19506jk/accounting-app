@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { PDFViewer, pdf } from '@react-pdf/renderer'
 import {
   useDonationReceiptAccounts,
   useDonationReceiptTemplate,
@@ -7,6 +8,7 @@ import {
   useSaveDonationReceiptTemplate,
 } from '../api/useDonationReceipts'
 import { useSettings } from '../api/useSettings'
+import DonationReceiptsPdfDocument from '../components/DonationReceiptsPdfDocument'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Select from '../components/ui/Select'
@@ -26,8 +28,8 @@ function getErrorMessage(error) {
   return error?.response?.data?.error || error?.response?.data?.errors?.join(', ') || error?.message || 'Request failed'
 }
 
-function downloadHtml(html, filename) {
-  const blob = new Blob([html], { type: 'text/html' })
+async function downloadPdf(receipts, filename) {
+  const blob = await pdf(<DonationReceiptsPdfDocument receipts={receipts} />).toBlob()
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -117,7 +119,7 @@ export default function DonationReceipts() {
         account_ids: accountIds,
         markdown_body: markdownBody,
       })
-      downloadHtml(result.html, `donation_receipts_fy${fiscalYear}.html`)
+      await downloadPdf(result.receipts || [], `donation_receipts_fy${fiscalYear}.pdf`)
       const warnings = result.meta?.warnings || []
       setStatus({
         message: warnings.length
@@ -129,6 +131,10 @@ export default function DonationReceipts() {
       setStatus({ message: getErrorMessage(error), type: 'error' })
     }
   }
+
+  const previewMarkdown = previewReceipt.data?.markdown || null
+  const hasPreviewResult = Boolean(previewReceipt.data)
+  const hasNoDonorResult = hasPreviewResult && previewMarkdown === null
 
   return (
     <div>
@@ -293,12 +299,14 @@ export default function DonationReceipts() {
           )}
 
           <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', minHeight: '520px' }}>
-            {previewReceipt.data?.html ? (
-              <iframe
-                title="Donation receipt preview"
-                srcDoc={`<!doctype html><html><head><style>body{font-family:Georgia,"Times New Roman",serif;padding:24px;color:#111827}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #e5e7eb;padding:6px;text-align:left}th:last-child,td:last-child{text-align:right}</style></head><body>${previewReceipt.data.html}</body></html>`}
-                style={{ width: '100%', minHeight: '520px', border: 0, background: 'white' }}
-              />
+            {previewMarkdown ? (
+              <PDFViewer style={{ width: '100%', height: '520px', border: 0 }}>
+                <DonationReceiptsPdfDocument receipts={[previewMarkdown]} />
+              </PDFViewer>
+            ) : hasNoDonorResult ? (
+              <div style={{ padding: '2rem', color: '#9ca3af', textAlign: 'center' }}>
+                No donors found for the selected fiscal year and accounts.
+              </div>
             ) : (
               <div style={{ padding: '2rem', color: '#9ca3af', textAlign: 'center' }}>
                 Select accounts and run preview.
@@ -315,7 +323,7 @@ export default function DonationReceipts() {
               isLoading={generateReceipts.isPending}
               disabled={!accountIds.length || !markdownBody.trim()}
             >
-              Download HTML
+              Download PDF
             </Button>
           </div>
         </Card>

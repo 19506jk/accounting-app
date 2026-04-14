@@ -5,6 +5,7 @@ import type {
   ApiErrorResponse,
   DonationReceiptAccountsResponse,
   DonationReceiptGenerateInput,
+  DonationReceiptGenerateResponse,
   DonationReceiptPreviewInput,
   DonationReceiptPreviewResponse,
   DonationReceiptTemplateResponse,
@@ -128,8 +129,8 @@ router.post(
 router.post(
   '/generate',
   async (
-    req: Request<{}, string | ApiErrorResponse, DonationReceiptGenerateInput>,
-    res: Response<string | ApiErrorResponse>,
+    req: Request<{}, DonationReceiptGenerateResponse | ApiErrorResponse, DonationReceiptGenerateInput>,
+    res: Response<DonationReceiptGenerateResponse | ApiErrorResponse>,
     next: NextFunction
   ) => {
     try {
@@ -143,9 +144,7 @@ router.post(
         return res.status(400).json({ error: accountIdsError || 'Invalid account_ids' });
       }
 
-      const { html, meta } = await generateReceipts(fiscalYear, accountIds, req.body?.markdown_body);
-      res.setHeader('X-Donation-Receipt-Meta', encodeURIComponent(JSON.stringify(meta)));
-      res.type('html').send(html);
+      res.json(await generateReceipts(fiscalYear, accountIds, req.body?.markdown_body));
     } catch (err) {
       next(err);
     }
