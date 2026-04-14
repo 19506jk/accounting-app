@@ -7,7 +7,6 @@ import {
 import { useAccounts }  from '../api/useAccounts';
 import { useFunds }     from '../api/useFunds';
 import { useContacts }  from '../api/useContacts';
-import { useSettings }  from '../api/useSettings';
 import Card    from '../components/ui/Card';
 import Button  from '../components/ui/Button';
 import Select  from '../components/ui/Select';
@@ -18,13 +17,9 @@ import Badge   from '../components/ui/Badge';
 import HardCloseWizard from './HardClose';
 import {
   currentMonthRange,
-  currentYearValue,
   formatDateOnlyForDisplay,
   getChurchToday,
 } from '../utils/date';
-
-// PDF receipt
-import { PDFDownloadLink, Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 
 const fmt  = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 const fmtD = (d) => formatDateOnlyForDisplay(d);
@@ -278,116 +273,6 @@ function downloadXlsx(rows, filename, sheetName, cols = null) {
   if (cols) ws['!cols'] = cols;
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
   XLSX.writeFile(wb, filename);
-}
-
-// ── CRA Donation Receipt PDF ─────────────────────────────────────────────────
-const receiptStyles = StyleSheet.create({
-  page:     { padding: 48, fontFamily: 'Helvetica', fontSize: 10 },
-  heading:  { fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
-  subhead:  { fontSize: 11, marginBottom: 2 },
-  section:  { marginTop: 16, marginBottom: 8 },
-  row:      { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
-  label:    { color: '#666' },
-  bold:     { fontWeight: 'bold' },
-  divider:  { borderBottom: '1pt solid #ccc', marginVertical: 8 },
-  tableRow: { flexDirection: 'row', borderBottom: '0.5pt solid #eee', paddingVertical: 3 },
-  col1:     { width: '20%' },
-  col2:     { width: '40%' },
-  col3:     { width: '20%' },
-  col4:     { width: '20%', textAlign: 'right' },
-  sigLine:  { borderBottom: '1pt solid #000', width: 200, marginTop: 32, marginBottom: 4 },
-  footer:   { fontSize: 8, color: '#999', marginTop: 16 },
-});
-
-function ReceiptPDF({ receipt }) {
-  const { church, donor, year, donations, total, eligible_amount } = receipt;
-  return (
-    <Document>
-      <Page size="A4" style={receiptStyles.page}>
-        {/* Church header */}
-        <Text style={receiptStyles.heading}>{church.name}</Text>
-        <Text style={receiptStyles.subhead}>{church.address_line1}</Text>
-        {church.address_line2 && <Text style={receiptStyles.subhead}>{church.address_line2}</Text>}
-        <Text style={receiptStyles.subhead}>
-          {church.city}{church.province ? `, ${church.province}` : ''}{church.postal_code ? `  ${church.postal_code}` : ''}
-        </Text>
-        {church.registration_no && (
-          <Text style={receiptStyles.subhead}>CRA Registration: {church.registration_no}</Text>
-        )}
-
-        <View style={receiptStyles.divider} />
-
-        <Text style={[receiptStyles.heading, { fontSize: 13 }]}>
-          OFFICIAL DONATION RECEIPT — {year}
-        </Text>
-
-        {/* Donor */}
-        <View style={receiptStyles.section}>
-          <Text style={receiptStyles.label}>Issued to:</Text>
-          <Text style={receiptStyles.bold}>{donor.name}</Text>
-          {/* Donor ID — shown when available */}
-          {donor.donor_id && (
-            <Text style={{ fontSize: 9, color: '#555', marginTop: 2 }}>
-              Donor ID: {donor.donor_id}
-            </Text>
-          )}
-          {donor.address_line1 && <Text>{donor.address_line1}</Text>}
-          {donor.address_line2 && <Text>{donor.address_line2}</Text>}
-          <Text>
-            {donor.city}{donor.province ? `, ${donor.province}` : ''}{donor.postal_code ? `  ${donor.postal_code}` : ''}
-          </Text>
-        </View>
-
-        {/* Location of issue — CRA mandatory */}
-        <Text style={{ marginBottom: 8 }}>
-          <Text style={receiptStyles.label}>Issued at: </Text>
-          {church.city || ''}{church.province ? `, ${church.province}` : ''}
-        </Text>
-
-        <View style={receiptStyles.divider} />
-
-        {/* Donations table */}
-        <View style={{ marginBottom: 8 }}>
-          <View style={[receiptStyles.tableRow, { fontWeight: 'bold' }]}>
-            <Text style={receiptStyles.col1}>Date</Text>
-            <Text style={receiptStyles.col2}>Description</Text>
-            <Text style={receiptStyles.col3}>Account</Text>
-            <Text style={receiptStyles.col4}>Amount</Text>
-          </View>
-          {donations.map((d, i) => (
-            <View key={i} style={receiptStyles.tableRow}>
-              <Text style={receiptStyles.col1}>{fmtD(d.date)}</Text>
-              <Text style={receiptStyles.col2}>{d.description}</Text>
-              <Text style={receiptStyles.col3}>{d.account_name}</Text>
-              <Text style={receiptStyles.col4}>{fmt(d.amount)}</Text>
-            </View>
-          ))}
-        </View>
-
-        <View style={receiptStyles.divider} />
-
-        {/* Totals — CRA mandatory wording */}
-        <View style={receiptStyles.row}>
-          <Text style={receiptStyles.label}>Total donations for {year}:</Text>
-          <Text style={receiptStyles.bold}>{fmt(total)}</Text>
-        </View>
-        <View style={receiptStyles.row}>
-          <Text style={receiptStyles.label}>Eligible amount for tax purposes:</Text>
-          <Text style={receiptStyles.bold}>{fmt(eligible_amount)}</Text>
-        </View>
-
-        {/* Signature — CRA mandatory */}
-        <View style={{ marginTop: 24 }}>
-          <View style={receiptStyles.sigLine} />
-          <Text style={receiptStyles.label}>Authorized Signature</Text>
-        </View>
-
-        <Text style={receiptStyles.footer}>
-          Generated: {getChurchToday()} — This is an official receipt for income tax purposes.
-        </Text>
-      </Page>
-    </Document>
-  );
 }
 
 // ── Report renderers ─────────────────────────────────────────────────────────
@@ -675,13 +560,12 @@ function DonorSummaryReport({ data }) {
   );
 }
 
-function DonorDetailReport({ data, settings }) {
+function DonorDetailReport({ data }) {
   return (
     <div>
       {(data.donors || []).map((d) => (
         <div key={d.contact_id} style={{ marginBottom: '2rem', pageBreakInside: 'avoid' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            marginBottom: '0.5rem' }}>
+          <div style={{ marginBottom: '0.5rem' }}>
             <div>
               <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>{d.contact_name}</div>
               {d.donor_id && (
@@ -690,30 +574,6 @@ function DonorDetailReport({ data, settings }) {
                 </div>
               )}
             </div>
-            <PDFDownloadLink
-              document={<ReceiptPDF receipt={{
-                church: {
-                  name:            settings?.church_name || '',
-                  address_line1:   settings?.church_address_line1 || '',
-                  city:            settings?.church_city || '',
-                  province:        settings?.church_province || '',
-                  postal_code:     settings?.church_postal_code || '',
-                  registration_no: settings?.church_registration_no || '',
-                },
-                donor: d,   // d now includes donor_id from the API response
-                year:         currentYearValue(),
-                donations:    d.transactions || [],
-                total:        d.total,
-                eligible_amount: d.total,
-              }} />}
-              fileName={`receipt_${d.contact_name.replace(/\s+/g,'_')}.pdf`}
-            >
-              {({ loading }) => (
-                <Button variant="secondary" size="sm" isLoading={loading}>
-                  Download Receipt PDF
-                </Button>
-              )}
-            </PDFDownloadLink>
           </div>
           <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
             <thead>
@@ -819,7 +679,6 @@ export default function Reports() {
   const { data: accounts } = useAccounts();
   const { data: incomeAccounts } = useAccounts({ type: 'INCOME' });
   const { data: contacts } = useContacts({ type: 'DONOR' });
-  const { data: settings } = useSettings();
 
   const fundOptions    = [{ value: '', label: 'All Funds' }, ...(funds || []).map((f) => ({ value: f.id, label: f.name }))];
   const accountOptions = [{ value: '', label: 'All Accounts' }, ...(accounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))];
@@ -987,7 +846,7 @@ export default function Reports() {
           {type === 'ledger'         && <LedgerReport data={reportData} />}
           {type === 'trial-balance'  && <TrialBalanceReport data={reportData} onInvestigate={handleInvestigate} />}
           {type === 'donors-summary' && <DonorSummaryReport data={reportData} />}
-          {type === 'donors-detail'  && <DonorDetailReport data={reportData} settings={settings} />}
+          {type === 'donors-detail'  && <DonorDetailReport data={reportData} />}
         </Card>
       )}
 

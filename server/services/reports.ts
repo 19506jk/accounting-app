@@ -14,6 +14,7 @@ import type {
   ReportDiagnostic,
   TrialBalanceReportData,
 } from '@shared/contracts';
+import { getDonationLines } from './donorDonations.js';
 import { normalizeDateOnly } from '../utils/date.js';
 
 const db = require('../db') as Knex;
@@ -129,22 +130,6 @@ interface ContactRow {
   id: number;
   name: string;
   contact_class: 'INDIVIDUAL' | 'HOUSEHOLD';
-}
-
-interface ContactIdRow {
-  id: number;
-}
-
-interface DonationQueryRow {
-  transaction_id: number;
-  amount: Numeric;
-  date: string | Date;
-  description: string;
-  reference_no: string | null;
-  account_code: string;
-  account_name: string;
-  fund_name: string;
-  memo: string | null;
 }
 
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
@@ -1009,38 +994,11 @@ async function getDonorSummary({ from, to, fundId, accountIds }: DateRangeArgs):
 }
 
 async function getDonorDetail({ from, to, fundId, contactId, accountIds }: DonorDetailArgs): Promise<DonorDetailReportData> {
-  const donationQuery = () =>
-    db('transactions as t')
-      .join('journal_entries as je', 'je.transaction_id', 't.id')
-      .join('accounts as a', 'a.id', 'je.account_id')
-      .join('funds as f', 'f.id', 'je.fund_id')
-      .where('t.is_voided', false)
-      .where('a.type', 'INCOME')
-      .where('je.credit', '>', 0)
-      .modify((query) => {
-        if (from) query.where('t.date', '>=', from);
-        if (to) query.where('t.date', '<=', to);
-        if (fundId) query.where('je.fund_id', fundId);
-        if (accountIds?.length) query.whereIn('a.id', accountIds);
-      })
-      .select(
-        't.id as transaction_id',
-        't.date',
-        't.description',
-        't.reference_no',
-        'a.code as account_code',
-        'a.name as account_name',
-        'f.name as fund_name',
-        'je.credit as amount',
-        'je.memo'
-      )
-      .orderBy('t.date', 'asc') as Knex.QueryBuilder<DonationQueryRow, DonationQueryRow[]>;
-
   if (contactId) {
     const contact = await db('contacts').where({ id: contactId }).first() as ContactRow | undefined;
     if (!contact) return { donors: [], anonymous: null, grand_total: 0 };
 
-    const transactions = await donationQuery().where('je.contact_id', contactId) as DonationQueryRow[];
+    const transactions = await getDonationLines({ from, to, fundId, accountIds, contactId });
     const total = transactions.reduce((sum, tx) => sum.plus(dec(tx.amount)), dec(0));
 
     return {
@@ -1050,11 +1008,7 @@ async function getDonorDetail({ from, to, fundId, contactId, accountIds }: Donor
           contact_name: contact.name,
           contact_class: contact.contact_class,
           total: parseFloat(total.toFixed(2)),
-          transactions: transactions.map((tx) => ({
-            ...tx,
-            date: asDateString(tx.date),
-            amount: parseFloat(dec(tx.amount).toFixed(2)),
-          })),
+          transactions,
         },
       ],
       anonymous: null,
@@ -1062,20 +1016,32 @@ async function getDonorDetail({ from, to, fundId, contactId, accountIds }: Donor
     };
   }
 
-  const contactIds = await donationQuery()
-    .whereNotNull('je.contact_id')
-    .distinct('je.contact_id as id') as ContactIdRow[];
+  const transactions = await getDonationLines({ from, to, fundId, accountIds });
+  const contactIds = [...new Set(transactions
+    .map((tx) => tx.contact_id)
+    .filter((id): id is number => id !== null))];
+  const contacts = contactIds.length > 0
+    ? await db('contacts').whereIn('id', contactIds) as ContactRow[]
+    : [];
+  const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
+  const transactionsByContactId = new Map<number, typeof transactions>();
+
+  for (const tx of transactions) {
+    if (tx.contact_id === null) continue;
+    const contactTransactions = transactionsByContactId.get(tx.contact_id) || [];
+    contactTransactions.push(tx);
+    transactionsByContactId.set(tx.contact_id, contactTransactions);
+  }
 
   const donors: DonorDetailReportData['donors'] = [];
   let grandTotal = dec(0);
 
-  // TODO: Optimize donor-detail collection to avoid per-contact N+1 queries.
-  for (const { id } of contactIds) {
-    const contact = await db('contacts').where({ id }).first() as ContactRow | undefined;
+  for (const id of contactIds) {
+    const contact = contactsById.get(id);
     if (!contact) continue;
 
-    const transactions = await donationQuery().where('je.contact_id', id) as DonationQueryRow[];
-    const total = transactions.reduce((sum, tx) => sum.plus(dec(tx.amount)), dec(0));
+    const contactTransactions = transactionsByContactId.get(id) || [];
+    const total = contactTransactions.reduce((sum, tx) => sum.plus(dec(tx.amount)), dec(0));
     grandTotal = grandTotal.plus(total);
 
     donors.push({
@@ -1083,17 +1049,13 @@ async function getDonorDetail({ from, to, fundId, contactId, accountIds }: Donor
       contact_name: contact.name,
       contact_class: contact.contact_class,
       total: parseFloat(total.toFixed(2)),
-      transactions: transactions.map((tx) => ({
-        ...tx,
-        date: asDateString(tx.date),
-        amount: parseFloat(dec(tx.amount).toFixed(2)),
-      })),
+      transactions: contactTransactions,
     });
   }
 
   donors.sort((a, b) => a.contact_name.localeCompare(b.contact_name));
 
-  const anonTransactions = await donationQuery().whereNull('je.contact_id') as DonationQueryRow[];
+  const anonTransactions = transactions.filter((tx) => tx.contact_id === null);
   const anonTotal = anonTransactions.reduce((sum, tx) => sum.plus(dec(tx.amount)), dec(0));
   grandTotal = grandTotal.plus(anonTotal);
 

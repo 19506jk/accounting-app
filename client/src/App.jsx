@@ -14,6 +14,7 @@ import Bills           from './pages/Bills';
 import Transactions    from './pages/Transactions';
 import Reconciliation  from './pages/Reconciliation';
 import Reports         from './pages/Reports';
+import DonationReceipts from './pages/DonationReceipts';
 import Settings        from './pages/Settings';
 import UserManagement  from './pages/UserManagement';
 import DepositEntry    from './pages/DepositEntry';
@@ -53,6 +54,7 @@ function AppRoutes() {
         </Route>
         <Route path="/reconciliation" element={<Reconciliation />} />
         <Route path="/reports"        element={<Reports />} />
+        <Route path="/donation-receipts" element={<DonationReceipts />} />
 
         {/* Admin only — non-admins hitting these routes see nothing */}
         <Route path="/settings" element={

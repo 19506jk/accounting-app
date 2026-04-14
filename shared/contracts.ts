@@ -1124,6 +1124,60 @@ export interface DonorDetailReportResponse {
   report: ReportEnvelope<'donors-detail', DonorDetailReportFilters, DonorDetailReportData>;
 }
 
+export interface DonationReceiptAccount {
+  id: number;
+  code: string;
+  name: string;
+  total: number;
+}
+
+export interface DonationReceiptAccountsResponse {
+  fiscal_year: number;
+  period_start: string;
+  period_end: string;
+  accounts: DonationReceiptAccount[];
+}
+
+export interface DonationReceiptTemplate {
+  markdown_body: string;
+  updated_at: string | null;
+}
+
+export interface DonationReceiptTemplateResponse {
+  template: DonationReceiptTemplate;
+  variables: string[];
+}
+
+export interface UpdateDonationReceiptTemplateInput {
+  markdown_body: string;
+}
+
+export interface DonationReceiptPreviewInput {
+  fiscal_year: number;
+  account_ids: number[];
+  markdown_body?: string;
+}
+
+export interface DonationReceiptPreviewResponse {
+  html: string;
+  warnings: string[];
+  donor_count: number;
+}
+
+export interface DonationReceiptGenerateInput {
+  fiscal_year: number;
+  account_ids: number[];
+  markdown_body?: string;
+}
+
+export interface DonationReceiptGenerateMeta {
+  fiscal_year: number;
+  period_start: string;
+  period_end: string;
+  donor_count: number;
+  warnings: string[];
+}
+
 export interface SettingItem {
   id: number;
   key: string;

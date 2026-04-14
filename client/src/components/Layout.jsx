@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { to: '/transactions/import',     label: '📥 Import Bank Statement' },
   { to: '/reconciliation',          label: '✅ Reconciliation' },
   { to: '/reports',                 label: '📈 Reports' },
+  { to: '/donation-receipts',       label: '🧾 Donation Receipts' },
 ];
 
 const ADMIN_LINKS = [
