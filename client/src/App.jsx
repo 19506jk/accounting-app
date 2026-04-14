@@ -54,9 +54,13 @@ function AppRoutes() {
         </Route>
         <Route path="/reconciliation" element={<Reconciliation />} />
         <Route path="/reports"        element={<Reports />} />
-        <Route path="/donation-receipts" element={<DonationReceipts />} />
 
         {/* Admin only — non-admins hitting these routes see nothing */}
+        <Route path="/donation-receipts" element={
+          <RoleGuard roles={['admin']} fallback={<Navigate to="/dashboard" replace />}>
+            <DonationReceipts />
+          </RoleGuard>
+        } />
         <Route path="/settings" element={
           <RoleGuard roles={['admin']} fallback={<Navigate to="/dashboard" replace />}>
             <Settings />

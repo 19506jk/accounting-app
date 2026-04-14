@@ -35,6 +35,9 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginBottom: 8,
   },
+  centerBlock: {
+    textAlign: 'center',
+  },
   list: {
     marginBottom: 8,
   },
@@ -223,7 +226,49 @@ function renderTableCell(cell, key, isHeader) {
   )
 }
 
-function renderBlocks(tokens, keyPrefix, inList = false) {
+function parseMarkdownBlocks(markdown) {
+  const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n')
+  const tokens = []
+  let buffer = []
+  let centerBuffer = null
+
+  function flushBuffer() {
+    if (!buffer.length) return
+    tokens.push(...marked.lexer(buffer.join('\n'), { gfm: true, breaks: false }))
+    buffer = []
+  }
+
+  for (const line of lines) {
+    if (line.trim() === ':::center') {
+      flushBuffer()
+      centerBuffer = []
+      continue
+    }
+
+    if (line.trim() === ':::' && centerBuffer !== null) {
+      tokens.push({
+        type: 'center',
+        tokens: marked.lexer(centerBuffer.join('\n'), { gfm: true, breaks: false }),
+      })
+      centerBuffer = null
+      continue
+    }
+
+    if (centerBuffer !== null) {
+      centerBuffer.push(line)
+    } else {
+      buffer.push(line)
+    }
+  }
+
+  if (centerBuffer !== null) {
+    buffer.push(':::center', ...centerBuffer)
+  }
+  flushBuffer()
+  return tokens
+}
+
+function renderBlocks(tokens, keyPrefix, inList = false, blockCtx = { textAlign: 'left' }) {
   if (!Array.isArray(tokens)) return null
 
   return tokens.map((token, index) => {
@@ -231,10 +276,18 @@ function renderBlocks(tokens, keyPrefix, inList = false) {
 
     if (!token || token.type === 'space') return null
 
+    if (token.type === 'center') {
+      return (
+        <View key={key} style={styles.centerBlock}>
+          {renderBlocks(token.tokens || [], `${key}-center`, inList, { textAlign: 'center' })}
+        </View>
+      )
+    }
+
     if (token.type === 'heading') {
       const headingStyle = token.depth === 1 ? styles.heading1 : token.depth === 2 ? styles.heading2 : styles.heading3
       return (
-        <Text key={key} style={headingStyle}>
+        <Text key={key} style={[headingStyle, { textAlign: blockCtx.textAlign }]}>
           {renderInlineTokens(token.tokens || [{ type: 'text', text: token.text || '' }], `${key}-inline`, { bold: true, italic: false })}
         </Text>
       )
@@ -242,7 +295,7 @@ function renderBlocks(tokens, keyPrefix, inList = false) {
 
     if (token.type === 'paragraph' || token.type === 'text') {
       return (
-        <Text key={key} style={inList ? styles.listParagraph : styles.paragraph}>
+        <Text key={key} style={[inList ? styles.listParagraph : styles.paragraph, { textAlign: blockCtx.textAlign }]}>
           {renderInlineTokens(token.tokens || [{ type: 'text', text: token.text || '' }], `${key}-inline`, { bold: false, italic: false })}
         </Text>
       )
@@ -260,7 +313,7 @@ function renderBlocks(tokens, keyPrefix, inList = false) {
             return (
               <View key={`${key}-item-${itemIndex}`} style={styles.listItem}>
                 <Text style={styles.listBullet}>{bulletLabel}</Text>
-                <View style={styles.listContent}>{renderBlocks(itemTokens, `${key}-item-${itemIndex}`, true)}</View>
+                <View style={styles.listContent}>{renderBlocks(itemTokens, `${key}-item-${itemIndex}`, true, { textAlign: 'left' })}</View>
               </View>
             )
           })}
@@ -311,7 +364,7 @@ function renderBlocks(tokens, keyPrefix, inList = false) {
     if (token.type === 'blockquote') {
       return (
         <View key={key} style={{ borderLeftWidth: 3, borderLeftColor: '#9ca3af', paddingLeft: 8, marginBottom: 8 }}>
-          {renderBlocks(token.tokens || [], `${key}-blockquote`, inList)}
+          {renderBlocks(token.tokens || [], `${key}-blockquote`, inList, blockCtx)}
         </View>
       )
     }
@@ -321,7 +374,7 @@ function renderBlocks(tokens, keyPrefix, inList = false) {
     }
 
     return (
-      <Text key={key} style={inList ? styles.listParagraph : styles.paragraph}>
+      <Text key={key} style={[inList ? styles.listParagraph : styles.paragraph, { textAlign: blockCtx.textAlign }]}>
         {renderInlineTokens(token.tokens || [{ type: 'text', text: token.text || '' }], `${key}-inline`, { bold: false, italic: false })}
       </Text>
     )
@@ -329,7 +382,7 @@ function renderBlocks(tokens, keyPrefix, inList = false) {
 }
 
 function ReceiptPage({ markdown, index }) {
-  const tokens = marked.lexer(markdown || '', { gfm: true, breaks: false })
+  const tokens = parseMarkdownBlocks(markdown)
   return <Page size="LETTER" style={styles.page}>{renderBlocks(tokens, `page-${index}`)}</Page>
 }
 
