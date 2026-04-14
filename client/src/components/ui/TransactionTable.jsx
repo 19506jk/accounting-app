@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import apiClient from '../../api/client';
 import { formatDateOnlyForDisplay } from '../../utils/date';
 import Button from './Button';
 import Table from './Table';
@@ -21,11 +22,9 @@ function TransactionDetail({ id, onEdit }) {
   useEffect(() => {
     let isMounted = true;
 
-    import('../../api/client').then(({ default: apiClient }) => {
-      apiClient.get(`/transactions/${id}`).then(({ data }) => {
-        if (!isMounted) return;
-        setDetail(data.transaction);
-      });
+    apiClient.get(`/transactions/${id}`).then(({ data }) => {
+      if (!isMounted) return;
+      setDetail(data.transaction);
     });
 
     return () => {
