@@ -1,6 +1,6 @@
 # accounting-app — Wiki
 
-_Generated 2026-04-13 — re-run `npx codesight --wiki` if the codebase has changed._
+_Generated 2026-04-14 — re-run `npx codesight --wiki` if the codebase has changed._
 
 Structural map compiled from source code via AST. No LLM — deterministic, 200ms.
 
@@ -9,12 +9,29 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 ## Articles
 
 - [Overview](./overview.md)
+- [Auth](./auth.md)
+- [Section](./section.md)
+- [Accounts](./accounts.md)
+- [Bills](./bills.md)
+- [Contacts](./contacts.md)
+- [Donationreceipts](./donationreceipts.md)
+- [Fiscalperiods](./fiscalperiods.md)
+- [Funds](./funds.md)
+- [Health](./health.md)
+- [Reconciliation](./reconciliation.md)
+- [Reports](./reports.md)
+- [Settings](./settings.md)
+- [Taxrates](./taxrates.md)
+- [Transactions](./transactions.md)
+- [Users](./users.md)
+- [Ui](./ui.md)
+- [Libraries](./libraries.md)
 
 ## Quick Stats
 
-- Routes: **0**
+- Routes: **74**
 - Models: **0**
-- Components: **0**
+- Components: **27**
 - Env vars: **1** required, **12** with defaults
 
 ## How to Use
@@ -22,7 +39,7 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 - **New session:** read `index.md` (this file) for orientation — WHERE things are
 - **Architecture question:** read `overview.md` (~500 tokens)
 - **Domain question:** read the relevant article, then **read those source files**
-- **Database question:** read `database.md`, then read the actual schema files
+- **Library question:** read `libraries.md`, then read the listed source files
 - **Before implementing anything:** read the source files listed in the article
 - **Full source context:** read `.codesight/CODESIGHT.md`
 
@@ -41,4 +58,4 @@ These exist in your codebase but are **not** reflected in wiki articles:
 When in doubt, search the source. The wiki is a starting point, not a complete inventory.
 
 ---
-_Last compiled: 2026-04-13 · 2 articles · [codesight](https://github.com/Houseofmvps/codesight)_
+_Last compiled: 2026-04-14 · 19 articles · [codesight](https://github.com/Houseofmvps/codesight)_

@@ -9,6 +9,7 @@
 - auth — `server/middleware/auth.ts`
 - roles — `server/middleware/roles.ts`
 - auth — `server/routes/auth.ts`
+- authRoutes — `server/index.ts`
 
 ## cors
 - cors — `server/index.ts`

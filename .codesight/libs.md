@@ -25,7 +25,14 @@
   - function usePLSummary: () => void
   - function useBalanceSheet: () => void
   - function useRecentTransactions: (limit) => void
+- `client/src/api/useDonationReceipts.ts`
+  - function useDonationReceiptAccounts: (fiscalYear, enabled) => void
+  - function useDonationReceiptTemplate: (enabled) => void
+  - function useSaveDonationReceiptTemplate: () => void
+  - function usePreviewDonationReceipt: () => void
+  - function useGenerateDonationReceipts: () => void
 - `client/src/api/useExpenseTemplates.ts` — function useExpenseTemplates: () => void
+- `client/src/api/useFiscalPeriods.ts` — function useFiscalPeriods: () => void, function useReopenFiscalPeriod: () => void
 - `client/src/api/useFunds.ts`
   - function useFunds: (params) => void
   - function useCreateFund: () => void
@@ -79,6 +86,18 @@
   - function getChurchTimeZone: () => void
   - function setChurchTimeZone: (value?) => void
   - function initializeChurchTimeZoneCache: () => void
+- `server/services/donationReceipts.ts`
+  - function getReceiptAccounts: (fiscalYear) => Promise<DonationReceiptAccountsResponse>
+  - function getReceiptTemplate: () => Promise<DonationReceiptTemplateResponse>
+  - function saveReceiptTemplate: (markdownBody, userId) => Promise<DonationReceiptTemplateResponse>
+  - function previewReceipt: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptPreviewResponse>
+  - function generateReceipts: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptGenerateResponse>
+- `server/services/donorDonations.ts`
+  - function getDonationLines: ({...}, to, fundId, accountIds, contactId, includeAnonymous, }) => Promise<DonationLine[]>
+  - interface DonationLineFilters
+  - interface DonationLineRow
+  - interface DonationLine
+  - type Numeric
 - `server/utils/date.ts`
   - function isValidTimeZone: (value?) => void
   - function parseDateOnlyStrict: (value?) => void
@@ -87,3 +106,7 @@
   - function addDaysDateOnly: (value, days, timeZone?) => void
   - function compareDateOnly: (left?, right?) => void
   - _...3 more_
+- `server/utils/hardCloseGuard.ts`
+  - function acquireHardCloseLock: (trx) => Promise<void>
+  - function assertNotClosedPeriod: (date, trx) => Promise<void>
+  - const HARD_CLOSE_LOCK_KEY

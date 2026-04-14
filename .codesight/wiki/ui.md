@@ -1,0 +1,38 @@
+# UI
+
+> **Navigation aid.** Component inventory and prop signatures extracted via AST. Read the source files before adding props or modifying component logic.
+
+**27 components** (react)
+
+## Components
+
+- **App** — `client/src/App.jsx`
+- **DonationReceiptsPdfDocument** — props: receipts — `client/src/components/DonationReceiptsPdfDocument.jsx`
+- **ExpenseBreakdown** — props: lines, lineTotals, expenseAccountOptions, taxRateOptions, onChange, onRemove, errors, readOnly, showGrossColumn, minWidth — `client/src/components/ExpenseBreakdown.jsx`
+- **FullScreenSpinner** — `client/src/components/FullScreenSpinner.jsx`
+- **Layout** — `client/src/components/Layout.jsx`
+- **ProtectedRoute** — `client/src/components/ProtectedRoute.jsx`
+- **RoleGuard** — props: roles, fallback — `client/src/components/RoleGuard.jsx`
+- **SaveTemplateModal** — props: isOpen, onClose, onSave, title, placeholder, Weekly Office Supplies' — `client/src/components/SaveTemplateModal.jsx`
+- **TemplateDropdown** — props: templates, isOpen, onToggle, onLoad, onDelete — `client/src/components/TemplateDropdown.jsx`
+- **AuthProvider** — `client/src/context/AuthContext.tsx`
+- **DateProvider** — `client/src/context/DateContext.tsx`
+- **GOOGLE_CLIENT_ID** — `client/src/main.jsx`
+- **Bills** — `client/src/pages/Bills.jsx`
+- **ChartOfAccounts** — `client/src/pages/ChartOfAccounts.jsx`
+- **Contacts** — `client/src/pages/Contacts.jsx`
+- **Dashboard** — `client/src/pages/Dashboard.jsx`
+- **DepositEntry** — `client/src/pages/DepositEntry.jsx`
+- **DonationReceipts** — `client/src/pages/DonationReceipts.jsx`
+- **ExpenseEntry** — `client/src/pages/ExpenseEntry.jsx`
+- **HardCloseWizard** — props: open, onClose, onSuccess — `client/src/pages/HardClose.jsx`
+- **ImportCsv** — `client/src/pages/ImportCsv.jsx`
+- **Login** — `client/src/pages/Login.jsx`
+- **Reconciliation** — `client/src/pages/Reconciliation.jsx`
+- **Reports** — `client/src/pages/Reports.jsx`
+- **Settings** — `client/src/pages/Settings.jsx`
+- **Transactions** — `client/src/pages/Transactions.jsx`
+- **UserManagement** — `client/src/pages/UserManagement.jsx`
+
+---
+_Back to [overview.md](./overview.md)_
