@@ -4,11 +4,9 @@ import Decimal from 'decimal.js';
 import type {
   ApplyBillCreditsInput,
   AvailableBillCredit,
-  BillAgingReportResponse,
   BillCreditApplication,
   BillDetail,
   BillLineItemInput,
-  BillSummaryResponse,
   CreateBillInput,
   PayBillInput,
   UpdateBillInput,
@@ -19,8 +17,6 @@ import {
   getChurchToday,
   isValidDateOnly,
   normalizeDateOnly,
-  parseDateOnlyStrict,
-  toUtcIsoString,
 } from '../utils/date.js';
 import { getChurchTimeZone } from './churchTimeZone.js';
 import { assertNotClosedPeriod } from '../utils/hardCloseGuard.js';
@@ -31,6 +27,15 @@ import {
   ROUNDING_ACCOUNT_CODE,
   type TaxRateRow,
 } from './billPosting.js';
+import {
+  getBillWithLineItems,
+  normaliseApplications,
+  type ApplicationJoinedRow,
+} from './billReadModel.js';
+import {
+  getAgingReport,
+  getUnpaidSummary,
+} from './billReports.js';
 
 const db = require('../db') as Knex;
 
@@ -38,45 +43,6 @@ type Numeric = string | number;
 
 type BillServiceResult = { errors: string[]; outstanding?: number } | { errors?: undefined };
 type BillMutationResult = BillServiceResult & { bill?: BillDetail | null; transaction?: TransactionRow | null };
-
-interface BillJoinedRow {
-  id: number;
-  contact_id: number;
-  date: string | Date;
-  due_date: string | Date | null;
-  bill_number: string | null;
-  description: string;
-  amount: Numeric;
-  amount_paid: Numeric;
-  status: 'UNPAID' | 'PAID' | 'VOID';
-  fund_id: number;
-  transaction_id: number | null;
-  created_transaction_id: number | null;
-  created_by: number;
-  paid_by: number | null;
-  paid_at: string | Date | null;
-  created_at: string | Date;
-  updated_at: string | Date;
-  vendor_name: string | null;
-  vendor_email: string | null;
-  vendor_phone: string | null;
-  fund_name: string | null;
-  created_by_name: string | null;
-  paid_by_name: string | null;
-}
-
-interface BillLineItemJoinedRow {
-  id: number;
-  expense_account_id: number;
-  amount: Numeric;
-  rounding_adjustment: Numeric;
-  description: string | null;
-  tax_rate_id: number | null;
-  expense_account_code: string;
-  expense_account_name: string;
-  tax_rate_name: string | null;
-  tax_rate_value: Numeric | null;
-}
 
 interface AccountRow {
   id: number;
@@ -93,23 +59,6 @@ interface ContactRow {
 
 interface FundRow {
   id: number;
-}
-
-interface UnpaidSummaryRow {
-  count: string | number;
-  total_outstanding: Numeric | null;
-  earliest_due: string | null;
-}
-
-interface AgingSourceBillRow {
-  id: number;
-  contact_id: number;
-  vendor_name: string;
-  bill_number: string | null;
-  description: string;
-  amount: Numeric;
-  amount_paid: Numeric;
-  due_date: string | Date | null;
 }
 
 interface JournalEntryInsertRow {
@@ -135,49 +84,8 @@ interface BillLineItemComparisonRow {
   tax_rate_id: number | null;
 }
 
-type AgingBill = AgingSourceBillRow & {
-  amount: number;
-  amount_paid: number;
-  due_date: string;
-  outstanding: number;
-  days_overdue: number;
-};
-
-type AgingBucket = {
-  current: AgingBill[];
-  days31_60: AgingBill[];
-  days61_90: AgingBill[];
-  days90_plus: AgingBill[];
-};
-
-type VendorAgingItem = {
-  vendor_name: string;
-  contact_id: number;
-  current: number;
-  days31_60: number;
-  days61_90: number;
-  days90_plus: number;
-  total: number;
-};
-
-interface ApplicationJoinedRow {
-  id: number;
-  target_bill_id: number;
-  credit_bill_id: number;
-  amount: Numeric;
-  apply_transaction_id: number | null;
-  applied_by: number;
-  applied_at: string | Date;
-  unapplied_by: number | null;
-  unapplied_at: string | Date | null;
-  applied_by_name: string | null;
-  credit_bill_number: string | null;
-  credit_bill_date: string | Date;
-}
-
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
 const asDateOnlyString = (value: string | Date) => normalizeDateOnly(value);
-const asDateTimeString = (value: string | Date) => toUtcIsoString(value);
 
 const AP_ACCOUNT_CODE = '20000';
 const SETTLEMENT_TOLERANCE = new Decimal('0.01');
@@ -216,22 +124,6 @@ function buildBillSettlementPatch(
 
 function formatBillReference(bill: Pick<BillRow, 'id' | 'bill_number'>) {
   return bill.bill_number ? `#${bill.bill_number}` : `#${bill.id}`;
-}
-
-function normaliseApplications(rows: ApplicationJoinedRow[]): BillCreditApplication[] {
-  return rows.map((row) => ({
-    id: row.id,
-    target_bill_id: row.target_bill_id,
-    credit_bill_id: row.credit_bill_id,
-    amount: parseFloat(String(row.amount)),
-    apply_transaction_id: row.apply_transaction_id,
-    applied_by: row.applied_by,
-    applied_by_name: row.applied_by_name,
-    applied_at: asDateTimeString(row.applied_at),
-    unapplied_at: row.unapplied_at ? asDateTimeString(row.unapplied_at) : null,
-    credit_bill_number: row.credit_bill_number,
-    credit_bill_date: asDateOnlyString(row.credit_bill_date),
-  }));
 }
 
 function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = false): string[] {
@@ -310,102 +202,6 @@ function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = fa
   }
 
   return errors;
-}
-
-async function getBillWithLineItems(
-  billId: string | number,
-  executor: Knex | Knex.Transaction = db
-): Promise<BillDetail | null> {
-  const bill = await executor('bills as b')
-    .leftJoin('contacts as c', 'c.id', 'b.contact_id')
-    .leftJoin('funds as f', 'f.id', 'b.fund_id')
-    .leftJoin('users as created_by', 'created_by.id', 'b.created_by')
-    .leftJoin('users as paid_by', 'paid_by.id', 'b.paid_by')
-    .where('b.id', billId)
-    .select(
-      'b.*',
-      'c.name as vendor_name',
-      'c.email as vendor_email',
-      'c.phone as vendor_phone',
-      'f.name as fund_name',
-      'created_by.name as created_by_name',
-      'paid_by.name as paid_by_name',
-    )
-    .first() as BillJoinedRow | undefined;
-
-  if (!bill) return null;
-
-  const lineItems = await executor('bill_line_items as bli')
-    .join('accounts as a', 'a.id', 'bli.expense_account_id')
-    .leftJoin('tax_rates as tr', 'tr.id', 'bli.tax_rate_id')
-    .where('bli.bill_id', billId)
-    .select(
-      'bli.*',
-      'a.code as expense_account_code',
-      'a.name as expense_account_name',
-      'tr.name as tax_rate_name',
-      'tr.rate as tax_rate_value',
-    ) as BillLineItemJoinedRow[];
-
-  const appliedCreditRows = await executor('bill_credit_applications as bca')
-    .leftJoin('users as u', 'u.id', 'bca.applied_by')
-    .leftJoin('bills as cb', 'cb.id', 'bca.credit_bill_id')
-    .where('bca.target_bill_id', billId)
-    .whereNull('bca.unapplied_at')
-    .orderBy('bca.applied_at', 'asc')
-    .select(
-      'bca.*',
-      'u.name as applied_by_name',
-      'cb.bill_number as credit_bill_number',
-      'cb.date as credit_bill_date'
-    ) as ApplicationJoinedRow[];
-
-  const availableCreditRows = await executor('bills as b')
-    .where({
-      contact_id: bill.contact_id,
-      fund_id: bill.fund_id,
-      status: 'UNPAID',
-    })
-    .where('b.amount', '<', 0)
-    .where('b.id', '<>', bill.id)
-    .select('b.amount', 'b.amount_paid') as Array<{ amount: Numeric; amount_paid: Numeric }>;
-
-  const availableCreditTotal = availableCreditRows.reduce((sum, row) => {
-    const outstanding = getOutstanding(row.amount, row.amount_paid);
-    if (outstanding.gte(0)) return sum;
-    return sum.plus(outstanding.abs());
-  }, dec(0));
-
-  return {
-    ...bill,
-    date: asDateOnlyString(bill.date),
-    due_date: bill.due_date ? asDateOnlyString(bill.due_date) : null,
-    paid_at: bill.paid_at ? asDateTimeString(bill.paid_at) : null,
-    created_at: asDateTimeString(bill.created_at),
-    updated_at: asDateTimeString(bill.updated_at),
-    amount: parseFloat(String(bill.amount)),
-    amount_paid: parseFloat(String(bill.amount_paid)),
-    available_credit_total: parseFloat(availableCreditTotal.toFixed(2)),
-    applied_credits: normaliseApplications(appliedCreditRows),
-    line_items: lineItems.map(li => ({
-      id: li.id,
-      expense_account_id: li.expense_account_id,
-      expense_account_code: li.expense_account_code,
-      expense_account_name: li.expense_account_name,
-      amount: parseFloat(String(li.amount)),
-      rounding_adjustment: parseFloat(String(li.rounding_adjustment ?? 0)),
-      description: li.description,
-      tax_rate_id: li.tax_rate_id || null,
-      tax_rate_name: li.tax_rate_name || null,
-      tax_rate_value: li.tax_rate_value ? parseFloat(String(li.tax_rate_value)) : null,
-      // tax_amount computed from net: tax = round(net * rate, 2)
-      tax_amount: li.tax_rate_id
-        ? parseFloat(
-            dec(li.amount).times(dec(li.tax_rate_value)).toDecimalPlaces(2).toFixed(2)
-          )
-        : null,
-    })),
-  } as BillDetail;
 }
 
 async function createBillLineItems(
@@ -1358,134 +1154,6 @@ async function voidBill(id: string, userId: number): Promise<BillMutationResult>
 
   const billWithLineItems = await getBillWithLineItems(id);
   return { bill: billWithLineItems, transaction: null };
-}
-
-function dayNumberFromDateOnly(dateOnly: string) {
-  const [year, month, day] = dateOnly.split('-').map((n) => parseInt(n, 10));
-  return Date.UTC(year || 0, (month || 1) - 1, day || 1);
-}
-
-async function getAgingReport(asOfDate: string | Date = getChurchToday(getChurchTimeZone())): Promise<BillAgingReportResponse['report']> {
-  const asOfInput = typeof asOfDate === 'string' ? asOfDate : normalizeDateOnly(asOfDate);
-  const asOf = parseDateOnlyStrict(asOfInput)
-    ? asOfInput
-    : getChurchToday(getChurchTimeZone());
-  
-  const bills = await db('bills as b')
-    .join('contacts as c', 'c.id', 'b.contact_id')
-    .where('b.status', 'UNPAID')
-    .select(
-      'b.id',
-      'b.contact_id',
-      'c.name as vendor_name',
-      'b.bill_number',
-      'b.description',
-      'b.amount',
-      'b.amount_paid',
-      'b.due_date',
-    ) as AgingSourceBillRow[];
-
-  const aging: AgingBucket = { current: [], days31_60: [], days61_90: [], days90_plus: [] };
-
-  bills.forEach(bill => {
-    const dueDate = normalizeDateOnly(bill.due_date) || asOf;
-    const daysOverdue = Math.floor((dayNumberFromDateOnly(asOf) - dayNumberFromDateOnly(dueDate)) / (1000 * 60 * 60 * 24));
-    const outstanding = parseFloat(dec(bill.amount).minus(dec(bill.amount_paid)).toFixed(2));
-    if (outstanding <= 0) return;
-
-    const billData: AgingBill = {
-      ...bill,
-      amount: parseFloat(String(bill.amount)),
-      amount_paid: parseFloat(String(bill.amount_paid)),
-      due_date: dueDate,
-      outstanding,
-      days_overdue: daysOverdue,
-    };
-
-    if (daysOverdue <= 30) {
-      aging.current.push(billData);
-    } else if (daysOverdue <= 60) {
-      aging.days31_60.push(billData);
-    } else if (daysOverdue <= 90) {
-      aging.days61_90.push(billData);
-    } else {
-      aging.days90_plus.push(billData);
-    }
-  });
-
-  const byVendor: Record<string, {
-    contact_id: number;
-    current: number;
-    days31_60: number;
-    days61_90: number;
-    days90_plus: number;
-    total: number;
-  }> = {};
-  Object.entries(aging).forEach(([bucket, bucketBills]) => {
-    bucketBills.forEach(bill => {
-      if (!byVendor[bill.vendor_name]) {
-        byVendor[bill.vendor_name] = {
-          contact_id: bill.contact_id,
-          current: 0,
-          days31_60: 0,
-          days61_90: 0,
-          days90_plus: 0,
-          total: 0,
-        };
-      }
-      const vendor = byVendor[bill.vendor_name]!;
-      vendor[bucket as keyof Omit<typeof vendor, 'contact_id' | 'total'>] += bill.outstanding;
-      vendor.total += bill.outstanding;
-    });
-  });
-
-  const vendorAging: VendorAgingItem[] = Object.entries(byVendor).map(([name, data]) => ({
-    vendor_name: name,
-    contact_id: data.contact_id,
-    current: parseFloat(data.current.toFixed(2)),
-    days31_60: parseFloat(data.days31_60.toFixed(2)),
-    days61_90: parseFloat(data.days61_90.toFixed(2)),
-    days90_plus: parseFloat(data.days90_plus.toFixed(2)),
-    total: parseFloat(data.total.toFixed(2)),
-  }));
-
-  const totals: BillAgingReportResponse['report']['totals'] = {
-    current: parseFloat(aging.current.reduce((sum, b) => sum + b.outstanding, 0).toFixed(2)),
-    days31_60: parseFloat(aging.days31_60.reduce((sum, b) => sum + b.outstanding, 0).toFixed(2)),
-    days61_90: parseFloat(aging.days61_90.reduce((sum, b) => sum + b.outstanding, 0).toFixed(2)),
-    days90_plus: parseFloat(aging.days90_plus.reduce((sum, b) => sum + b.outstanding, 0).toFixed(2)),
-    total: 0,
-  };
-  totals.total = totals.current + totals.days31_60 + totals.days61_90 + totals.days90_plus;
-
-  return {
-    as_of_date: asOf,
-    vendor_aging: vendorAging,
-    totals,
-    buckets: {
-      current: aging.current,
-      days31_60: aging.days31_60,
-      days61_90: aging.days61_90,
-      days90_plus: aging.days90_plus,
-    },
-  };
-}
-
-async function getUnpaidSummary(): Promise<BillSummaryResponse['summary']> {
-  const summary = await db('bills')
-    .where('status', 'UNPAID')
-    .select(
-      db.raw('SUM(CASE WHEN amount - amount_paid > 0 THEN 1 ELSE 0 END) as count'),
-      db.raw('SUM(CASE WHEN amount - amount_paid > 0 THEN amount - amount_paid ELSE 0 END) as total_outstanding'),
-      db.raw('MIN(CASE WHEN amount - amount_paid > 0 THEN due_date ELSE NULL END) as earliest_due'),
-    )
-    .first() as UnpaidSummaryRow | undefined;
-
-  return {
-    count: parseInt(String(summary?.count ?? 0), 10),
-    total_outstanding: parseFloat(dec(summary?.total_outstanding ?? 0).toFixed(2)),
-    earliest_due: summary?.earliest_due ?? null,
-  };
 }
 
 export = {
