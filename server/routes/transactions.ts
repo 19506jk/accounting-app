@@ -28,6 +28,22 @@ import transactionBillMatchService = require('../services/transactions/billMatch
 const router = express.Router();
 router.use(auth);
 
+function handleServiceError(
+  err: unknown,
+  res: Response,
+  next: NextFunction
+) {
+  const statusCode = (err as { statusCode?: number }).statusCode;
+  const validationErrors = (err as { validationErrors?: string[] }).validationErrors;
+  if (statusCode && validationErrors?.length) {
+    return res.status(statusCode).json({ errors: validationErrors });
+  }
+  if (statusCode === 400) {
+    return res.status(400).json({ error: (err as Error).message });
+  }
+  return next(err);
+}
+
 router.get(
   '/',
   async (
@@ -39,11 +55,7 @@ router.get(
       const result = await transactionListService.listTransactions(req.query);
       res.json(result);
     } catch (err) {
-      const statusCode = (err as { statusCode?: number }).statusCode;
-      if (statusCode === 400) {
-        return res.status(400).json({ error: (err as Error).message });
-      }
-      next(err);
+      return handleServiceError(err, res, next);
     }
   }
 );
@@ -60,12 +72,7 @@ router.post(
       const result = await transactionBillMatchService.getBillMatchSuggestions(req.body);
       return res.json(result);
     } catch (err) {
-      const statusCode = (err as { statusCode?: number }).statusCode;
-      const validationErrors = (err as { validationErrors?: string[] }).validationErrors;
-      if (statusCode && validationErrors?.length) {
-        return res.status(statusCode).json({ errors: validationErrors });
-      }
-      next(err);
+      return handleServiceError(err, res, next);
     }
   }
 );
@@ -82,12 +89,7 @@ router.post(
       const result = await transactionImportService.importTransactions(req.body, req.user!.id);
       return res.json(result);
     } catch (err) {
-      const statusCode = (err as { statusCode?: number }).statusCode;
-      const validationErrors = (err as { validationErrors?: string[] }).validationErrors;
-      if (statusCode && validationErrors?.length) {
-        return res.status(statusCode).json({ errors: validationErrors });
-      }
-      next(err);
+      return handleServiceError(err, res, next);
     }
   }
 );
@@ -122,12 +124,7 @@ router.post(
       const transaction = await transactionService.createTransaction(req.body, req.user!.id);
       res.status(201).json({ transaction });
     } catch (err) {
-      const statusCode = (err as { statusCode?: number }).statusCode;
-      const validationErrors = (err as { validationErrors?: string[] }).validationErrors;
-      if (statusCode === 400 && validationErrors?.length) {
-        return res.status(400).json({ errors: validationErrors });
-      }
-      next(err);
+      return handleServiceError(err, res, next);
     }
   }
 );
@@ -148,13 +145,7 @@ router.put(
         transaction,
       });
     } catch (err) {
-      const statusCode = (err as { statusCode?: number }).statusCode;
-      const validationErrors = (err as { validationErrors?: string[] }).validationErrors;
-      if (statusCode === 400) {
-        if (validationErrors?.length) return res.status(400).json({ errors: validationErrors });
-        return res.status(400).json({ error: (err as Error).message || 'Invalid transaction update' });
-      }
-      next(err);
+      return handleServiceError(err, res, next);
     }
   }
 );
