@@ -200,8 +200,28 @@ function getAmountPaidFromOutstanding(amount: Numeric, outstanding: Decimal) {
   return dec(amount).minus(outstanding).toFixed(2);
 }
 
+function buildBillSettlementPatch(
+  bill: Pick<BillRow, 'amount'>,
+  nextOutstanding: Decimal,
+  userId: number,
+  trx: Knex.Transaction
+) {
+  const isSettled = isSettledOutstanding(nextOutstanding);
+  return {
+    amount_paid: getAmountPaidFromOutstanding(bill.amount, nextOutstanding),
+    status: toBillStatus(nextOutstanding),
+    paid_by: isSettled ? userId : null,
+    paid_at: isSettled ? trx.fn.now() : null,
+    updated_at: trx.fn.now(),
+  };
+}
+
 function formatBillReference(bill: Pick<BillRow, 'id' | 'bill_number'>) {
   return bill.bill_number ? `#${bill.bill_number}` : `#${bill.id}`;
+}
+
+function getUniqueTaxRateIds(lineItems: BillLineItemInput[]) {
+  return [...new Set(lineItems.map((li) => li.tax_rate_id).filter((id): id is number => Boolean(id)))];
 }
 
 function normaliseApplications(rows: ApplicationJoinedRow[]): BillCreditApplication[] {
@@ -298,8 +318,11 @@ function validateBillData(data: CreateBillInput | UpdateBillInput, isUpdate = fa
   return errors;
 }
 
-async function getBillWithLineItems(billId: string | number): Promise<BillDetail | null> {
-  const bill = await db('bills as b')
+async function getBillWithLineItems(
+  billId: string | number,
+  executor: Knex | Knex.Transaction = db
+): Promise<BillDetail | null> {
+  const bill = await executor('bills as b')
     .leftJoin('contacts as c', 'c.id', 'b.contact_id')
     .leftJoin('funds as f', 'f.id', 'b.fund_id')
     .leftJoin('users as created_by', 'created_by.id', 'b.created_by')
@@ -318,7 +341,7 @@ async function getBillWithLineItems(billId: string | number): Promise<BillDetail
 
   if (!bill) return null;
 
-  const lineItems = await db('bill_line_items as bli')
+  const lineItems = await executor('bill_line_items as bli')
     .join('accounts as a', 'a.id', 'bli.expense_account_id')
     .leftJoin('tax_rates as tr', 'tr.id', 'bli.tax_rate_id')
     .where('bli.bill_id', billId)
@@ -330,7 +353,7 @@ async function getBillWithLineItems(billId: string | number): Promise<BillDetail
       'tr.rate as tax_rate_value',
     ) as BillLineItemJoinedRow[];
 
-  const appliedCreditRows = await db('bill_credit_applications as bca')
+  const appliedCreditRows = await executor('bill_credit_applications as bca')
     .leftJoin('users as u', 'u.id', 'bca.applied_by')
     .leftJoin('bills as cb', 'cb.id', 'bca.credit_bill_id')
     .where('bca.target_bill_id', billId)
@@ -343,7 +366,7 @@ async function getBillWithLineItems(billId: string | number): Promise<BillDetail
       'cb.date as credit_bill_date'
     ) as ApplicationJoinedRow[];
 
-  const availableCreditRows = await db('bills as b')
+  const availableCreditRows = await executor('bills as b')
     .where({
       contact_id: bill.contact_id,
       fund_id: bill.fund_id,
@@ -414,7 +437,7 @@ async function resolveTaxRateMap(
   lineItems: BillLineItemInput[],
   executor: Knex | Knex.Transaction
 ): Promise<Record<number, TaxRateRow>> {
-  const taxRateIds = [...new Set(lineItems.map((li) => li.tax_rate_id).filter((v): v is number => Boolean(v)))];
+  const taxRateIds = getUniqueTaxRateIds(lineItems);
   if (taxRateIds.length === 0) return {};
 
   const taxRates = await executor('tax_rates').whereIn('id', taxRateIds) as TaxRateRow[];
@@ -439,7 +462,6 @@ function calculateGrossTotalFromLineItems(
 
 async function createMultiLineJournalEntries(
   transactionId: number,
-  billId: number | string,
   lineItems: BillLineItemInput[],
   fundId: number,
   apAccountId: number,
@@ -449,7 +471,7 @@ async function createMultiLineJournalEntries(
   trx: Knex.Transaction
 ) {
   // Resolve all tax rates needed for this set of line items in one query
-  const taxRateIds = [...new Set(lineItems.map(li => li.tax_rate_id).filter((v): v is number => Boolean(v)))];
+  const taxRateIds = getUniqueTaxRateIds(lineItems);
   const taxRates = taxRateIds.length > 0
     ? await trx('tax_rates').whereIn('id', taxRateIds)
     : [] as TaxRateRow[];
@@ -573,11 +595,18 @@ async function validateLineItemAccounts(lineItems: BillLineItemInput[]): Promise
   const errors: string[] = [];
 
   // Pre-fetch all tax rates needed
-  const taxRateIds = [...new Set(lineItems.map(li => li.tax_rate_id).filter((v): v is number => Boolean(v)))];
+  const taxRateIds = getUniqueTaxRateIds(lineItems);
   const taxRates = taxRateIds.length > 0
     ? await db('tax_rates').whereIn('id', taxRateIds).where('is_active', true)
     : [] as TaxRateRow[];
   const activeTaxRateIds = new Set((taxRates as TaxRateRow[]).map(tr => tr.id));
+  const expenseAccountIds = [...new Set(lineItems.map(line => line?.expense_account_id).filter((id): id is number => Boolean(id)))];
+  const accounts = expenseAccountIds.length > 0
+    ? await db('accounts')
+      .whereIn('id', expenseAccountIds)
+      .where('is_active', true) as AccountRow[]
+    : [];
+  const accountMap = new Map(accounts.map(account => [account.id, account]));
   const hasRoundingAdjustment = lineItems.some(line => !dec(line.rounding_adjustment ?? 0).isZero());
   const roundingAccount = hasRoundingAdjustment
     ? await db('accounts')
@@ -592,10 +621,7 @@ async function validateLineItemAccounts(lineItems: BillLineItemInput[]): Promise
   for (let i = 0; i < lineItems.length; i++) {
     const line = lineItems[i];
     if (!line) continue;
-    const account = await db('accounts')
-      .where({ id: line.expense_account_id })
-      .where('is_active', true)
-      .first() as AccountRow | undefined;
+    const account = accountMap.get(line.expense_account_id);
 
     if (!account) {
       errors.push(`Line ${i + 1}: Expense account not found or inactive`);
@@ -692,7 +718,7 @@ async function unapplyBillCredits(
       .forUpdate() as BillCreditApplicationRow[];
 
     if (applications.length === 0) {
-      const bill = await getBillWithLineItems(id);
+      const bill = await getBillWithLineItems(id, trx);
       return { bill, unapplied_count: 0 };
     }
 
@@ -721,13 +747,7 @@ async function unapplyBillCredits(
 
     await trx('bills')
       .where({ id: targetBill.id })
-      .update({
-        amount_paid: getAmountPaidFromOutstanding(targetBill.amount, targetOutstanding),
-        status: toBillStatus(targetOutstanding),
-        paid_by: isSettledOutstanding(targetOutstanding) ? userId : null,
-        paid_at: isSettledOutstanding(targetOutstanding) ? trx.fn.now() : null,
-        updated_at: trx.fn.now(),
-      });
+      .update(buildBillSettlementPatch(targetBill, targetOutstanding, userId, trx));
 
     const updatesByCredit = new Map<number, Decimal>();
     for (const app of applications) {
@@ -744,13 +764,7 @@ async function unapplyBillCredits(
       const nextOutstanding = outstanding.plus(delta);
       await trx('bills')
         .where({ id: credit.id })
-        .update({
-          amount_paid: getAmountPaidFromOutstanding(credit.amount, nextOutstanding),
-          status: toBillStatus(nextOutstanding),
-          paid_by: isSettledOutstanding(nextOutstanding) ? userId : null,
-          paid_at: isSettledOutstanding(nextOutstanding) ? trx.fn.now() : null,
-          updated_at: trx.fn.now(),
-        });
+        .update(buildBillSettlementPatch(credit, nextOutstanding, userId, trx));
     }
 
     const transactionIds = [...new Set(applications.map((app) => app.apply_transaction_id).filter((id): id is number => Boolean(id)))];
@@ -778,7 +792,7 @@ async function unapplyBillCredits(
         unapplied_by: userId,
       });
 
-    const bill = await getBillWithLineItems(id);
+    const bill = await getBillWithLineItems(id, trx);
     return { bill, unapplied_count: applications.length };
   });
 
@@ -951,13 +965,7 @@ async function applyBillCredits(
       const nextSourceOutstanding = sourceOutstanding.plus(amount);
       await trx('bills')
         .where({ id: entry.bill.id })
-        .update({
-          amount_paid: getAmountPaidFromOutstanding(entry.bill.amount, nextSourceOutstanding),
-          status: toBillStatus(nextSourceOutstanding),
-          paid_by: isSettledOutstanding(nextSourceOutstanding) ? userId : null,
-          paid_at: isSettledOutstanding(nextSourceOutstanding) ? trx.fn.now() : null,
-          updated_at: trx.fn.now(),
-        });
+        .update(buildBillSettlementPatch(entry.bill, nextSourceOutstanding, userId, trx));
 
       nextTargetOutstanding = nextTargetOutstanding.minus(amount);
       appRows.push({
@@ -983,13 +991,7 @@ async function applyBillCredits(
 
     await trx('bills')
       .where({ id: target.id })
-      .update({
-        amount_paid: getAmountPaidFromOutstanding(target.amount, nextTargetOutstanding),
-        status: toBillStatus(nextTargetOutstanding),
-        paid_by: isSettledOutstanding(nextTargetOutstanding) ? userId : null,
-        paid_at: isSettledOutstanding(nextTargetOutstanding) ? trx.fn.now() : null,
-        updated_at: trx.fn.now(),
-      });
+      .update(buildBillSettlementPatch(target, nextTargetOutstanding, userId, trx));
 
     const detailedApps = await trx('bill_credit_applications as bca')
       .leftJoin('users as u', 'u.id', 'bca.applied_by')
@@ -1002,7 +1004,7 @@ async function applyBillCredits(
         'cb.date as credit_bill_date'
       ) as ApplicationJoinedRow[];
 
-    const bill = await getBillWithLineItems(id);
+    const bill = await getBillWithLineItems(id, trx);
     return {
       bill,
       applications: normaliseApplications(detailedApps),
@@ -1101,7 +1103,6 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
     
     await createMultiLineJournalEntries(
       transaction.id,
-      bill.id,
       payload.line_items,
       payload.fund_id,
       apAccount.id,
@@ -1293,7 +1294,6 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
 
         await createMultiLineJournalEntries(
           bill.created_transaction_id,
-          id,
           newLineItems,
           payload.fund_id || bill.fund_id,
           apAccount.id,
@@ -1444,17 +1444,12 @@ async function payBill(id: string, paymentData: PayBillInput, userId: number): P
 
     const newAmountPaid = dec(bill.amount_paid).plus(paymentAmount);
     const newOutstanding = dec(bill.amount).minus(newAmountPaid);
-    const isFullyPaid = isSettledOutstanding(newOutstanding);
 
     const [updatedBill] = await trx('bills')
       .where({ id })
       .update({
-        amount_paid: newAmountPaid.toFixed(2),
-        status: toBillStatus(newOutstanding),
+        ...buildBillSettlementPatch(bill, newOutstanding, userId, trx),
         transaction_id: transaction.id,
-        paid_by: isFullyPaid ? userId : null,
-        paid_at: isFullyPaid ? trx.fn.now() : null,
-        updated_at: trx.fn.now(),
       })
       .returning('*') as BillRow[];
     if (!updatedBill) throw new Error('Failed to mark bill paid');
@@ -1482,15 +1477,6 @@ async function voidBill(id: string, userId: number): Promise<BillMutationResult>
 
   if (bill.status === 'VOID') {
     return { errors: ['Bill is already voided'] };
-  }
-
-  const apAccount = await db('accounts')
-    .where({ code: AP_ACCOUNT_CODE })
-    .where('is_active', true)
-    .first() as AccountRow | undefined;
-
-  if (!apAccount) {
-    return { errors: [`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`] };
   }
 
   const result = await db.transaction(async (trx: Knex.Transaction) => {
