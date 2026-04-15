@@ -6,10 +6,10 @@ import {
   getChurchToday,
   normalizeDateOnly,
   parseDateOnlyStrict,
-} from '../utils/date.js';
-import { getChurchTimeZone } from './churchTimeZone.js';
+} from '../../utils/date.js';
+import { getChurchTimeZone } from '../churchTimeZone.js';
 
-const db = require('../db') as Knex;
+const db = require('../../db') as Knex;
 
 type Numeric = string | number;
 

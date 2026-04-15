@@ -2,9 +2,9 @@ import type { Knex } from 'knex';
 import Decimal from 'decimal.js';
 
 import type { BillCreditApplication, BillDetail } from '@shared/contracts';
-import { normalizeDateOnly, toUtcIsoString } from '../utils/date.js';
+import { normalizeDateOnly, toUtcIsoString } from '../../utils/date.js';
 
-const db = require('../db') as Knex;
+const db = require('../../db') as Knex;
 
 type Numeric = string | number;
 
