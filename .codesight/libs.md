@@ -82,6 +82,32 @@
   - function getChurchToday: (timeZone?) => void
   - _...10 more_
 - `client/src/utils/parseStatementCsv.ts` — function parseStatementCsv: (file) => Promise<ParseStatementCsvResult>
+- `server/services/bills/billCredits.ts`
+  - function getAvailableCreditsForBill: (id) => Promise<AvailableBillCredit[]>
+  - function unapplyBillCredits: (id, userId) => Promise<
+  - function applyBillCredits: (id, payload, userId) => Promise<
+- `server/services/bills/billPosting.ts`
+  - function getUniqueTaxRateIds: (lineItems) => void
+  - function calculateGrossTotalFromLineItems: (lineItems, taxRateMap, TaxRateRow>) => void
+  - function createMultiLineJournalEntries: (transactionId, lineItems, fundId, apAccountId, contactId, contactName, billNumber, trx) => void
+  - interface TaxRateRow
+  - const ROUNDING_ACCOUNT_CODE
+- `server/services/bills/billReadModel.ts`
+  - function normaliseApplications: (rows) => BillCreditApplication[]
+  - function getBillWithLineItems: (billId, executor) => Promise<BillDetail | null>
+  - interface ApplicationJoinedRow
+- `server/services/bills/billReports.ts` — function getAgingReport: (asOfDate) => void, function getUnpaidSummary: () => Promise<BillSummaryResponse['summary']>
+- `server/services/bills/billSettlement.ts`
+  - function getOutstanding: (amount, amountPaid) => void
+  - function isSettledOutstanding: (outstanding) => void
+  - function toBillStatus: (outstanding) => BillRow['status']
+  - function buildBillSettlementPatch: (bill, 'amount'>, nextOutstanding, userId, trx) => void
+  - function formatBillReference: (bill, 'id' | 'bill_number'>) => void
+  - const AP_ACCOUNT_CODE
+- `server/services/bills/billValidation.ts`
+  - function validateBillData: (data, isUpdate) => string[]
+  - function resolveTaxRateMap: (lineItems, executor) => Promise<Record<number, TaxRateRow>>
+  - function validateLineItemAccounts: (lineItems) => Promise<string[]>
 - `server/services/churchTimeZone.ts`
   - function getChurchTimeZone: () => void
   - function setChurchTimeZone: (value?) => void

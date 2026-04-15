@@ -2,7 +2,7 @@
 
 > **Navigation aid.** Library inventory extracted via AST. Read the source files listed here before modifying exported functions.
 
-**22 library files** across 2 modules
+**28 library files** across 2 modules
 
 ## Client (17 files)
 
@@ -24,13 +24,19 @@
 - `client/src/api/useTransactionTemplates.ts` — useTransactionTemplates
 - `client/src/utils/parseStatementCsv.ts` — parseStatementCsv
 
-## Server (5 files)
+## Server (11 files)
 
 - `server/utils/date.ts` — isValidTimeZone, parseDateOnlyStrict, isValidDateOnly, getChurchToday, addDaysDateOnly, compareDateOnly, …
+- `server/services/bills/billSettlement.ts` — getOutstanding, isSettledOutstanding, toBillStatus, buildBillSettlementPatch, formatBillReference, AP_ACCOUNT_CODE
+- `server/services/bills/billPosting.ts` — getUniqueTaxRateIds, calculateGrossTotalFromLineItems, createMultiLineJournalEntries, TaxRateRow, ROUNDING_ACCOUNT_CODE
 - `server/services/donationReceipts.ts` — getReceiptAccounts, getReceiptTemplate, saveReceiptTemplate, previewReceipt, generateReceipts
 - `server/services/donorDonations.ts` — getDonationLines, DonationLineFilters, DonationLineRow, DonationLine, Numeric
+- `server/services/bills/billCredits.ts` — getAvailableCreditsForBill, unapplyBillCredits, applyBillCredits
+- `server/services/bills/billReadModel.ts` — normaliseApplications, getBillWithLineItems, ApplicationJoinedRow
+- `server/services/bills/billValidation.ts` — validateBillData, resolveTaxRateMap, validateLineItemAccounts
 - `server/services/churchTimeZone.ts` — getChurchTimeZone, setChurchTimeZone, initializeChurchTimeZoneCache
 - `server/utils/hardCloseGuard.ts` — acquireHardCloseLock, assertNotClosedPeriod, HARD_CLOSE_LOCK_KEY
+- `server/services/bills/billReports.ts` — getAgingReport, getUnpaidSummary
 
 ---
 _Back to [overview.md](./overview.md)_

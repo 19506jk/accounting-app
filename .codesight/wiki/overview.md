@@ -8,7 +8,7 @@
 
 ## Scale
 
-74 API routes · 27 UI components · 22 library files · 8 middleware layers · 13 environment variables
+74 API routes · 27 UI components · 28 library files · 8 middleware layers · 13 environment variables
 
 ## Subsystems
 
@@ -30,15 +30,15 @@
 
 **UI:** 27 components (react) — see [ui.md](./ui.md)
 
-**Libraries:** 22 files — see [libraries.md](./libraries.md)
+**Libraries:** 28 files — see [libraries.md](./libraries.md)
 
 ## High-Impact Files
 
 Changes to these files have the widest blast radius across the codebase:
 
+- `server/db/index.js` — imported by **20** files
 - `client/src/api/client.ts` — imported by **17** files
 - `client/src/components/ui/Button.jsx` — imported by **16** files
-- `server/db/index.js` — imported by **16** files
 - `server/middleware/auth.ts` — imported by **13** files
 - `client/src/context/AuthContext.tsx` — imported by **12** files
 - `client/src/components/ui/Input.jsx` — imported by **12** files
@@ -48,4 +48,4 @@ Changes to these files have the widest blast radius across the codebase:
 - `CLIENT_ORIGIN` — `server/index.ts`
 
 ---
-_Back to [index.md](./index.md) · Generated 2026-04-14_
+_Back to [index.md](./index.md) · Generated 2026-04-15_
