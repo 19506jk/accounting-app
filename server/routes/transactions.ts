@@ -18,7 +18,6 @@ import type {
   SkippedImportRow,
   TransactionCreateResult,
   TransactionDetail,
-  TransactionEntryDetail,
   TransactionListItem,
   TransactionResponse,
   TransactionsListResponse,
@@ -28,10 +27,7 @@ import type {
 import type {
   AccountRow,
   FundRow,
-  JournalEntryRow,
-  TransactionEntryDetailRow,
   TransactionListRow,
-  TransactionRow,
 } from '../types/db';
 import { addDaysDateOnly, compareDateOnly, getChurchToday, normalizeDateOnly, parseDateOnlyStrict } from '../utils/date.js';
 import { getChurchTimeZone } from '../services/churchTimeZone.js';
@@ -41,6 +37,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/roles');
 import billService = require('../services/bills');
+import transactionService = require('../services/transactions');
 
 const router = express.Router();
 router.use(auth);
@@ -56,161 +53,6 @@ const normalizeImportReference = (value: unknown): string | null => {
 };
 
 const { payBill } = billService;
-
-async function validateTransaction(body: CreateTransactionInput): Promise<string[]> {
-  const errors: string[] = [];
-  const { date, description, entries } = body;
-
-  if (!date) errors.push('date is required');
-  if (!description?.trim()) errors.push('description is required');
-
-  if (!Array.isArray(entries) || entries.length < 2) {
-    errors.push('At least 2 journal entry lines are required');
-    return errors;
-  }
-
-  for (let i = 0; i < entries.length; i += 1) {
-    const e = entries[i];
-    if (!e) continue;
-    const prefix = `Entry ${i + 1}:`;
-
-    if (!e.account_id) errors.push(`${prefix} account_id is required`);
-    if (!e.fund_id) errors.push(`${prefix} fund_id is required`);
-
-    const debit = dec(e.debit ?? 0);
-    const credit = dec(e.credit ?? 0);
-
-    if (debit.isNegative() || credit.isNegative()) errors.push(`${prefix} amounts must be positive`);
-    if (debit.isZero() && credit.isZero()) errors.push(`${prefix} must have either a debit or credit amount`);
-    if (!debit.isZero() && !credit.isZero()) errors.push(`${prefix} cannot have both debit and credit amounts`);
-    if (debit.decimalPlaces() > 2) errors.push(`${prefix} debit cannot have more than 2 decimal places`);
-    if (credit.decimalPlaces() > 2) errors.push(`${prefix} credit cannot have more than 2 decimal places`);
-  }
-
-  if (errors.length) return errors;
-
-  const totalDebit = entries.reduce((sum, e) => sum.plus(dec(e.debit ?? 0)), dec(0));
-  if (totalDebit.isZero()) {
-    errors.push('Transaction total cannot be zero');
-    return errors;
-  }
-
-  const totalCredit = entries.reduce((sum, e) => sum.plus(dec(e.credit ?? 0)), dec(0));
-  if (!totalDebit.equals(totalCredit)) {
-    errors.push(`Transaction is not balanced. Debits $${totalDebit.toFixed(2)} ≠ credits $${totalCredit.toFixed(2)}`);
-  }
-
-  const fundTotals: Record<string, { debit: Decimal; credit: Decimal }> = {};
-  for (const e of entries) {
-    const fundId = String(e.fund_id);
-    if (!fundTotals[fundId]) fundTotals[fundId] = { debit: dec(0), credit: dec(0) };
-    fundTotals[fundId].debit = fundTotals[fundId].debit.plus(dec(e.debit ?? 0));
-    fundTotals[fundId].credit = fundTotals[fundId].credit.plus(dec(e.credit ?? 0));
-  }
-
-  for (const [fundId, totals] of Object.entries(fundTotals)) {
-    if (!totals.debit.equals(totals.credit)) {
-      const fund = await db('funds').where({ id: fundId }).first() as FundRow | undefined;
-      const name = fund?.name || `Fund #${fundId}`;
-      errors.push(`"${name}" is not balanced. Debits $${totals.debit.toFixed(2)} ≠ credits $${totals.credit.toFixed(2)}`);
-    }
-  }
-
-  if (errors.length) return errors;
-
-  if (date) {
-    if (!parseDateOnlyStrict(date)) {
-      errors.push('date is not a valid date (YYYY-MM-DD)');
-    } else {
-      const timezone = getChurchTimeZone();
-      const churchToday = getChurchToday(timezone);
-      const maxAllowedDate = addDaysDateOnly(churchToday, 1, timezone);
-      if (compareDateOnly(date, maxAllowedDate) > 0) {
-        errors.push('Transaction date cannot be more than 1 day in the future');
-      }
-    }
-  }
-
-  const accountIds = [...new Set(entries.map((e) => e.account_id))];
-  const accounts = await db('accounts').whereIn('id', accountIds).where('is_active', true) as AccountRow[];
-  const foundAccIds = new Set(accounts.map((a) => a.id));
-  for (const id of accountIds) {
-    if (!foundAccIds.has(id)) errors.push(`Account #${id} does not exist or is inactive`);
-  }
-
-  const fundIds = [...new Set(entries.map((e) => e.fund_id))];
-  const funds = await db('funds').whereIn('id', fundIds).where('is_active', true) as FundRow[];
-  const foundFundIds = new Set(funds.map((f) => f.id));
-  for (const id of fundIds) {
-    if (!foundFundIds.has(id)) errors.push(`Fund #${id} does not exist or is inactive`);
-  }
-
-  const entryContactIds = [...new Set(entries.map((e) => e.contact_id).filter(Boolean))] as number[];
-  if (entryContactIds.length > 0) {
-    const entryContacts = await db('contacts').whereIn('id', entryContactIds).where('is_active', true) as { id: number }[];
-    const foundContactIds = new Set(entryContacts.map((c) => c.id));
-    for (const id of entryContactIds) {
-      if (!foundContactIds.has(id)) errors.push(`Contact #${id} does not exist or is inactive`);
-    }
-  }
-
-  return errors;
-}
-
-async function getTransactionDetailById(id: string | number): Promise<TransactionDetail | null> {
-  const transaction = await db('transactions as t')
-    .leftJoin('users as u', 'u.id', 't.created_by')
-    .where('t.id', id)
-    .select(
-      't.id',
-      't.date',
-      't.description',
-      't.reference_no',
-      't.fund_id',
-      't.created_at',
-      't.is_voided',
-      'u.name as created_by_name'
-    )
-    .first() as (TransactionRow & { created_by_name: string | null }) | undefined;
-
-  if (!transaction) return null;
-
-  const entries = await db('journal_entries as je')
-    .join('accounts as a', 'a.id', 'je.account_id')
-    .join('funds as f', 'f.id', 'je.fund_id')
-    .leftJoin('contacts as c', 'c.id', 'je.contact_id')
-    .where('je.transaction_id', id)
-    .select(
-      'je.id',
-      'je.account_id',
-      'a.code as account_code',
-      'a.name as account_name',
-      'a.type as account_type',
-      'je.fund_id',
-      'f.name as fund_name',
-      'je.debit',
-      'je.credit',
-      'je.memo',
-      'je.is_reconciled',
-      'je.contact_id',
-      'c.name as contact_name'
-    )
-    .orderBy('je.id', 'asc') as TransactionEntryDetailRow[];
-
-  const totalAmount = entries.reduce((sum, e) => sum.plus(dec(e.debit)), dec(0));
-
-  return {
-    ...transaction,
-    date: normalizeDateOnly(transaction.date),
-    created_at: String(transaction.created_at),
-    total_amount: parseFloat(totalAmount.toFixed(2)),
-    entries: entries.map((e) => ({
-      ...e,
-      debit: parseFloat(String(e.debit)),
-      credit: parseFloat(String(e.credit)),
-    })) as TransactionEntryDetail[],
-  };
-}
 
 router.get(
   '/',
@@ -1409,7 +1251,7 @@ router.get(
   ) => {
     try {
       const { id } = req.params;
-      const detail = await getTransactionDetailById(id);
+      const detail = await transactionService.getTransactionDetailById(id);
       if (!detail) return res.status(404).json({ error: 'Transaction not found' });
       res.json({ transaction: detail });
     } catch (err) {
@@ -1427,63 +1269,14 @@ router.post(
     next: NextFunction
   ) => {
     try {
-      const { date, description, reference_no, entries } = req.body || {};
-
-      const errors = await validateTransaction(req.body);
-      if (errors.length) return res.status(400).json({ errors });
-
-      const result: { transaction: TransactionRow; entries: JournalEntryRow[] } = await db.transaction(async (trx: Knex.Transaction) => {
-        const firstEntry = entries[0];
-        if (!firstEntry) throw new Error('At least one entry is required');
-
-        await assertNotClosedPeriod(date, trx);
-
-        const [transaction] = await trx('transactions')
-          .insert({
-            date,
-            description: description.trim(),
-            reference_no: reference_no?.trim() || null,
-            fund_id: firstEntry.fund_id,
-            created_by: req.user!.id,
-            created_at: trx.fn.now(),
-            updated_at: trx.fn.now(),
-          })
-          .returning('*') as TransactionRow[];
-        if (!transaction) throw new Error('Failed to create transaction');
-
-        const entryRows = entries.map((e) => ({
-          transaction_id: transaction.id,
-          account_id: e.account_id,
-          fund_id: e.fund_id,
-          contact_id: e.contact_id || null,
-          debit: dec(e.debit ?? 0).toFixed(2),
-          credit: dec(e.credit ?? 0).toFixed(2),
-          memo: e.memo?.trim() || null,
-          is_reconciled: false,
-          created_at: trx.fn.now(),
-          updated_at: trx.fn.now(),
-        }));
-
-        const insertedEntries = await trx('journal_entries').insert(entryRows).returning('*') as JournalEntryRow[];
-        return { transaction, entries: insertedEntries };
-      });
-
-      const payload: TransactionCreateResult = {
-        ...result.transaction,
-        date: normalizeDateOnly(result.transaction.date),
-        created_at: String(result.transaction.created_at),
-        updated_at: String(result.transaction.updated_at),
-        entries: result.entries.map((e) => ({
-          ...e,
-          created_at: String(e.created_at),
-          updated_at: String(e.updated_at),
-          debit: parseFloat(String(e.debit)),
-          credit: parseFloat(String(e.credit)),
-        })),
-      };
-
-      res.status(201).json({ transaction: payload });
+      const transaction = await transactionService.createTransaction(req.body, req.user!.id);
+      res.status(201).json({ transaction });
     } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      const validationErrors = (err as { validationErrors?: string[] }).validationErrors;
+      if (statusCode === 400 && validationErrors?.length) {
+        return res.status(400).json({ errors: validationErrors });
+      }
       next(err);
     }
   }
@@ -1499,146 +1292,10 @@ router.put(
   ) => {
     try {
       const { id } = req.params;
-      const { date, description, reference_no, entries } = req.body || {};
-
-      const transaction = await db('transactions').where({ id }).first() as TransactionRow | undefined;
-      if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
-      if (transaction.is_voided) return res.status(422).json({ error: 'Voided transactions cannot be edited.' });
-
-      if (date) {
-        if (!parseDateOnlyStrict(date)) {
-          return res.status(400).json({ error: 'date is not a valid date (YYYY-MM-DD)' });
-        }
-        const timezone = getChurchTimeZone();
-        const today = getChurchToday(timezone);
-        const maxDate = addDaysDateOnly(today, 1, timezone);
-        if (compareDateOnly(date, maxDate) > 0) {
-          return res.status(400).json({ error: 'Transaction date cannot be more than 1 day in the future' });
-        }
-      }
-
-      const nextDate = date || normalizeDateOnly(transaction.date);
-      const nextDescription = description?.trim() || transaction.description;
-      const nextReferenceNo = reference_no !== undefined ? reference_no?.trim() || null : transaction.reference_no;
-
-      await db.transaction(async (trx: Knex.Transaction) => {
-        const existingTx = await trx('transactions')
-          .where({ id })
-          .select('date', 'is_voided')
-          .first() as Pick<TransactionRow, 'date' | 'is_voided'> | undefined;
-        if (!existingTx) {
-          throw Object.assign(new Error('Transaction not found'), { status: 404 });
-        }
-        if (existingTx.is_voided) {
-          throw Object.assign(new Error('Voided transactions cannot be edited.'), { status: 422 });
-        }
-        await assertNotClosedPeriod(normalizeDateOnly(existingTx.date), trx);
-        await assertNotClosedPeriod(nextDate, trx);
-
-        if (entries !== undefined) {
-          const validationPayload: CreateTransactionInput = {
-            date: nextDate,
-            description: nextDescription,
-            reference_no: nextReferenceNo ?? undefined,
-            entries,
-          };
-          const errors = await validateTransaction(validationPayload);
-          if (errors.length) {
-            throw Object.assign(new Error('Validation failed'), { statusCode: 400, validationErrors: errors });
-          }
-
-          const existingEntries = await trx('journal_entries')
-            .where({ transaction_id: id })
-            .orderBy('id', 'asc') as JournalEntryRow[];
-
-          const isAnyReconciled = existingEntries.some((e) => e.is_reconciled);
-
-          if (isAnyReconciled) {
-            if (entries.length !== existingEntries.length) {
-              throw Object.assign(new Error('Cannot add/remove lines on reconciled transactions'), { statusCode: 400 });
-            }
-
-            for (let i = 0; i < entries.length; i += 1) {
-              const incoming = entries[i];
-              const current = existingEntries[i];
-              if (!incoming || !current) {
-                throw Object.assign(new Error('Invalid journal entry payload'), { statusCode: 400 });
-              }
-
-              const incomingDebit = dec(incoming.debit ?? 0).toFixed(2);
-              const currentDebit = dec(current.debit ?? 0).toFixed(2);
-              const incomingCredit = dec(incoming.credit ?? 0).toFixed(2);
-              const currentCredit = dec(current.credit ?? 0).toFixed(2);
-              const incomingMemo = incoming.memo?.trim() || null;
-              const currentMemo = current.memo || null;
-              const accountChanged = Number(incoming.account_id) !== Number(current.account_id);
-              const fundChanged = Number(incoming.fund_id) !== Number(current.fund_id);
-              const debitChanged = incomingDebit !== currentDebit;
-              const creditChanged = incomingCredit !== currentCredit;
-              const memoChanged = incomingMemo !== currentMemo;
-
-              if (accountChanged || fundChanged || debitChanged || creditChanged || memoChanged) {
-                throw Object.assign(new Error('Reconciled transactions only allow donor/payee changes'), { statusCode: 400 });
-              }
-            }
-
-            for (let i = 0; i < entries.length; i += 1) {
-              const incoming = entries[i];
-              const current = existingEntries[i];
-              if (!incoming || !current) continue;
-
-              const incomingContactId = incoming.contact_id ? Number(incoming.contact_id) : null;
-              const currentContactId = current.contact_id ? Number(current.contact_id) : null;
-              if (incomingContactId === currentContactId) continue;
-
-              await trx('journal_entries')
-                .where({ id: current.id })
-                .update({
-                  contact_id: incomingContactId,
-                  updated_at: trx.fn.now(),
-                });
-            }
-          } else {
-            await trx('journal_entries')
-              .where({ transaction_id: id })
-              .delete();
-
-            const entryRows = entries.map((e) => ({
-              transaction_id: Number(id),
-              account_id: e.account_id,
-              fund_id: e.fund_id,
-              contact_id: e.contact_id || null,
-              debit: dec(e.debit ?? 0).toFixed(2),
-              credit: dec(e.credit ?? 0).toFixed(2),
-              memo: e.memo?.trim() || null,
-              is_reconciled: false,
-              created_at: trx.fn.now(),
-              updated_at: trx.fn.now(),
-            }));
-            await trx('journal_entries').insert(entryRows);
-          }
-        }
-
-        const nextFundId = entries?.[0]?.fund_id ?? transaction.fund_id;
-
-        const [updated] = await trx('transactions')
-          .where({ id })
-          .update({
-            date: nextDate,
-            description: nextDescription,
-            reference_no: nextReferenceNo,
-            fund_id: nextFundId,
-            updated_at: trx.fn.now(),
-          })
-          .returning('*') as TransactionRow[];
-        if (!updated) throw new Error('Failed to update transaction');
-      });
-
-      const detail = await getTransactionDetailById(id);
-      if (!detail) return res.status(404).json({ error: 'Transaction not found' });
+      const transaction = await transactionService.updateTransaction(id, req.body);
 
       res.json({
-        transaction: detail,
+        transaction,
       });
     } catch (err) {
       const statusCode = (err as { statusCode?: number }).statusCode;
@@ -1663,33 +1320,7 @@ router.delete(
     try {
       const { id } = req.params;
 
-      await db.transaction(async (trx: Knex.Transaction) => {
-        const transaction = await trx('transactions')
-          .where({ id })
-          .select('date', 'is_closing_entry', 'is_voided')
-          .first() as Pick<TransactionRow, 'date' | 'is_closing_entry' | 'is_voided'> | undefined;
-        if (!transaction) throw Object.assign(new Error('Transaction not found'), { status: 404 });
-
-        if (transaction.is_voided) {
-          throw Object.assign(new Error('Voided transactions cannot be deleted.'), { status: 422 });
-        }
-
-        if (transaction.is_closing_entry) {
-          throw Object.assign(new Error('Closing entries cannot be deleted. Use the Reopen Period utility.'), { status: 422 });
-        }
-
-        await assertNotClosedPeriod(normalizeDateOnly(transaction.date), trx);
-
-        const reconciledEntry = await trx('journal_entries')
-          .where({ transaction_id: id, is_reconciled: true })
-          .first() as JournalEntryRow | undefined;
-
-        if (reconciledEntry) {
-          throw Object.assign(new Error('Transaction cannot be deleted — one or more entries have been reconciled.'), { status: 409 });
-        }
-
-        await trx('transactions').where({ id }).delete();
-      });
+      await transactionService.deleteTransaction(id);
       res.json({ message: 'Transaction deleted successfully' });
     } catch (err) {
       next(err);
