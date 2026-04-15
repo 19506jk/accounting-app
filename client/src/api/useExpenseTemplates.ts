@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 
-interface TemplateRow {
+export interface ExpenseTemplateRow {
   expense_account_id: string
   description: string
   tax_rate_id: string
 }
 
-interface ExpenseTemplate {
+export interface ExpenseTemplate {
   id: string
   name: string
   description: string
   payee_id: string
-  rows: TemplateRow[]
+  rows: ExpenseTemplateRow[]
   created_at: string
 }
 
