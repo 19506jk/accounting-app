@@ -59,9 +59,6 @@ export default defineConfig({
       enabled: true,
       provider: playwright(),
       headless: true,
-      api: {
-        port: 63315,
-      },
       instances: [
         {
           browser: 'chromium',
