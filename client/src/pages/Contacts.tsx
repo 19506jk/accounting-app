@@ -293,7 +293,7 @@ export default function Contacts() {
     },
     {
       key: 'type', label: 'Type',
-      render: (c) => <Badge label={c.type.toLowerCase()} variant={c.type.toLowerCase()} />,
+      render: (c) => <Badge label={c.type.toLowerCase()} variant={c.type.toLowerCase() as React.ComponentProps<typeof Badge>['variant']} />,
     },
     {
       key: 'contact_class', label: 'Class',

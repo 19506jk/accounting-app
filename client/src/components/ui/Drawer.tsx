@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type React from 'react';
 
 interface DrawerProps {
@@ -10,6 +10,8 @@ interface DrawerProps {
 }
 
 export default function Drawer({ isOpen, onClose, title, children, width = '480px' }: DrawerProps) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
   // Close on Escape
   useEffect(() => {
     if (!isOpen) return;
@@ -17,6 +19,32 @@ export default function Drawer({ isOpen, onClose, title, children, width = '480p
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [isOpen, onClose]);
+
+  // Trap focus inside drawer
+  useEffect(() => {
+    if (!isOpen) return;
+    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    const getFocusable = () => Array.from(
+      panelRef.current?.querySelectorAll<HTMLElement>(selector) || []
+    ).filter((el) => !el.hasAttribute('disabled') && el.tabIndex !== -1);
+    getFocusable()[0]?.focus();
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const elements = getFocusable();
+      if (!elements.length) { e.preventDefault(); return; }
+      const first = elements[0];
+      const last  = elements[elements.length - 1];
+      if (!first || !last) return;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [isOpen]);
 
   // Prevent body scroll
   useEffect(() => {
@@ -35,13 +63,13 @@ export default function Drawer({ isOpen, onClose, title, children, width = '480p
           background: 'rgba(0,0,0,0.3)',
           zIndex:     900,
           opacity:    isOpen ? 1 : 0,
-          pointerEvents: isOpen ? 'all' : 'none',
+          pointerEvents: isOpen ? 'auto' : 'none',
           transition: 'opacity 0.25s',
         }}
       />
 
       {/* Panel */}
-      <div style={{
+      <div ref={panelRef} style={{
         position:   'fixed',
         top:        0,
         right:      0,

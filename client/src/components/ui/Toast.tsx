@@ -9,7 +9,7 @@ interface Toast {
   type: ToastType;
 }
 
-interface ToastContextValue {
+export interface ToastContextValue {
   addToast: (message: string, type?: ToastType) => void;
 }
 
