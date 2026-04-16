@@ -22,4 +22,38 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+
+          const pdfVendorPackages = [
+            '@react-pdf',
+            'marked',
+            'fontkit',
+            'browserify-zlib',
+            'crypto-js',
+            'jay-peg',
+            'vite-compatible-readable-stream',
+            'brotli',
+            'clone',
+            'dfa',
+            'fast-deep-equal',
+            'linebreak',
+            'pako',
+            'restructure',
+            'tiny-inflate',
+            'unicode-properties',
+            'unicode-trie',
+          ];
+
+          if (pdfVendorPackages.some((pkg) => id.includes(`node_modules/${pkg}`))) return 'vendor-pdf';
+          if (id.includes('xlsx')) return 'vendor-xlsx';
+          if (id.includes('@tanstack')) return 'vendor-query';
+          if (id.includes('react-dom') || id.includes('react-router') || id.includes('/react/')) return 'vendor-react';
+        },
+      },
+    },
+  },
 });
