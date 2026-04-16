@@ -407,7 +407,7 @@ export default function ChartOfAccounts() {
   }
 
   // Group by type
-  const grouped = {} as Partial<Record<AccountType, AccountSummary[]>>;
+  const grouped: Partial<Record<AccountType, AccountSummary[]>> = {};
   (accounts || []).forEach((a) => {
     if (!grouped[a.type]) grouped[a.type] = [];
     grouped[a.type]?.push(a);

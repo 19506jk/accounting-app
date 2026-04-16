@@ -96,7 +96,7 @@ export default function Table<Row extends TableRow>({
                 </tr>
               )
               : rows.map((row, i) => {
-                  const rowId = 'id' in row ? row.id as string | number | undefined : undefined;
+                  const rowId = 'id' in row ? row.id : undefined;
                   const isExpanded = expandedId === (rowId ?? i);
                   return (
                     <React.Fragment key={rowId ?? i}>
@@ -123,6 +123,7 @@ export default function Table<Row extends TableRow>({
                           >
                             {col.render
                               ? col.render(row)
+                              // TODO: col.key fallback assumes row values are renderable; prefer col.render for non-string fields
                               : (row as Record<string, React.ReactNode>)[col.key]}
                           </td>
                         ))}
