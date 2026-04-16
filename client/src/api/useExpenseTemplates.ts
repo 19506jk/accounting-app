@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import type { OptionValue } from '../components/ui/types'
 
 export interface ExpenseTemplateRow {
-  expense_account_id: string
+  expense_account_id: OptionValue
   description: string
   tax_rate_id: string
 }
@@ -11,21 +12,20 @@ export interface ExpenseTemplate {
   id: string
   name: string
   description: string
-  payee_id: string
+  payee_id: OptionValue
   rows: ExpenseTemplateRow[]
   created_at: string
 }
 
 interface HeaderSnapshot {
   description: string
-  payee_id: string
+  payee_id: OptionValue | ''
 }
 
 interface LineSnapshot {
-  expense_account_id: string
+  expense_account_id: OptionValue | ''
   description: string
   tax_rate_id: string
-  [key: string]: unknown
 }
 
 function storageKey(userId: number | string) {

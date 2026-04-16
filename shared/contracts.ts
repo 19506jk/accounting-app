@@ -1087,6 +1087,7 @@ export interface DonorDetailReportDonor {
   contact_id: number;
   contact_name: string;
   contact_class: ContactClass;
+  donor_id: string | null;
   total: number;
   transactions: DonorDetailReportTransaction[];
 }

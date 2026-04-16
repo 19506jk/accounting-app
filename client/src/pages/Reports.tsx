@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   usePLReport, useBalanceSheetReport, useLedgerReport,
@@ -21,15 +20,37 @@ import {
   formatDateOnlyForDisplay,
   getChurchToday,
 } from '../utils/date';
+import type React from 'react';
+import type {
+  AccountType,
+  BalanceSheetReportData,
+  BalanceSheetReportFilters,
+  DateRangeReportFilters,
+  DonorDetailReportData,
+  DonorDetailReportFilters,
+  DonorSummaryReportData,
+  DonorSummaryReportFilters,
+  LedgerReportData,
+  LedgerReportFilters,
+  PLReportData,
+  PLReportFilters,
+  ReportDiagnostic,
+  ReportInvestigateFilters,
+  ReportType,
+  TrialBalanceReportAccount,
+  TrialBalanceReportData,
+  TrialBalanceReportFilters,
+} from '@shared/contracts';
+import type { OptionValue, SelectOption } from '../components/ui/types';
 
-const fmt  = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
-const fmtD = (d) => formatDateOnlyForDisplay(d);
+const fmt  = (n: number | string | null | undefined) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
+const fmtD = (d: string | null | undefined) => formatDateOnlyForDisplay(d);
 
 function currentMonth() {
   return currentMonthRange();
 }
 
-const REPORT_TYPES = [
+const REPORT_TYPES: SelectOption<ReportType>[] = [
   { value: 'pl',             label: 'Profit & Loss' },
   { value: 'balance-sheet',  label: 'Balance Sheet' },
   { value: 'ledger',         label: 'General Ledger' },
@@ -39,7 +60,7 @@ const REPORT_TYPES = [
 ];
 
 const SYNTHETIC_FUND_LABEL_PATTERN = /^\[System\] Net Income \(Prior Years\) - (.+)$/i
-const TRIAL_BALANCE_TYPE_ORDER = {
+const TRIAL_BALANCE_TYPE_ORDER: Record<AccountType, number> = {
   ASSET: 1,
   LIABILITY: 2,
   EQUITY: 3,
@@ -47,22 +68,25 @@ const TRIAL_BALANCE_TYPE_ORDER = {
   EXPENSE: 5,
 }
 
-function isNonZeroTrialBalanceAccount(account) {
+type XlsxValue = string | number | boolean | null;
+type XlsxRow = XlsxValue[];
+
+function isNonZeroTrialBalanceAccount(account: TrialBalanceReportAccount) {
   return Number(account?.net_debit || 0) !== 0 || Number(account?.net_credit || 0) !== 0
 }
 
-function syntheticFundSortKey(account) {
+function syntheticFundSortKey(account: TrialBalanceReportAccount) {
   const match = String(account?.name || '').match(SYNTHETIC_FUND_LABEL_PATTERN)
   if (match?.[1]) return match[1].trim().toLowerCase()
   return String(account?.name || '').trim().toLowerCase()
 }
 
-function sortTrialBalanceAccounts(accounts = []) {
+function sortTrialBalanceAccounts(accounts: TrialBalanceReportAccount[] = []) {
   return (accounts || [])
     .map((account, index) => ({ account, index }))
     .sort((a, b) => {
-      const typeA = TRIAL_BALANCE_TYPE_ORDER[a.account?.type] || 999
-      const typeB = TRIAL_BALANCE_TYPE_ORDER[b.account?.type] || 999
+      const typeA = TRIAL_BALANCE_TYPE_ORDER[a.account.type]
+      const typeB = TRIAL_BALANCE_TYPE_ORDER[b.account.type]
       if (typeA !== typeB) return typeA - typeB
 
       const byCode = String(a.account?.code || '').localeCompare(String(b.account?.code || ''), undefined, {
@@ -87,7 +111,7 @@ function sortTrialBalanceAccounts(accounts = []) {
     .map(({ account }) => account)
 }
 
-function getVisibleTrialBalanceAccounts(accounts = [], { hideZeroBalances = false } = {}) {
+function getVisibleTrialBalanceAccounts(accounts: TrialBalanceReportAccount[] = [], { hideZeroBalances = false }: { hideZeroBalances?: boolean } = {}) {
   const ordered = sortTrialBalanceAccounts(accounts)
   if (!hideZeroBalances) return ordered
 
@@ -108,8 +132,8 @@ function getVisibleTrialBalanceAccounts(accounts = [], { hideZeroBalances = fals
 }
 
 // ── Excel Exporters ──────────────────────────────────────────────────────────
-function exportPL(data, filters) {
-  const rows = [
+function exportPL(data: PLReportData, filters: PLReportFilters) {
+  const rows: XlsxRow[] = [
     ['Statement of Activities', '', ''],
     [`Period: ${filters.from} to ${filters.to}`, '', ''],
     [],
@@ -126,8 +150,8 @@ function exportPL(data, filters) {
   downloadXlsx(rows, `pl_${filters.from}_${filters.to}.xlsx`, 'P&L');
 }
 
-function exportBalanceSheet(data, filters) {
-  const rows = [
+function exportBalanceSheet(data: BalanceSheetReportData, filters: BalanceSheetReportFilters) {
+  const rows: XlsxRow[] = [
     ['Statement of Financial Position', '', ''],
     [`As of: ${filters.as_of}`, '', ''],
     [],
@@ -149,14 +173,14 @@ function exportBalanceSheet(data, filters) {
   downloadXlsx(rows, `balance_sheet_${filters.as_of}.xlsx`, 'Balance Sheet');
 }
 
-function exportLedger(data, filters) {
-  const formatReferenceForExport = (referenceNo) => {
+function exportLedger(data: LedgerReportData, filters: LedgerReportFilters) {
+  const formatReferenceForExport = (referenceNo: string | null | undefined) => {
     if (referenceNo === null || referenceNo === undefined || referenceNo === '') return '-'
     return `'${String(referenceNo)}`
   }
 
   const headers = ['Date', 'Reference No', 'Description', 'Contact', 'Fund', 'Debit', 'Credit', 'Balance']
-  const rows = [
+  const rows: XlsxRow[] = [
     ['General Ledger', '', '', '', '', '', '', ''],
     [`Period: ${filters.from} to ${filters.to}`, '', '', '', '', '', '', ''],
     [],
@@ -191,9 +215,9 @@ function exportLedger(data, filters) {
   downloadXlsx(rows, `ledger_${filters.from}_${filters.to}.xlsx`, 'General Ledger', cols);
 }
 
-function exportTrialBalance(data, filters) {
+function exportTrialBalance(data: TrialBalanceReportData, filters: TrialBalanceReportFilters) {
   const orderedAccounts = getVisibleTrialBalanceAccounts(data.accounts || [])
-  const rows = [
+  const rows: XlsxRow[] = [
     ['Trial Balance', '', '', ''],
     [`As of: ${filters.as_of}`, '', '', ''],
     [],
@@ -231,8 +255,8 @@ function exportTrialBalance(data, filters) {
   XLSX.writeFile(wb, `trial_balance_${filters.as_of}.xlsx`)
 }
 
-function exportDonorSummary(data, filters) {
-  const rows = [
+function exportDonorSummary(data: DonorSummaryReportData, filters: DonorSummaryReportFilters) {
+  const rows: XlsxRow[] = [
     ['Income by Donor — Summary', '', '', ''],
     [`Period: ${filters.from} to ${filters.to}`, '', '', ''],
     [],
@@ -245,8 +269,8 @@ function exportDonorSummary(data, filters) {
   downloadXlsx(rows, `donor_summary_${filters.from}_${filters.to}.xlsx`, 'Donor Summary');
 }
 
-function exportDonorDetail(data, filters) {
-  const rows = [
+function exportDonorDetail(data: DonorDetailReportData, filters: DonorDetailReportFilters) {
+  const rows: XlsxRow[] = [
     ['Income by Donor — Detail', '', '', '', ''],
     [`Period: ${filters.from} to ${filters.to}`, '', '', '', ''],
     [],
@@ -268,7 +292,7 @@ function exportDonorDetail(data, filters) {
   downloadXlsx(rows, `donor_detail_${filters.from}_${filters.to}.xlsx`, 'Donor Detail');
 }
 
-function downloadXlsx(rows, filename, sheetName, cols = null) {
+function downloadXlsx(rows: XlsxRow[], filename: string, sheetName: string, cols: XLSX.ColInfo[] | null = null) {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   if (cols) ws['!cols'] = cols;
@@ -277,7 +301,40 @@ function downloadXlsx(rows, filename, sheetName, cols = null) {
 }
 
 // ── Report renderers ─────────────────────────────────────────────────────────
-function PLReport({ data }) {
+interface ReportProps<TData> {
+  data: TData;
+}
+
+interface InvestigableReportProps<TData> extends ReportProps<TData> {
+  onInvestigate: (item: ReportDiagnostic | ReportInvestigateFilters) => void;
+}
+
+interface DiagnosticsPanelProps {
+  diagnostics: ReportDiagnostic[];
+  onInvestigate?: (item: ReportDiagnostic) => void;
+}
+
+interface DiagnosticGroupStyle {
+  border: string;
+  background: string;
+  headingColor: string;
+  textColor: string;
+  title: string;
+}
+
+interface SectionProps {
+  title: string;
+  children: React.ReactNode;
+}
+
+interface LineItemProps {
+  label: string;
+  value: React.ReactNode;
+  bold?: boolean;
+  valueColor?: string;
+}
+
+function PLReport({ data }: ReportProps<PLReportData>) {
   return (
     <div>
       <Section title="INCOME">
@@ -296,11 +353,11 @@ function PLReport({ data }) {
   );
 }
 
-function DiagnosticsPanel({ diagnostics, onInvestigate }) {
+function DiagnosticsPanel({ diagnostics, onInvestigate }: DiagnosticsPanelProps) {
   const warnings = (diagnostics || []).filter((d) => d.severity === 'warning')
   const infos = (diagnostics || []).filter((d) => d.severity === 'info')
 
-  const renderGroup = (items, { border, background, headingColor, textColor, title }) => {
+  const renderGroup = (items: ReportDiagnostic[], { border, background, headingColor, textColor, title }: DiagnosticGroupStyle) => {
     if (!items.length) return null
     return (
       <div style={{
@@ -359,7 +416,7 @@ function DiagnosticsPanel({ diagnostics, onInvestigate }) {
   )
 }
 
-function BalanceSheetReport({ data, onInvestigate }) {
+function BalanceSheetReport({ data, onInvestigate }: InvestigableReportProps<BalanceSheetReportData>) {
   return (
     <div>
       <DiagnosticsPanel diagnostics={data.diagnostics} onInvestigate={onInvestigate} />
@@ -406,10 +463,10 @@ function BalanceSheetReport({ data, onInvestigate }) {
   );
 }
 
-function LedgerReport({ data }) {
+function LedgerReport({ data }: ReportProps<LedgerReportData>) {
   const headers = ['Date', 'Reference No', 'Description', 'Contact', 'Fund', 'Debit', 'Credit', 'Balance']
   const labelSpan = headers.length - 1
-  const isLeftAlignedHeader = (header) => ['Date', 'Reference No', 'Description', 'Contact', 'Fund'].includes(header)
+  const isLeftAlignedHeader = (header: string) => ['Date', 'Reference No', 'Description', 'Contact', 'Fund'].includes(header)
 
   return (
     <div>
@@ -473,7 +530,7 @@ function LedgerReport({ data }) {
   );
 }
 
-function TrialBalanceReport({ data, onInvestigate }) {
+function TrialBalanceReport({ data, onInvestigate }: InvestigableReportProps<TrialBalanceReportData>) {
   const orderedAccounts = getVisibleTrialBalanceAccounts(data.accounts || [])
 
   return (
@@ -523,7 +580,9 @@ function TrialBalanceReport({ data, onInvestigate }) {
   );
 }
 
-function DonorSummaryReport({ data }) {
+function DonorSummaryReport({ data }: ReportProps<DonorSummaryReportData>) {
+  const anonymous = data.anonymous
+
   return (
     <div>
       <table style={{ width: '100%', fontSize: '0.875rem', borderCollapse: 'collapse' }}>
@@ -544,11 +603,11 @@ function DonorSummaryReport({ data }) {
               <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', fontWeight: 600 }}>{fmt(d.total)}</td>
             </tr>
           ))}
-          {data.anonymous?.total > 0 && (
+          {anonymous && anonymous.total > 0 && (
             <tr style={{ borderBottom: '1px solid #f3f4f6', color: '#9ca3af' }}>
               <td style={{ padding: '0.55rem 0.75rem', fontStyle: 'italic' }}>Anonymous</td>
-              <td /><td style={{ padding: '0.55rem 0.75rem', textAlign: 'right' }}>{data.anonymous.transaction_count}</td>
-              <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right' }}>{fmt(data.anonymous.total)}</td>
+              <td /><td style={{ padding: '0.55rem 0.75rem', textAlign: 'right' }}>{anonymous.transaction_count}</td>
+              <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right' }}>{fmt(anonymous.total)}</td>
             </tr>
           )}
           <tr style={{ borderTop: '2px solid #1e293b', background: '#f8fafc' }}>
@@ -561,7 +620,9 @@ function DonorSummaryReport({ data }) {
   );
 }
 
-function DonorDetailReport({ data }) {
+function DonorDetailReport({ data }: ReportProps<DonorDetailReportData>) {
+  const anonymous = data.anonymous
+
   return (
     <div>
       {(data.donors || []).map((d) => (
@@ -603,10 +664,10 @@ function DonorDetailReport({ data }) {
           </table>
         </div>
       ))}
-      {data.anonymous?.transactions?.length > 0 && (
+      {anonymous && anonymous.transactions.length > 0 && (
         <div>
           <div style={{ fontWeight: 700, color: '#9ca3af', fontStyle: 'italic', marginBottom: '0.5rem' }}>
-            Anonymous ({data.anonymous.transactions.length} donations)
+            Anonymous ({anonymous.transactions.length} donations)
           </div>
           <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
             <thead>
@@ -618,7 +679,7 @@ function DonorDetailReport({ data }) {
               </tr>
             </thead>
             <tbody>
-              {data.anonymous.transactions.map((tx, i) => (
+              {anonymous.transactions.map((tx, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
                   <td style={{ padding: '0.35rem 0.6rem' }}>{fmtD(tx.date)}</td>
                   <td style={{ padding: '0.35rem 0.6rem' }}>{tx.description}</td>
@@ -629,11 +690,11 @@ function DonorDetailReport({ data }) {
               ))}
               <tr style={{ borderTop: '1px solid #e5e7eb' }}>
                 <td colSpan={4} style={{ padding: '0.35rem 0.6rem', fontWeight: 600 }}>Subtotal</td>
-                <td style={{ padding: '0.35rem 0.6rem', textAlign: 'right', fontWeight: 700 }}>{fmt(data.anonymous.total)}</td>
+                <td style={{ padding: '0.35rem 0.6rem', textAlign: 'right', fontWeight: 700 }}>{fmt(anonymous.total)}</td>
               </tr>
             </tbody>
           </table>
-          <LineItem label="Total" value={fmt(data.anonymous.total)} bold />
+          <LineItem label="Total" value={fmt(anonymous.total)} bold />
         </div>
       )}
     </div>
@@ -641,7 +702,7 @@ function DonorDetailReport({ data }) {
 }
 
 // ── Shared sub-components ────────────────────────────────────────────────────
-function Section({ title, children }) {
+function Section({ title, children }: SectionProps) {
   return (
     <div style={{ marginBottom: '1.25rem' }}>
       <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#6b7280',
@@ -654,7 +715,7 @@ function Section({ title, children }) {
   );
 }
 
-function LineItem({ label, value, bold, valueColor }) {
+function LineItem({ label, value, bold = false, valueColor }: LineItemProps) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between',
       padding: '0.3rem 0', fontSize: '0.875rem' }}>
@@ -666,13 +727,13 @@ function LineItem({ label, value, bold, valueColor }) {
 
 // ── Main Reports Page ────────────────────────────────────────────────────────
 export default function Reports() {
-  const [type,    setType]    = useState('pl');
+  const [type,    setType]    = useState<ReportType>('pl');
   const [range,   setRange]   = useState(currentMonth());
   const [asOf,    setAsOf]    = useState(getChurchToday());
   const [fundId,  setFundId]  = useState('');
   const [acctId,  setAcctId]  = useState('');
   const [ctcId,   setCtcId]   = useState('');
-  const [donorAcctIds, setDonorAcctIds] = useState([]);
+  const [donorAcctIds, setDonorAcctIds] = useState<OptionValue[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [hardCloseOpen, setHardCloseOpen] = useState(false);
 
@@ -685,15 +746,15 @@ export default function Reports() {
   const accountOptions = [{ value: '', label: 'All Accounts' }, ...(accounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))];
   const incomeAccountOptions = (incomeAccounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
   const contactOptions = [{ value: '', label: 'All Donors' }, ...(contacts || []).map((c) => ({ value: c.id, label: c.name }))];
-  const sortedAcctIds = [...donorAcctIds].sort((a, b) => a - b);
+  const sortedAcctIds = [...donorAcctIds].sort((a, b) => Number(a) - Number(b));
   const acctIdsParam = sortedAcctIds.length ? sortedAcctIds.join(',') : undefined;
 
-  const plFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined };
-  const bsFilters     = { as_of: asOf, fund_id: fundId || undefined };
-  const ledgerFilters = { from: range.from, to: range.to, fund_id: fundId || undefined, account_id: acctId || undefined };
-  const tbFilters     = { as_of: asOf, fund_id: fundId || undefined };
-  const dsFilters     = { from: range.from, to: range.to, fund_id: fundId || undefined, account_ids: acctIdsParam };
-  const ddFilters     = {
+  const plFilters: PLReportFilters = { from: range.from, to: range.to, fund_id: fundId || undefined };
+  const bsFilters: BalanceSheetReportFilters = { as_of: asOf, fund_id: fundId || undefined };
+  const ledgerFilters: LedgerReportFilters = { from: range.from, to: range.to, fund_id: fundId || undefined, account_id: acctId || undefined };
+  const tbFilters: TrialBalanceReportFilters = { as_of: asOf, fund_id: fundId || undefined };
+  const dsFilters: DonorSummaryReportFilters = { from: range.from, to: range.to, fund_id: fundId || undefined, account_ids: acctIdsParam };
+  const ddFilters: DonorDetailReportFilters = {
     from: range.from,
     to: range.to,
     fund_id: fundId || undefined,
@@ -711,30 +772,26 @@ export default function Reports() {
   const activeQuery = { pl: plData, 'balance-sheet': bsData, ledger: lgData,
     'trial-balance': tbData, 'donors-summary': dsData, 'donors-detail': ddData }[type];
 
-  const reportData = activeQuery?.data?.data;
-  const isLoading  = activeQuery?.isFetching;
+  const isLoading  = activeQuery?.isFetching ?? false;
+  const hasReportData = Boolean(activeQuery?.data?.data);
 
   function handleRun() { setEnabled(false); setTimeout(() => setEnabled(true), 0); }
 
   function handleExport() {
-    if (!reportData) return;
-    const exportMap = {
-      'pl':             () => exportPL(reportData, plFilters),
-      'balance-sheet':  () => exportBalanceSheet(reportData, bsFilters),
-      'ledger':         () => exportLedger(reportData, ledgerFilters),
-      'trial-balance':  () => exportTrialBalance(reportData, tbFilters),
-      'donors-summary': () => exportDonorSummary(reportData, dsFilters),
-      'donors-detail':  () => exportDonorDetail(reportData, ddFilters),
-    };
-    exportMap[type]?.();
+    if (type === 'pl' && plData.data) exportPL(plData.data.data, plFilters);
+    if (type === 'balance-sheet' && bsData.data) exportBalanceSheet(bsData.data.data, bsFilters);
+    if (type === 'ledger' && lgData.data) exportLedger(lgData.data.data, ledgerFilters);
+    if (type === 'trial-balance' && tbData.data) exportTrialBalance(tbData.data.data, tbFilters);
+    if (type === 'donors-summary' && dsData.data) exportDonorSummary(dsData.data.data, dsFilters);
+    if (type === 'donors-detail' && ddData.data) exportDonorDetail(ddData.data.data, ddFilters);
   }
 
-  function handleInvestigate(item) {
-    if (item?.code === 'SUGGEST_HARD_CLOSE') {
+  function handleInvestigate(item: ReportDiagnostic | ReportInvestigateFilters) {
+    if ('code' in item && item.code === 'SUGGEST_HARD_CLOSE') {
       setHardCloseOpen(true)
       return
     }
-    const filters = item?.investigate_filters || item
+    const filters = 'investigate_filters' in item ? item.investigate_filters : item
     if (!filters) return
     setType('ledger')
     setRange({ from: filters.from, to: filters.to })
@@ -758,7 +815,7 @@ export default function Reports() {
           <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '1rem', alignItems: 'end' }}>
             <Select label="Report Type" value={type}
               onChange={(e) => {
-                const nextType = e.target.value
+                const nextType = e.target.value as ReportType
                 setType(nextType)
                 if (nextType !== 'donors-summary' && nextType !== 'donors-detail') setDonorAcctIds([])
                 setEnabled(false)
@@ -800,18 +857,18 @@ export default function Reports() {
             )}
             {type === 'ledger' && (
               <Combobox label="Account" options={accountOptions} value={acctId}
-                onChange={(v) => { setAcctId(v); setEnabled(false); }}
+                onChange={(v) => { setAcctId(String(v)); setEnabled(false); }}
                 placeholder="All Accounts" style={{ minWidth: '240px' }} />
             )}
             {type === 'donors-detail' && (
               <Combobox label="Donor" options={contactOptions} value={ctcId}
-                onChange={(v) => { setCtcId(v); setEnabled(false); }}
+                onChange={(v) => { setCtcId(String(v)); setEnabled(false); }}
                 placeholder="All Donors" style={{ minWidth: '200px' }} />
             )}
             <Button onClick={handleRun} isLoading={isLoading} style={{ marginTop: 'auto' }}>
               Run Report
             </Button>
-            {reportData && (
+            {hasReportData && (
               <Button variant="secondary" onClick={handleExport} style={{ marginTop: 'auto' }}>
                 Export Excel
               </Button>
@@ -827,7 +884,7 @@ export default function Reports() {
         </div></Card>
       )}
 
-      {!isLoading && reportData && (
+      {!isLoading && hasReportData && (
         <Card>
           <div style={{ marginBottom: '1rem', paddingBottom: '0.75rem',
             borderBottom: '1px solid #e5e7eb' }}>
@@ -842,16 +899,16 @@ export default function Reports() {
             </div>
           </div>
 
-          {type === 'pl'             && <PLReport data={reportData} />}
-          {type === 'balance-sheet'  && <BalanceSheetReport data={reportData} onInvestigate={handleInvestigate} />}
-          {type === 'ledger'         && <LedgerReport data={reportData} />}
-          {type === 'trial-balance'  && <TrialBalanceReport data={reportData} onInvestigate={handleInvestigate} />}
-          {type === 'donors-summary' && <DonorSummaryReport data={reportData} />}
-          {type === 'donors-detail'  && <DonorDetailReport data={reportData} />}
+          {type === 'pl' && plData.data && <PLReport data={plData.data.data} />}
+          {type === 'balance-sheet' && bsData.data && <BalanceSheetReport data={bsData.data.data} onInvestigate={handleInvestigate} />}
+          {type === 'ledger' && lgData.data && <LedgerReport data={lgData.data.data} />}
+          {type === 'trial-balance' && tbData.data && <TrialBalanceReport data={tbData.data.data} onInvestigate={handleInvestigate} />}
+          {type === 'donors-summary' && dsData.data && <DonorSummaryReport data={dsData.data.data} />}
+          {type === 'donors-detail' && ddData.data && <DonorDetailReport data={ddData.data.data} />}
         </Card>
       )}
 
-      {!isLoading && !reportData && enabled && (
+      {!isLoading && !hasReportData && enabled && (
         <Card><div style={{ padding: '2rem', color: '#9ca3af', textAlign: 'center' }}>
           No data found for the selected filters.
         </div></Card>

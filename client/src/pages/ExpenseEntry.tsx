@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Decimal from 'decimal.js'
 
@@ -16,14 +15,46 @@ import ExpenseBreakdown from '../components/ExpenseBreakdown'
 import SaveTemplateModal from '../components/SaveTemplateModal'
 import TemplateDropdown from '../components/TemplateDropdown'
 import { getChurchToday } from '../utils/date'
+import { getErrorMessage } from '../utils/errors'
+import type { CreateTransactionInput, TaxRateSummary, TransactionEntryInput } from '@shared/contracts'
+import type { ExpenseTemplate } from '../api/useExpenseTemplates'
+import type { OptionValue, SelectOption } from '../components/ui/types'
+import type { TemplateDropdownTemplate } from '../components/TemplateDropdown'
 
-const dec = (value) => new Decimal(value || 0)
-const fmt = (value) => '$' + Number(value || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 })
+const dec = (value: Decimal.Value | null | undefined) => new Decimal(value || 0)
+const fmt = (value: Decimal.Value | null | undefined) => '$' + Number(value || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 })
 const ROUNDING_ACCOUNT_CODE = '59999'
 const MAX_ROUNDING_ADJUSTMENT = new Decimal('0.10')
 const EPSILON = new Decimal('0.001')
 
-function createEmptyLine(id) {
+interface ExpenseEntryHeader {
+  date: string
+  reference_no: string
+  payee_id: OptionValue | ''
+  description: string
+  total_amount: string
+  payment_account_id: OptionValue | ''
+  fund_id: OptionValue | ''
+}
+
+interface ExpenseEntryLine {
+  id: string
+  expense_account_id: OptionValue | ''
+  tax_rate_id: string
+  amount: string
+  rounding_adjustment: string
+  description: string
+}
+
+interface ExpenseLineTotal {
+  gross: number
+  net: number
+  tax: number
+  taxName: string | null
+  rounding: number
+}
+
+function createEmptyLine(id: string): ExpenseEntryLine {
   return {
     id,
     expense_account_id: '',
@@ -42,7 +73,7 @@ export default function ExpenseEntry() {
   const { data: taxRates = [] } = useTaxRates({ activeOnly: true })
   const createTx = useCreateTransaction()
 
-  const [header, setHeader] = useState({
+  const [header, setHeader] = useState<ExpenseEntryHeader>({
     date: getChurchToday(),
     reference_no: '',
     payee_id: '',
@@ -53,12 +84,12 @@ export default function ExpenseEntry() {
   })
 
   const lineIdRef = useRef(2)
-  const [lines, setLines] = useState([createEmptyLine('line-1')])
-  const [errors, setErrors] = useState([])
+  const [lines, setLines] = useState<ExpenseEntryLine[]>([createEmptyLine('line-1')])
+  const [errors, setErrors] = useState<string[]>([])
   const { templates, saveTemplate, deleteTemplate } = useExpenseTemplates()
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false)
   const [saveModalOpen, setSaveModalOpen] = useState(false)
-  const dropdownRef = useRef(null)
+  const dropdownRef = useRef<HTMLDivElement | null>(null)
 
   const payeeOptions = useMemo(
     () => (contacts || []).filter((c) => c.is_active).map((c) => ({ value: c.id, label: c.name })),
@@ -84,12 +115,12 @@ export default function ExpenseEntry() {
     [funds]
   )
 
-  const taxRateOptions = useMemo(() => [
+  const taxRateOptions = useMemo<SelectOption<string>[]>(() => [
     { value: '', label: 'Exempt' },
     ...taxRates.map((tr) => ({ value: String(tr.id), label: `${tr.name} (${(tr.rate * 100).toFixed(2)}%)` })),
   ], [taxRates])
 
-  const taxRateMap = useMemo(() => Object.fromEntries(taxRates.map((tr) => [String(tr.id), tr])), [taxRates])
+  const taxRateMap = useMemo<Record<string, TaxRateSummary>>(() => Object.fromEntries(taxRates.map((tr) => [String(tr.id), tr])), [taxRates])
   const accountMap = useMemo(() => Object.fromEntries((accounts || []).map((a) => [a.id, a])), [accounts])
 
   const roundingAccount = useMemo(
@@ -98,19 +129,22 @@ export default function ExpenseEntry() {
   )
 
   useEffect(() => {
-    if (!header.payment_account_id && paymentAccounts.length > 0) {
-      setHeader((prev) => ({ ...prev, payment_account_id: paymentAccounts[0].value }))
+    const defaultPaymentAccount = paymentAccounts[0]
+    const defaultFund = fundOptions[0]
+
+    if (!header.payment_account_id && defaultPaymentAccount) {
+      setHeader((prev) => ({ ...prev, payment_account_id: defaultPaymentAccount.value }))
     }
-    if (!header.fund_id && fundOptions.length > 0) {
-      setHeader((prev) => ({ ...prev, fund_id: fundOptions[0].value }))
+    if (!header.fund_id && defaultFund) {
+      setHeader((prev) => ({ ...prev, fund_id: defaultFund.value }))
     }
   }, [paymentAccounts, fundOptions, header.payment_account_id, header.fund_id])
 
   useEffect(() => {
     if (!templateDropdownOpen) return
 
-    function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+    function handleClickOutside(event: MouseEvent) {
+      if (event.target instanceof Node && dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setTemplateDropdownOpen(false)
       }
     }
@@ -135,9 +169,9 @@ export default function ExpenseEntry() {
       gross: Number(row.gross),
       net: Number(row.preTax),
       tax: Number(row.tax),
-      taxName: lines[index].tax_rate_id ? taxRateMap[lines[index].tax_rate_id]?.name ?? null : null,
+      taxName: lines[index]?.tax_rate_id ? taxRateMap[lines[index].tax_rate_id]?.name ?? null : null,
       rounding: Number(row.rounding),
-    }))
+    })) satisfies ExpenseLineTotal[]
   }, [calculatedRows, lines, taxRateMap])
 
   const totals = useMemo(() => {
@@ -159,10 +193,12 @@ export default function ExpenseEntry() {
     }
   }, [calculatedRows, header.total_amount])
 
-  function setLine(index, key, value) {
+  function setLine(index: number, key: keyof ExpenseEntryLine, value: OptionValue | string) {
     setLines((prev) => {
       const next = [...prev]
-      next[index] = { ...next[index], [key]: value }
+      const current = next[index]
+      if (!current) return prev
+      next[index] = { ...current, [key]: value }
       return next
     })
   }
@@ -179,12 +215,15 @@ export default function ExpenseEntry() {
     ])
   }
 
-  function removeLine(index) {
+  function removeLine(index: number) {
     if (lines.length <= 1) return
     setLines((prev) => prev.filter((_, i) => i !== index))
   }
 
-  function loadTemplate(template) {
+  function loadTemplate(selectedTemplate: TemplateDropdownTemplate) {
+    const template = templates.find((item): item is ExpenseTemplate => item.id === selectedTemplate.id)
+    if (!template) return
+
     const knownPayee = payeeOptions.find((option) => String(option.value) === String(template.payee_id))
     const accountValueById = new Map(expenseAccounts.map((option) => [String(option.value), option.value]))
     const activeTaxRateIds = new Set(taxRateOptions.filter((option) => option.value !== '').map((option) => String(option.value)))
@@ -209,7 +248,7 @@ export default function ExpenseEntry() {
   }
 
   const validationErrors = useMemo(() => {
-    const nextErrors = []
+    const nextErrors: string[] = []
 
     if (!header.payee_id) nextErrors.push('Payee is required')
     if (!header.date) nextErrors.push('Date is required')
@@ -281,10 +320,11 @@ export default function ExpenseEntry() {
     const paymentAccountId = Number(header.payment_account_id)
     const nextReferenceNo = header.reference_no.trim()
 
-    const lineEntries = []
+    const lineEntries: TransactionEntryInput[] = []
 
     lines.forEach((line, index) => {
       const rowTotals = calculatedRows[index]
+      if (!rowTotals) return
       const preTax = rowTotals.preTax.toDecimalPlaces(2)
       const rounding = rowTotals.rounding.toDecimalPlaces(2)
       const tax = rowTotals.tax.toDecimalPlaces(2)
@@ -332,10 +372,10 @@ export default function ExpenseEntry() {
       memo: header.description.trim(),
     }
 
-    const payload = {
+    const payload: CreateTransactionInput = {
       date: header.date,
       description: header.description.trim(),
-      reference_no: nextReferenceNo || null,
+      reference_no: nextReferenceNo || undefined,
       entries: [...lineEntries, paymentEntry],
     }
 
@@ -354,8 +394,7 @@ export default function ExpenseEntry() {
       })
       setLines([createEmptyLine(`line-${lineIdRef.current++}`)])
     } catch (err) {
-      const apiErrors = err.response?.data?.errors || [err.response?.data?.error || 'Failed to record expense.']
-      setErrors(apiErrors)
+      setErrors([getErrorMessage(err, 'Failed to record expense.')])
     }
   }
 

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useMemo, useEffect } from 'react';
 import { useBills, useBill, useCreateBill, useUpdateBill, usePayBill, useVoidBill, useAvailableBillCredits, useApplyBillCredits } from '../api/useBills';
 import { useTaxRates } from '../api/useTaxRates';
@@ -25,16 +24,99 @@ import {
   isDateOnlyBefore,
   toDateOnly,
 } from '../utils/date';
+import { getErrorMessage } from '../utils/errors';
+import type React from 'react';
+import type {
+  BillDetail,
+  BillLineItemInput,
+  BillStatus,
+  BillSummary,
+  CreateBillInput,
+  TaxRateSummary,
+  UpdateBillInput,
+} from '@shared/contracts';
+import type { OptionValue, SelectOption, TableColumn } from '../components/ui/types';
 
-const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
+const fmt = (n: number | string | null | undefined) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 const MAX_ROUNDING = 0.10;
 const ROUNDING_PATTERN = /^-?\d*(?:\.\d*)?$/;
+type BillType = 'BILL' | 'CREDIT';
+type EditableBill = BillSummary | BillDetail;
+type BillDrawerState =
+  | { type: 'add' }
+  | { type: 'edit'; bill: BillSummary }
+  | { type: 'view'; bill: BillSummary }
+  | null;
+
+interface BillLineItemForm {
+  id: string;
+  expense_account_id: string;
+  description: string;
+  amount: string;
+  tax_rate_id: string;
+  rounding_adjustment: string;
+}
+
+interface BillFormState {
+  bill_type: BillType;
+  contact_id: string;
+  date: string;
+  due_date: string;
+  bill_number: string;
+  description: string;
+  fund_id: string;
+  line_items: BillLineItemForm[];
+}
+
+type BillLineItemErrors = Partial<Record<keyof BillLineItemForm, string>>;
+
+interface BillFormErrors {
+  contact_id?: string;
+  date?: string;
+  due_date?: string;
+  description?: string;
+  fund_id?: string;
+  line_items?: BillLineItemErrors[];
+}
+
+interface BillFormProps {
+  bill?: EditableBill | null;
+  onClose: () => void;
+  onSaved?: (andPay?: boolean) => void;
+  onVoid?: (bill: EditableBill) => void;
+  canVoid?: boolean;
+  isVoiding?: boolean;
+  readOnly?: boolean;
+}
+
+interface LineTotal {
+  gross: number;
+  net: number;
+  tax: number;
+  taxName: string | null;
+  rounding: number;
+}
+
+interface PaymentState {
+  payment_date: string;
+  amount: number | '';
+  bank_account_id: OptionValue | '';
+  reference_no: string;
+  memo: string;
+}
+
+interface PaymentModalProps {
+  bill: BillSummary | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onPaid?: () => void;
+}
 
 function currentMonth() {
   return currentMonthRange();
 }
 
-function createEmptyLineItem(tempId) {
+function createEmptyLineItem(tempId: string): BillLineItemForm {
   return {
     id: tempId,
     expense_account_id: '',
@@ -45,7 +127,7 @@ function createEmptyLineItem(tempId) {
   };
 }
 
-function createEmptyForm() {
+function createEmptyForm(): BillFormState {
   return {
     bill_type: 'BILL',
     contact_id: '',
@@ -59,25 +141,25 @@ function createEmptyForm() {
 }
 
 let tempIdCounter = 1;
-const billTypeOptions = [
+const billTypeOptions: SelectOption<BillType>[] = [
   { value: 'BILL', label: 'Bill' },
   { value: 'CREDIT', label: 'Credit' },
 ];
 
-function normalizeLineAmount(value, billType) {
-  const parsed = parseFloat(value);
+function normalizeLineAmount(value: string | number, billType: BillType) {
+  const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   const absolute = Math.abs(parsed);
   return billType === 'CREDIT' ? absolute * -1 : absolute;
 }
 
-function parseRoundingAdjustment(value) {
+function parseRoundingAdjustment(value: string | number) {
   if (value === '' || value === '-' || value === '.') return 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function coerceDateOnly(value) {
+function coerceDateOnly(value: string | null | undefined) {
   if (value == null) return '';
   const raw = String(value).trim();
   if (!raw) return '';
@@ -88,7 +170,7 @@ function coerceDateOnly(value) {
   return toDateOnly(raw);
 }
 
-function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding = false, readOnly = false }) {
+function BillForm({ bill = null, onClose, onSaved, onVoid, canVoid = false, isVoiding = false, readOnly = false }: BillFormProps) {
   const { addToast } = useToast();
   const { data: contacts } = useContacts({ type: 'PAYEE' });
   const { data: accounts } = useAccounts();
@@ -97,8 +179,8 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
   const createBill = useCreateBill();
   const updateBill = useUpdateBill();
 
-  const [form, setForm] = useState(bill ? {
-    bill_type: parseFloat(bill.amount) < 0 ? 'CREDIT' : 'BILL',
+  const [form, setForm] = useState<BillFormState>(bill ? {
+    bill_type: Number(bill.amount) < 0 ? 'CREDIT' : 'BILL',
     contact_id: String(bill.contact_id),
     date: coerceDateOnly(bill.date),
     due_date: coerceDateOnly(bill.due_date),
@@ -109,7 +191,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
       id: `existing-${li.id}`,
       expense_account_id: String(li.expense_account_id),
       description: li.description || '',
-      amount: Math.abs(parseFloat(li.amount || 0)) || '',
+      amount: String(Math.abs(parseFloat(String(li.amount || 0))) || ''),
       tax_rate_id: li.tax_rate_id ? String(li.tax_rate_id) : '',
       rounding_adjustment: li.rounding_adjustment != null ? String(li.rounding_adjustment) : '',
     })) || [createEmptyLineItem('temp-1')],
@@ -124,7 +206,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
     }
   }, [funds, bill, form.fund_id]);
 
-  const [errors, setErrors] = useState({});
+  const [errors, setErrors] = useState<BillFormErrors>({});
 
   const vendorOptions = (contacts || [])
     .filter(c => ['PAYEE', 'BOTH'].includes(c.type))
@@ -138,20 +220,20 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
     .filter(f => f.is_active)
     .map(f => ({ value: String(f.id), label: f.name }));
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key: keyof Omit<BillFormState, 'line_items'>) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  const taxRateOptions = [
+  const taxRateOptions: SelectOption<string>[] = [
     { value: '', label: 'Exempt' },
     ...taxRates.map(tr => ({ value: String(tr.id), label: `${tr.name} (${(tr.rate * 100).toFixed(2)}%)` })),
   ];
 
   // Build a lookup map for quick rate access in calculations
-  const taxRateMap = useMemo(() => {
+  const taxRateMap = useMemo<Record<string, TaxRateSummary>>(() => {
     return Object.fromEntries(taxRates.map(tr => [String(tr.id), tr]));
   }, [taxRates]);
 
   // Per-line tax breakdown using the internal tax formula: gross = net * (1 + rate)
-  const lineTotals = useMemo(() => {
+  const lineTotals = useMemo<LineTotal[]>(() => {
     return form.line_items.map(li => {
       const net = normalizeLineAmount(li.amount, form.bill_type);
       const rounding = parseRoundingAdjustment(li.rounding_adjustment);
@@ -173,7 +255,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
   const totalTax    = totalHST + totalGST;
   const totalRounding = useMemo(() => lineTotals.reduce((sum, l) => sum + l.rounding, 0), [lineTotals]);
   const totalNet    = useMemo(() => lineTotals.reduce((sum, l) => sum + l.net, 0), [lineTotals]);
-  const amountDelta = bill ? Math.abs(lineTotal - (parseFloat(bill.amount) || 0)) : 0;
+  const amountDelta = bill ? Math.abs(lineTotal - (Number(bill.amount) || 0)) : 0;
   const willRecalculateAmount = Boolean(bill && amountDelta > 0.01);
 
   function addLineItem() {
@@ -184,7 +266,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
     }));
   }
 
-  function removeLineItem(index) {
+  function removeLineItem(index: number) {
     if (form.line_items.length <= 1) return;
     setForm(f => ({
       ...f,
@@ -192,7 +274,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
     }));
   }
 
-  function updateLineItem(index, field, value) {
+  function updateLineItem(index: number, field: keyof BillLineItemForm, value: OptionValue | string) {
     setForm(f => ({
       ...f,
       line_items: f.line_items.map((li, i) => 
@@ -202,16 +284,16 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
   }
 
   function validate() {
-    const errs = {};
+    const errs: BillFormErrors = {};
     if (!form.contact_id) errs.contact_id = 'Vendor is required';
     if (!form.date) errs.date = 'Date is required';
     // due_date is optional - no validation needed
     // description is optional - no validation needed
 
-    const lineItemErrors = [];
+    const lineItemErrors: BillLineItemErrors[] = [];
     let hasLineItemErrors = false;
     form.line_items.forEach((li, idx) => {
-      const lineErr = {};
+      const lineErr: BillLineItemErrors = {};
       if (!li.expense_account_id) {
         lineErr.expense_account_id = 'Required';
         hasLineItemErrors = true;
@@ -256,7 +338,14 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
     if (!validate()) return;
 
     try {
-      const payload = {
+      const lineItems: BillLineItemInput[] = form.line_items.map(li => ({
+        expense_account_id: parseInt(li.expense_account_id),
+        description: li.description.trim(),
+        amount: normalizeLineAmount(li.amount, form.bill_type),
+        rounding_adjustment: parseRoundingAdjustment(li.rounding_adjustment),
+        tax_rate_id: li.tax_rate_id ? parseInt(li.tax_rate_id) : null,
+      }));
+      const payload: CreateBillInput = {
         contact_id: parseInt(form.contact_id),
         date: form.date,
         due_date: form.due_date,
@@ -264,20 +353,14 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
         description: form.description,
         amount: lineTotal,
         fund_id: parseInt(form.fund_id),
-        line_items: form.line_items.map(li => ({
-          expense_account_id: parseInt(li.expense_account_id),
-          description: li.description.trim(),
-          amount: normalizeLineAmount(li.amount, form.bill_type),
-          rounding_adjustment: parseRoundingAdjustment(li.rounding_adjustment),
-          tax_rate_id: li.tax_rate_id ? parseInt(li.tax_rate_id) : null,
-        })),
+        line_items: lineItems,
       };
 
       if (bill) {
         try {
           await updateBill.mutateAsync({ id: bill.id, ...payload });
         } catch (innerErr) {
-          const errMsg = innerErr.response?.data?.errors?.[0] || '';
+          const errMsg = getErrorMessage(innerErr, '');
           if (errMsg.includes('Confirm unapply')) {
             const confirmed = window.confirm(
               'This bill has applied credits. Updating it will unapply existing credits first. You will need to manually re-apply credits after saving. Continue?'
@@ -301,7 +384,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
         onClose();
       }
     } catch (err) {
-      const msg = err.response?.data?.errors?.[0] || 'Failed to save.';
+      const msg = getErrorMessage(err, 'Failed to save.');
       addToast(msg, 'error');
     }
   }
@@ -313,7 +396,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
       <div style={{ flex: 1, padding: '1.5rem', overflowY: 'auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
           <Combobox label="Vendor" required options={vendorOptions} value={form.contact_id}
-            onChange={(v) => setForm((f) => ({ ...f, contact_id: v }))} placeholder="Select vendor…"
+            onChange={(v) => setForm((f) => ({ ...f, contact_id: String(v) }))} placeholder="Select vendor…"
             error={errors.contact_id} disabled={readOnly} />
           <Input label="Bill Number" value={form.bill_number} onChange={set('bill_number')}
             placeholder="e.g., INV-001" disabled={readOnly} />
@@ -334,7 +417,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
           style={{ marginBottom: '1rem' }} disabled={readOnly} />
 
         <Combobox label="Fund" required options={fundOptions} value={form.fund_id}
-          onChange={(v) => setForm((f) => ({ ...f, fund_id: v }))} placeholder="Select fund…"
+          onChange={(v) => setForm((f) => ({ ...f, fund_id: String(v) }))} placeholder="Select fund…"
           error={errors.fund_id} style={{ marginBottom: '1.5rem' }} disabled={readOnly} />
 
         <div style={{ marginBottom: '0.5rem' }}>
@@ -373,7 +456,7 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
           gap: '0.3rem',
           fontSize: '0.85rem',
         }}>
-          {willRecalculateAmount && (
+          {bill && willRecalculateAmount && (
             <div style={{ color: '#92400e', fontWeight: 600 }}>
               Saving this bill will update stored amount from {fmt(bill.amount)} to {fmt(lineTotal)}.
             </div>
@@ -423,7 +506,9 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
             <div style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>
               {form.line_items.map((li, idx) => {
                 const account = expenseAccountOptions.find(a => a.value === li.expense_account_id);
-                const { gross, net, tax, taxName, rounding = 0 } = lineTotals[idx] || {};
+                const lineTotal = lineTotals[idx];
+                if (!lineTotal) return null;
+                const { gross, net, tax, taxName, rounding = 0 } = lineTotal;
                 if (!gross || gross === 0) return null;
                 const taxRate = li.tax_rate_id ? taxRateMap[li.tax_rate_id] : null;
 
@@ -484,9 +569,9 @@ function BillForm({ bill, onClose, onSaved, onVoid, canVoid = false, isVoiding =
   );
 }
 
-function PaymentModal({ bill, isOpen, onClose, onPaid }) {
-  const toCents = (value) => Math.round((Number(value) || 0) * 100);
-  const fromCents = (cents) => cents / 100;
+function PaymentModal({ bill, isOpen, onClose, onPaid }: PaymentModalProps) {
+  const toCents = (value: number | string | null | undefined) => Math.round((Number(value) || 0) * 100);
+  const fromCents = (cents: number) => cents / 100;
 
   const { addToast } = useToast();
   const payBill = usePayBill();
@@ -497,22 +582,22 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
   const { data: creditData, isLoading: isLoadingCredits } = useAvailableBillCredits(billId);
 
   const activeBill = billDetail || bill;
-  const outstanding = activeBill ? parseFloat(activeBill.amount) - parseFloat(activeBill.amount_paid) : 0;
+  const outstanding = activeBill ? Number(activeBill.amount) - Number(activeBill.amount_paid) : 0;
   const payableOutstanding = Math.max(outstanding, 0);
   const payableOutstandingCents = toCents(payableOutstanding);
   const outstandingColor = outstanding > 0 ? '#dc2626' : outstanding < 0 ? '#1d4ed8' : '#15803d';
   const credits = creditData?.credits || [];
 
-  const [payment, setPayment] = useState({
+  const [payment, setPayment] = useState<PaymentState>({
     payment_date: getChurchToday(),
     amount: 0,
     bank_account_id: '',
     reference_no: '',
     memo: '',
   });
-  const [amounts, setAmounts] = useState({});
+  const [amounts, setAmounts] = useState<Record<number, string>>({});
   const [hasAppliedCredits, setHasAppliedCredits] = useState(false);
-  const [lastApplyTransactionId, setLastApplyTransactionId] = useState(null);
+  const [lastApplyTransactionId, setLastApplyTransactionId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -522,7 +607,7 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
       return;
     }
     setAmounts((prev) => {
-      const next = {};
+      const next: Record<number, string> = {};
       credits.forEach((credit) => {
         next[credit.bill_id] = prev[credit.bill_id] ?? '';
       });
@@ -541,7 +626,7 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
 
   const lines = useMemo(() => {
     return credits.map((credit) => {
-      const parsed = parseFloat(amounts[credit.bill_id]);
+      const parsed = Number(amounts[credit.bill_id] ?? '');
       const requested = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
       const requestedCents = toCents(requested);
       const availableCents = toCents(credit.available_amount);
@@ -564,13 +649,13 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
     .filter(a => a.type === 'ASSET' && a.is_active)
     .map(a => ({ value: a.id, label: `${a.code} — ${a.name}` }));
 
-  function setAmount(id, value) {
+  function setAmount(id: number, value: string) {
     setAmounts((prev) => ({ ...prev, [id]: value }));
   }
 
   function handleApplyMaximumNeeded() {
     let remainingCents = payableOutstandingCents;
-    const next = {};
+    const next: Record<number, string> = {};
 
     credits.forEach((credit) => {
       if (remainingCents <= 0) {
@@ -613,7 +698,7 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
       onPaid?.();
       addToast('Credits applied successfully. This has been posted to the ledger.', 'success');
     } catch (err) {
-      addToast(err.response?.data?.errors?.[0] || 'Failed to apply credits.', 'error');
+      addToast(getErrorMessage(err, 'Failed to apply credits.'), 'error');
     }
   }
 
@@ -622,7 +707,7 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
 
     const refreshed = await refetchBillDetail();
     const latestBill = refreshed.data || activeBill;
-    const latestOutstanding = parseFloat(latestBill.amount) - parseFloat(latestBill.amount_paid);
+    const latestOutstanding = Number(latestBill.amount) - Number(latestBill.amount_paid);
     const roundedLatestOutstanding = Math.round(Math.max(latestOutstanding, 0) * 100) / 100;
 
     if (roundedLatestOutstanding <= 0) {
@@ -635,7 +720,7 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
       return;
     }
 
-    const paymentAmount = Math.round((parseFloat(payment.amount) || 0) * 100) / 100;
+    const paymentAmount = Math.round((Number(payment.amount) || 0) * 100) / 100;
     if (paymentAmount <= 0) {
       addToast('Please enter a payment amount.', 'error');
       return;
@@ -646,21 +731,28 @@ function PaymentModal({ bill, isOpen, onClose, onPaid }) {
       return;
     }
 
+    const bankAccountId = Number(payment.bank_account_id);
+    if (!Number.isFinite(bankAccountId)) {
+      addToast('Please select a bank account.', 'error');
+      return;
+    }
+
     try {
-      const result = await payBill.mutateAsync({
+      const payload = {
         id: latestBill.id,
         payment_date: payment.payment_date,
         amount: paymentAmount,
-        bank_account_id: payment.bank_account_id,
+        bank_account_id: bankAccountId,
         reference_no: payment.reference_no,
         memo: payment.memo,
-      });
+      };
+      const result = await payBill.mutateAsync(payload);
       const isFullyPaid = result?.status === 'PAID';
       addToast(isFullyPaid ? 'Bill paid in full.' : 'Partial payment recorded.', 'success');
       onPaid?.();
       onClose();
     } catch (err) {
-      const msg = err.response?.data?.errors?.[0] || 'Failed to pay bill.';
+      const msg = getErrorMessage(err, 'Failed to pay bill.');
       addToast(msg, 'error');
     }
   }
@@ -861,11 +953,11 @@ export default function Bills() {
   const { addToast } = useToast();
   const { user } = useAuth();
   const [range, setRange] = useState(currentMonth());
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<BillStatus | ''>('');
   const [vendorFilter, setVendorFilter] = useState('');
   const [showVoided, setShowVoided] = useState(false);
-  const [drawer, setDrawer] = useState(null);
-  const [paymentBill, setPaymentBill] = useState(null);
+  const [drawer, setDrawer] = useState<BillDrawerState>(null);
+  const [paymentBill, setPaymentBill] = useState<BillSummary | null>(null);
 
   const { data: bills, isLoading, refetch } = useBills({
     status: statusFilter || undefined,
@@ -884,37 +976,37 @@ export default function Bills() {
     ...(contacts || []).map(c => ({ value: c.id, label: c.name })),
   ];
 
-  const statusOptions = [
+  const statusOptions: SelectOption<BillStatus | ''>[] = [
     { value: '', label: 'All Statuses' },
     { value: 'UNPAID', label: 'Unpaid' },
     { value: 'PAID', label: 'Paid' },
     { value: 'VOID', label: 'Void' },
   ];
 
-  const canEdit = ['admin', 'editor'].includes(user?.role);
+  const canEdit = user ? ['admin', 'editor'].includes(user.role) : false;
   const canVoid = user?.role === 'admin';
   const isAddDrawer = drawer?.type === 'add';
   const isViewDrawer = drawer?.type === 'view';
-  const activeBill = drawer?.bill || null;
-  const getOutstanding = (b) => parseFloat(b.amount) - parseFloat(b.amount_paid);
+  const activeBill = drawer && drawer.type !== 'add' ? drawer.bill : null;
+  const getOutstanding = (b: BillSummary) => Number(b.amount) - Number(b.amount_paid);
 
   function handleAdd() {
     setDrawer({ type: 'add' });
   }
 
-  function handleEdit(bill) {
+  function handleEdit(bill: BillSummary) {
     setDrawer({ type: 'edit', bill });
   }
 
-  function handleView(bill) {
+  function handleView(bill: BillSummary) {
     setDrawer({ type: 'view', bill });
   }
 
-  function handlePay(bill) {
+  function handlePay(bill: BillSummary) {
     setPaymentBill(bill);
   }
 
-  async function handleVoid(bill, { closeDrawer = false } = {}) {
+  async function handleVoid(bill: EditableBill, { closeDrawer = false }: { closeDrawer?: boolean } = {}) {
     const confirmed = window.confirm(
       `Are you sure you want to void this bill? This action cannot be undone and will be recorded in the audit history.\n\n` +
       `Vendor: ${bill.vendor_name}\n` +
@@ -930,11 +1022,11 @@ export default function Bills() {
       if (closeDrawer) setDrawer(null);
       refetch();
     } catch (err) {
-      addToast(err.response?.data?.errors?.[0] || 'Cannot void bill.', 'error');
+      addToast(getErrorMessage(err, 'Cannot void bill.'), 'error');
     }
   }
 
-  function handleRowClick(bill) {
+  function handleRowClick(bill: BillSummary) {
     const isVoided = bill.status === 'VOID' || bill.is_voided;
     if (isVoided) return;
     if (bill.status === 'PAID') {
@@ -946,14 +1038,14 @@ export default function Bills() {
     }
   }
 
-  function handleDrawerSaved(andPay) {
+  function handleDrawerSaved(andPay?: boolean) {
     refetch();
     if (andPay && createBill.data) {
       setPaymentBill(createBill.data);
     }
   }
 
-  const COLUMNS = [
+  const COLUMNS: TableColumn<BillSummary>[] = [
     {
       key: 'date',
       label: 'Date',
@@ -1027,7 +1119,7 @@ export default function Bills() {
       render: (b) => {
         const displayStatus = b.status === 'VOID' || b.is_voided
           ? 'VOID'
-          : b.status === 'UNPAID' && parseFloat(b.amount_paid) > 0
+          : b.status === 'UNPAID' && Number(b.amount_paid) > 0
             ? 'PARTIAL'
             : b.status;
         return (
@@ -1094,11 +1186,11 @@ export default function Bills() {
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <DateRangePicker from={range.from} to={range.to} onChange={setRange} />
         
-        <Select label="" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+        <Select label="" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as BillStatus | '')}
           options={statusOptions} style={{ minWidth: '140px' }} />
         
         <Combobox label="" options={vendorOptions} value={vendorFilter}
-          onChange={setVendorFilter} placeholder="Filter by vendor…" style={{ minWidth: '140px' }} />
+          onChange={(value) => setVendorFilter(String(value))} placeholder="Filter by vendor…" style={{ minWidth: '140px' }} />
 
         <label style={{
           display: 'inline-flex',
