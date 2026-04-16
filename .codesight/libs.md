@@ -30,8 +30,11 @@
   - function useDonationReceiptTemplate: (enabled) => void
   - function useSaveDonationReceiptTemplate: () => void
   - function usePreviewDonationReceipt: () => void
-  - function useGenerateDonationReceipts: () => void
-- `client/src/api/useExpenseTemplates.ts` — function useExpenseTemplates: () => void
+  - function useGenerateDonationReceiptPdf: () => void
+- `client/src/api/useExpenseTemplates.ts`
+  - function useExpenseTemplates: () => void
+  - interface ExpenseTemplateRow
+  - interface ExpenseTemplate
 - `client/src/api/useFiscalPeriods.ts` — function useFiscalPeriods: () => void, function useReopenFiscalPeriod: () => void
 - `client/src/api/useFunds.ts`
   - function useFunds: (params) => void
@@ -58,7 +61,10 @@
   - function useTaxRates: ({...}) => void
   - function useUpdateTaxRate: () => void
   - function useToggleTaxRate: () => void
-- `client/src/api/useTransactionTemplates.ts` — function useTransactionTemplates: () => void
+- `client/src/api/useTransactionTemplates.ts`
+  - function useTransactionTemplates: () => void
+  - interface TransactionTemplateRow
+  - interface TransactionTemplate
 - `client/src/api/useTransactions.ts`
   - function useTransactions: (params) => void
   - function useTransaction: (id) => void
@@ -81,6 +87,7 @@
   - function toDateOnly: (value?) => void
   - function getChurchToday: (timeZone?) => void
   - _...10 more_
+- `client/src/utils/errors.ts` — function getErrorMessage: (err, fallback) => string
 - `client/src/utils/parseStatementCsv.ts` — function parseStatementCsv: (file) => Promise<ParseStatementCsvResult>
 - `server/services/bills/billCredits.ts`
   - function getAvailableCreditsForBill: (id) => Promise<AvailableBillCredit[]>
@@ -117,7 +124,7 @@
   - function getReceiptTemplate: () => Promise<DonationReceiptTemplateResponse>
   - function saveReceiptTemplate: (markdownBody, userId) => Promise<DonationReceiptTemplateResponse>
   - function previewReceipt: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptPreviewResponse>
-  - function generateReceipts: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptGenerateResponse>
+  - function generateReceiptPdf: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptGeneratePdfResponse>
 - `server/services/donorDonations.ts`
   - function getDonationLines: ({...}, to, fundId, accountIds, contactId, includeAnonymous, }) => Promise<DonationLine[]>
   - interface DonationLineFilters

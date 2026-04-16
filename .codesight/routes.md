@@ -32,7 +32,7 @@
 - `GET` `/api/donation-receipts/template` [auth] `[inferred]`
 - `PUT` `/api/donation-receipts/template` [auth] `[inferred]`
 - `POST` `/api/donation-receipts/preview` [auth] `[inferred]`
-- `POST` `/api/donation-receipts/generate` [auth] `[inferred]`
+- `POST` `/api/donation-receipts/generate-pdf` [auth] `[inferred]`
 - `POST` `/api/fiscal-periods/investigate` [auth, db] `[inferred]`
 - `POST` `/api/fiscal-periods/close` [auth, db] `[inferred]`
 - `GET` `/api/fiscal-periods` [auth, db] `[inferred]`
@@ -50,7 +50,7 @@
 - `GET` `/api/tax-rates` [auth, db] `[inferred]`
 - `PUT` `/api/tax-rates/:id` params(id) [auth, db] `[inferred]`
 - `PATCH` `/api/tax-rates/:id/toggle` params(id) [auth, db] `[inferred]`
-- `POST` `/api/transactions/import/bill-matches` [auth, db, queue] `[inferred]`
-- `POST` `/api/transactions/import` [auth, db, queue] `[inferred]`
+- `POST` `/api/transactions/import/bill-matches` [auth, db] `[inferred]`
+- `POST` `/api/transactions/import` [auth, db] `[inferred]`
 - `PUT` `/api/users/:id/role` params(id) [auth, db] `[inferred]`
 - `PUT` `/api/users/:id/active` params(id) [auth, db] `[inferred]`
