@@ -23,14 +23,26 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return;
-
-          if (id.includes('xlsx')) return 'vendor-xlsx';
-          if (id.includes('@tanstack')) return 'vendor-query';
-          if (id.includes('react-dom') || id.includes('react-router') || id.includes('/react/')) return 'vendor-react';
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor-xlsx',
+              test: /node_modules[\\/]xlsx/,
+              priority: 30,
+            },
+            {
+              name: 'vendor-query',
+              test: /node_modules[\\/]@tanstack/,
+              priority: 20,
+            },
+            {
+              name: 'vendor-react',
+              test: /node_modules[\\/](react|react-dom|react-router|react-router-dom)/,
+              priority: 10,
+            },
+          ],
         },
       },
     },
