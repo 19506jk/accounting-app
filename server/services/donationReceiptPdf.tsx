@@ -1,4 +1,4 @@
-import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { Document, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer'
 import { marked } from 'marked'
 import type React from 'react'
 import type { Token, Tokens } from 'marked'
@@ -465,4 +465,9 @@ export default function DonationReceiptsPdfDocument({ receipts }: { receipts?: s
         )}
     </Document>
   )
+}
+
+export async function renderDonationReceiptsPdfBase64(receipts: string[]) {
+  const buffer = await renderToBuffer(<DonationReceiptsPdfDocument receipts={receipts} />)
+  return buffer.toString('base64')
 }

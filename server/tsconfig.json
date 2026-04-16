@@ -19,6 +19,7 @@
     "strict": true,
     "strictNullChecks": true,
     "noUncheckedIndexedAccess": true,
+    "jsx": "react-jsx",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
@@ -32,6 +33,7 @@
     "middleware/**/*.ts",
     "routes/**/*.ts",
     "services/**/*.ts",
+    "services/**/*.tsx",
     "utils/**/*.ts",
     "db/**/*.js"
   ]

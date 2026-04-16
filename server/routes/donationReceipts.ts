@@ -5,14 +5,14 @@ import type {
   ApiErrorResponse,
   DonationReceiptAccountsResponse,
   DonationReceiptGenerateInput,
-  DonationReceiptGenerateResponse,
+  DonationReceiptGeneratePdfResponse,
   DonationReceiptPreviewInput,
   DonationReceiptPreviewResponse,
   DonationReceiptTemplateResponse,
   UpdateDonationReceiptTemplateInput,
 } from '@shared/contracts';
 import {
-  generateReceipts,
+  generateReceiptPdf,
   getReceiptAccounts,
   getReceiptTemplate,
   previewReceipt,
@@ -127,10 +127,10 @@ router.post(
 );
 
 router.post(
-  '/generate',
+  '/generate-pdf',
   async (
-    req: Request<{}, DonationReceiptGenerateResponse | ApiErrorResponse, DonationReceiptGenerateInput>,
-    res: Response<DonationReceiptGenerateResponse | ApiErrorResponse>,
+    req: Request<{}, DonationReceiptGeneratePdfResponse | ApiErrorResponse, DonationReceiptGenerateInput>,
+    res: Response<DonationReceiptGeneratePdfResponse | ApiErrorResponse>,
     next: NextFunction
   ) => {
     try {
@@ -144,7 +144,7 @@ router.post(
         return res.status(400).json({ error: accountIdsError || 'Invalid account_ids' });
       }
 
-      res.json(await generateReceipts(fiscalYear, accountIds, req.body?.markdown_body));
+      res.json(await generateReceiptPdf(fiscalYear, accountIds, req.body?.markdown_body));
     } catch (err) {
       next(err);
     }

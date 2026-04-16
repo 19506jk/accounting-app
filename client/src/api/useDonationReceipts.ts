@@ -4,7 +4,7 @@ import client from './client'
 import type {
   DonationReceiptAccountsResponse,
   DonationReceiptGenerateInput,
-  DonationReceiptGenerateResponse,
+  DonationReceiptGeneratePdfResponse,
   DonationReceiptPreviewInput,
   DonationReceiptPreviewResponse,
   DonationReceiptTemplateResponse,
@@ -55,10 +55,10 @@ export function usePreviewDonationReceipt() {
   })
 }
 
-export function useGenerateDonationReceipts() {
+export function useGenerateDonationReceiptPdf() {
   return useMutation({
     mutationFn: async (payload: DonationReceiptGenerateInput) => {
-      const { data } = await client.post<DonationReceiptGenerateResponse>('/donation-receipts/generate', payload)
+      const { data } = await client.post<DonationReceiptGeneratePdfResponse>('/donation-receipts/generate-pdf', payload)
       return data
     },
   })

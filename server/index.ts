@@ -33,12 +33,11 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      // Donation receipt PDF preview uses blob-backed iframes/workers and WASM via @react-pdf/renderer.
-      'script-src': ['\'self\'', '\'wasm-unsafe-eval\'', 'https://accounts.google.com'],
-      'frame-src': ['\'self\'', 'blob:', 'https://accounts.google.com'],
-      'child-src': ['\'self\'', 'blob:'],
-      'worker-src': ['\'self\'', 'blob:'],
-      'connect-src': ['\'self\'', 'blob:', 'data:', 'https://accounts.google.com'],
+      'script-src': ['\'self\'', 'https://accounts.google.com'],
+      'frame-src': ['\'self\'', 'https://accounts.google.com'],
+      'child-src': ['\'self\''],
+      'worker-src': ['\'self\''],
+      'connect-src': ['\'self\'', 'https://accounts.google.com'],
       'img-src': ['\'self\'', 'data:', 'https://lh3.googleusercontent.com'],
     },
   },

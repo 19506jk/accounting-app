@@ -6,21 +6,20 @@
 
     <!--
       Content Security Policy
-      Restricts script execution to same-origin + Google OAuth, with explicit
-      allowances needed by donation receipt PDF preview (@react-pdf/renderer).
+      Restricts script execution to same-origin + Google OAuth.
       Prevents XSS attacks from stealing the JWT stored in localStorage.
     -->
     <meta
       http-equiv="Content-Security-Policy"
       content="
         default-src 'self';
-        script-src  'self' https://accounts.google.com 'unsafe-inline' 'wasm-unsafe-eval';
+        script-src  'self' https://accounts.google.com 'unsafe-inline';
         style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
         font-src    'self' https://fonts.gstatic.com;
-        frame-src   'self' blob: https://accounts.google.com;
-        child-src   'self' blob:;
-        worker-src  'self' blob:;
-        connect-src 'self' data: blob: https://oauth2.googleapis.com https://accounts.google.com;
+        frame-src   'self' https://accounts.google.com;
+        child-src   'self';
+        worker-src  'self';
+        connect-src 'self' https://oauth2.googleapis.com https://accounts.google.com;
         img-src     'self' data: https://lh3.googleusercontent.com;
       "
     />

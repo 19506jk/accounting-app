@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { PDFViewer, pdf } from '@react-pdf/renderer'
+import { marked } from 'marked'
 import {
   useDonationReceiptAccounts,
   useDonationReceiptTemplate,
-  useGenerateDonationReceipts,
+  useGenerateDonationReceiptPdf,
   usePreviewDonationReceipt,
   useSaveDonationReceiptTemplate,
 } from '../api/useDonationReceipts'
 import { useSettings } from '../api/useSettings'
-import DonationReceiptsPdfDocument from '../components/DonationReceiptsPdfDocument'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Select from '../components/ui/Select'
@@ -20,6 +19,79 @@ type ReceiptStatusType = 'success' | 'warning' | 'error' | null
 
 const fmt = (n: number | string | null | undefined) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 })
 
+const previewStyles = `
+  .receipt-preview {
+    padding: 2.5rem;
+    color: #111827;
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    background: white;
+  }
+  .receipt-preview h1 {
+    margin: 0 0 1rem;
+    font-size: 1.55rem;
+    line-height: 1.25;
+  }
+  .receipt-preview h2 {
+    margin: 1rem 0 0.6rem;
+    font-size: 1.15rem;
+    line-height: 1.3;
+  }
+  .receipt-preview h3 {
+    margin: 0.85rem 0 0.5rem;
+    font-size: 1rem;
+    line-height: 1.3;
+  }
+  .receipt-preview p {
+    margin: 0 0 0.75rem;
+  }
+  .receipt-preview ul,
+  .receipt-preview ol {
+    margin: 0 0 0.75rem 1.4rem;
+    padding: 0;
+  }
+  .receipt-preview li {
+    margin-bottom: 0.3rem;
+  }
+  .receipt-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.9rem;
+    font-size: 0.82rem;
+  }
+  .receipt-preview th,
+  .receipt-preview td {
+    border: 1px solid #d1d5db;
+    padding: 0.45rem 0.55rem;
+    text-align: left;
+  }
+  .receipt-preview th {
+    background: #f3f4f6;
+  }
+  .receipt-preview blockquote {
+    margin: 0 0 0.75rem;
+    padding-left: 0.75rem;
+    border-left: 3px solid #9ca3af;
+  }
+  .receipt-preview hr {
+    border: 0;
+    border-top: 1px solid #9ca3af;
+    margin: 0.75rem 0;
+  }
+  .receipt-preview code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.82rem;
+  }
+  .receipt-preview a {
+    color: #1d4ed8;
+    text-decoration: underline;
+  }
+  .receipt-preview-center {
+    text-align: center;
+  }
+`
+
 function getCurrentFiscalYear(fiscalStartMonth: number) {
   const now = new Date()
   const year = now.getFullYear()
@@ -28,8 +100,29 @@ function getCurrentFiscalYear(fiscalStartMonth: number) {
   return month >= fiscalStartMonth ? year + 1 : year
 }
 
-async function downloadPdf(receipts: string[], filename: string): Promise<void> {
-  const blob = await pdf(<DonationReceiptsPdfDocument receipts={receipts} />).toBlob()
+function renderPreviewHtml(markdown: string) {
+  const centerBlocks: string[] = []
+  const withPlaceholders = markdown.replace(/^:::center\s*\n([\s\S]*?)^:::\s*$/gm, (_match, content: string) => {
+    const token = `@@CENTER_BLOCK_${centerBlocks.length}@@`
+    centerBlocks.push(`<div class="receipt-preview-center">${marked.parse(content.trim(), { gfm: true, breaks: false })}</div>`)
+    return token
+  })
+
+  let html = marked.parse(withPlaceholders, { gfm: true, breaks: false }) as string
+  centerBlocks.forEach((block, index) => {
+    html = html
+      .replace(`<p>@@CENTER_BLOCK_${index}@@</p>`, () => block)
+      .replace(`@@CENTER_BLOCK_${index}@@`, () => block)
+  })
+  return html
+}
+
+function base64ToBlob(base64: string, type: string) {
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+  return new Blob([bytes], { type })
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -38,6 +131,16 @@ async function downloadPdf(receipts: string[], filename: string): Promise<void> 
   link.click()
   link.remove()
   URL.revokeObjectURL(url)
+}
+
+function ReceiptMarkdownPreview({ markdown }: { markdown: string }) {
+  const html = useMemo(() => renderPreviewHtml(markdown), [markdown])
+  return (
+    <>
+      <style>{previewStyles}</style>
+      <div className="receipt-preview" dangerouslySetInnerHTML={{ __html: html }} />
+    </>
+  )
 }
 
 export default function DonationReceipts() {
@@ -62,7 +165,7 @@ export default function DonationReceipts() {
   const templateQuery = useDonationReceiptTemplate()
   const saveTemplate = useSaveDonationReceiptTemplate()
   const previewReceipt = usePreviewDonationReceipt()
-  const generateReceipts = useGenerateDonationReceipts()
+  const generateReceiptPdf = useGenerateDonationReceiptPdf()
 
   useEffect(() => {
     if (templateQuery.data?.template?.markdown_body) {
@@ -118,12 +221,12 @@ export default function DonationReceipts() {
   async function handleGenerate() {
     setStatus({ message: '', type: null })
     try {
-      const result = await generateReceipts.mutateAsync({
+      const result = await generateReceiptPdf.mutateAsync({
         fiscal_year: fiscalYear,
         account_ids: numericAccountIds,
         markdown_body: markdownBody,
       })
-      await downloadPdf(result.receipts || [], `donation_receipts_fy${fiscalYear}.pdf`)
+      downloadBlob(base64ToBlob(result.pdf_base64, 'application/pdf'), result.filename)
       const warnings = result.meta?.warnings || []
       setStatus({
         message: warnings.length
@@ -304,9 +407,7 @@ export default function DonationReceipts() {
 
           <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', minHeight: '520px' }}>
             {previewMarkdown ? (
-              <PDFViewer style={{ width: '100%', height: '520px', border: 0 }}>
-                <DonationReceiptsPdfDocument receipts={[previewMarkdown]} />
-              </PDFViewer>
+              <ReceiptMarkdownPreview markdown={previewMarkdown} />
             ) : hasNoDonorResult ? (
               <div style={{ padding: '2rem', color: '#9ca3af', textAlign: 'center' }}>
                 No donors found for the selected fiscal year and accounts.
@@ -324,7 +425,7 @@ export default function DonationReceipts() {
             </div>
             <Button
               onClick={handleGenerate}
-              isLoading={generateReceipts.isPending}
+              isLoading={generateReceiptPdf.isPending}
               disabled={!numericAccountIds.length || !markdownBody.trim()}
             >
               Download PDF

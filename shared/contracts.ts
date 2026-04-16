@@ -1179,8 +1179,9 @@ export interface DonationReceiptGenerateMeta {
   warnings: string[];
 }
 
-export interface DonationReceiptGenerateResponse {
-  receipts: string[];
+export interface DonationReceiptGeneratePdfResponse {
+  pdf_base64: string;
+  filename: string;
   meta: DonationReceiptGenerateMeta;
 }
 

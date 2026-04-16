@@ -4,11 +4,12 @@ import Decimal from 'decimal.js';
 import type {
   DonationReceiptAccount,
   DonationReceiptAccountsResponse,
-  DonationReceiptGenerateResponse,
+  DonationReceiptGeneratePdfResponse,
   DonationReceiptPreviewResponse,
   DonationReceiptTemplateResponse,
 } from '@shared/contracts';
 import { getDonationLines, type DonationLine } from './donorDonations.js';
+import { renderDonationReceiptsPdfBase64 } from './donationReceiptPdf.js';
 
 const db = require('../db') as Knex;
 
@@ -350,18 +351,20 @@ export async function previewReceipt(
   };
 }
 
-export async function generateReceipts(
+export async function generateReceiptPdf(
   fiscalYear: number,
   accountIds: number[],
   markdownBody?: string
-): Promise<DonationReceiptGenerateResponse> {
+): Promise<DonationReceiptGeneratePdfResponse> {
   const data = await buildReceipts(fiscalYear, accountIds, markdownBody);
   const receipts = data.receipts.map((receipt) =>
     renderReceiptMarkdown(data.template, receipt, data.settings, data.fiscalYear)
   );
+  const pdfBase64 = await renderDonationReceiptsPdfBase64(receipts);
 
   return {
-    receipts,
+    pdf_base64: pdfBase64,
+    filename: `donation_receipts_fy${fiscalYear}.pdf`,
     meta: {
       fiscal_year: data.fiscalYear,
       period_start: data.periodStart,
