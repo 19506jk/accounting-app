@@ -78,7 +78,7 @@ export default function Settings() {
     if (settings) setForm(settings);
   }, [settings]);
 
-  function handleChange(key: string) {
+  function handleChange(key: keyof SettingsValues) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [key]: e.target.value }));
   }
 

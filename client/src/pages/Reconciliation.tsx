@@ -43,8 +43,7 @@ function Workspace({ id, onBack }: WorkspaceProps) {
   if (isLoading) return <div style={{ padding: '2rem', color: '#6b7280' }}>Loading…</div>;
   if (!recon)    return null;
 
-  const currentRecon = recon;
-  const items    = currentRecon.items || [];
+  const items    = recon.items || [];
   const cleared  = items.filter((i) => i.is_cleared);
   const uncleared = items.filter((i) => !i.is_cleared);
 
@@ -62,7 +61,8 @@ function Workspace({ id, onBack }: WorkspaceProps) {
   }
 
   async function handleClose() {
-    if (currentRecon.difference !== 0) return;
+    if (!recon) return;
+    if (recon.difference !== 0) return;
     if (!confirm('Close this reconciliation? This cannot be undone.')) return;
     try {
       await closeRecon.mutateAsync(id);
@@ -73,7 +73,7 @@ function Workspace({ id, onBack }: WorkspaceProps) {
     }
   }
 
-  const isBalanced = Math.abs(currentRecon.difference) < 0.001;
+  const isBalanced = Math.abs(recon.difference) < 0.001;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -85,37 +85,37 @@ function Workspace({ id, onBack }: WorkspaceProps) {
             ← Back
           </button>
           <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#1e293b' }}>
-            {currentRecon.account_name} — {currentRecon.statement_date}
+            {recon.account_name} — {recon.statement_date}
           </h1>
-          <Badge label={currentRecon.is_closed ? 'Closed' : currentRecon.status}
-            variant={currentRecon.is_closed ? 'inactive' : isBalanced ? 'success' : 'error'} />
+          <Badge label={recon.is_closed ? 'Closed' : recon.status}
+            variant={recon.is_closed ? 'inactive' : isBalanced ? 'success' : 'error'} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, auto)', gap: '1.5rem',
           fontSize: '0.875rem' }}>
           <div>
             <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.2rem' }}>Statement Balance</div>
-            <div style={{ fontWeight: 600 }}>{fmt(currentRecon.statement_balance)}</div>
+            <div style={{ fontWeight: 600 }}>{fmt(recon.statement_balance)}</div>
           </div>
           <div>
             <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.2rem' }}>Opening Balance</div>
-            <div style={{ fontWeight: 600 }}>{fmt(currentRecon.opening_balance)}</div>
+            <div style={{ fontWeight: 600 }}>{fmt(recon.opening_balance)}</div>
           </div>
           <div>
             <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.2rem' }}>Cleared Balance</div>
-            <div style={{ fontWeight: 600 }}>{fmt(currentRecon.cleared_balance)}</div>
+            <div style={{ fontWeight: 600 }}>{fmt(recon.cleared_balance)}</div>
           </div>
           <div>
             <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.2rem' }}>Difference</div>
             <div style={{ fontWeight: 700, color: isBalanced ? '#15803d' : '#dc2626' }}>
-              {fmt(currentRecon.difference)}
+              {fmt(recon.difference)}
             </div>
           </div>
         </div>
       </div>
 
       {/* Batch controls */}
-      {!currentRecon.is_closed && (
+      {!recon.is_closed && (
         <div style={{ padding: '0.75rem 1.5rem', borderBottom: '1px solid #e5e7eb',
           display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <Button variant="secondary" size="sm" onClick={() => selectAll(true)}>☑ Select All</Button>
@@ -149,15 +149,15 @@ function Workspace({ id, onBack }: WorkspaceProps) {
           <tbody>
             {items.map((item) => (
               <tr key={item.id}
-                onClick={() => !currentRecon.is_closed && clearItem.mutate({ itemId: item.id })}
+                onClick={() => !recon.is_closed && clearItem.mutate({ itemId: item.id })}
                 style={{
                   borderBottom: '1px solid #f3f4f6',
-                  cursor:       currentRecon.is_closed ? 'default' : 'pointer',
+                  cursor:       recon.is_closed ? 'default' : 'pointer',
                   background:   item.is_cleared ? '#f0fdf4' : 'transparent',
                   transition:   'background 0.1s',
                 }}
                 onMouseEnter={(e) => {
-                  if (!currentRecon.is_closed) e.currentTarget.style.background = item.is_cleared ? '#dcfce7' : '#fafafa';
+                  if (!recon.is_closed) e.currentTarget.style.background = item.is_cleared ? '#dcfce7' : '#fafafa';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = item.is_cleared ? '#f0fdf4' : 'transparent';
@@ -185,12 +185,12 @@ function Workspace({ id, onBack }: WorkspaceProps) {
       </div>
 
       {/* Footer */}
-      {!currentRecon.is_closed && (
+      {!recon.is_closed && (
         <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e5e7eb',
           display: 'flex', justifyContent: 'flex-end' }}>
           <Button onClick={handleClose} disabled={!isBalanced}
             isLoading={closeRecon.isPending}>
-            {isBalanced ? 'Close Reconciliation' : `Difference: ${fmt(currentRecon.difference)}`}
+            {isBalanced ? 'Close Reconciliation' : `Difference: ${fmt(recon.difference)}`}
           </Button>
         </div>
       )}
