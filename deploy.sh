@@ -1,6 +1,16 @@
 #!/bin/bash
 set -e
-git pull
+
+# Run git pull and capture output
+OUTPUT=$(git pull)
+
+echo "$OUTPUT"
+
+if echo "$OUTPUT" | grep -qE 'Already up[ -]to[ -]date\.?'; then
+  echo "No updates detected. Aborting deployment."
+  exit 0
+fi
+
 npm ci --prefix client
 npm ci --prefix server
 npm run build --prefix client
