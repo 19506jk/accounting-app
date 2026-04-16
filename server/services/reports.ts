@@ -130,6 +130,7 @@ interface ContactRow {
   id: number;
   name: string;
   contact_class: 'INDIVIDUAL' | 'HOUSEHOLD';
+  donor_id: string | null;
 }
 
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
