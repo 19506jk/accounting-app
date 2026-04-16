@@ -16,8 +16,6 @@ import {
   type TaxRateRow,
 } from './billPosting.js';
 
-const db = require('../../db') as Knex;
-
 type Numeric = string | number;
 
 interface AccountRow {
@@ -85,10 +83,10 @@ export function validateBillData(data: CreateBillInput | UpdateBillInput, isUpda
     }
   }
 
-  if (data.date && data.due_date) {
+  if (data.due_date) {
     if (!isValidDateOnly(data.due_date)) {
       errors.push('due_date must be a valid date (YYYY-MM-DD)');
-    } else if (compareDateOnly(data.due_date, data.date) < 0) {
+    } else if (data.date && isValidDateOnly(data.date) && compareDateOnly(data.due_date, data.date) < 0) {
       errors.push('due_date cannot be before bill date');
     }
   }
@@ -108,6 +106,7 @@ export async function resolveTaxRateMap(
 }
 
 export async function validateLineItemAccounts(lineItems: BillLineItemInput[]): Promise<string[]> {
+  const db = require('../../db') as Knex;
   const errors: string[] = [];
 
   const taxRateIds = getUniqueTaxRateIds(lineItems);

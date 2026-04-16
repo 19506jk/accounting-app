@@ -19,6 +19,17 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
+      include: ['**/*.ts'],
+      exclude: [
+        'db/migrations/**',
+        'db/seeds/**',
+        'dist/**',
+        '**/*.config.*',
+        'knexfile.ts',
+        'ecosystem.config.cjs',
+        'types/**',
+        '**/*.test.ts',
+      ],
     },
   },
 });

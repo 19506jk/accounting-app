@@ -1,6 +1,49 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createMultiLineJournalEntries } from './billPosting';
+import {
+  calculateGrossTotalFromLineItems,
+  createMultiLineJournalEntries,
+  getUniqueTaxRateIds,
+} from './billPosting';
+
+describe('billPosting pure helpers', () => {
+  it('deduplicates truthy tax rate ids in line item order', () => {
+    expect(getUniqueTaxRateIds([
+      { expense_account_id: 300, amount: 10, tax_rate_id: 2 },
+      { expense_account_id: 301, amount: 15, tax_rate_id: null },
+      { expense_account_id: 302, amount: 20, tax_rate_id: 2 },
+      { expense_account_id: 303, amount: 25, tax_rate_id: 3 },
+    ])).toEqual([2, 3]);
+  });
+
+  it('calculates gross totals with tax and rounding adjustments', () => {
+    const total = calculateGrossTotalFromLineItems([
+      {
+        expense_account_id: 300,
+        amount: 100,
+        description: 'Taxed',
+        tax_rate_id: 1,
+        rounding_adjustment: 0.01,
+      },
+      {
+        expense_account_id: 301,
+        amount: 50,
+        description: 'Untaxed',
+        tax_rate_id: null,
+        rounding_adjustment: -0.02,
+      },
+    ], {
+      1: {
+        id: 1,
+        name: 'HST',
+        rate: '0.13',
+        recoverable_account_id: 150,
+      },
+    });
+
+    expect(total.toFixed(2)).toBe('162.99');
+  });
+});
 
 describe('createMultiLineJournalEntries', () => {
   it('creates balanced journal entries with mocked transaction DB calls', async () => {
