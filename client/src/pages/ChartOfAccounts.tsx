@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useMemo, useState } from 'react';
 import { useAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount } from '../api/useAccounts';
 import { useFunds, useCreateFund, useUpdateFund, useDeleteFund } from '../api/useFunds';
@@ -13,8 +12,18 @@ import Select  from '../components/ui/Select';
 import DateRangePicker from '../components/ui/DateRangePicker';
 import * as XLSX from 'xlsx';
 import { currentMonthRange } from '../utils/date';
+import { getErrorMessage } from '../utils/errors';
+import type React from 'react';
+import type {
+  AccountSummary,
+  AccountType,
+  CreateAccountInput,
+  CreateFundInput,
+  FundSummary,
+  LedgerReportRow,
+} from '@shared/contracts';
 
-const TYPE_OPTIONS = [
+const TYPE_OPTIONS: Array<{ value: AccountType; label: string }> = [
   { value: 'ASSET',     label: 'Asset' },
   { value: 'LIABILITY', label: 'Liability' },
   { value: 'EQUITY',    label: 'Equity' },
@@ -22,13 +31,13 @@ const TYPE_OPTIONS = [
   { value: 'EXPENSE',   label: 'Expense' },
 ];
 
-const TYPE_ORDER = { ASSET: 1, LIABILITY: 2, EQUITY: 3, INCOME: 4, EXPENSE: 5 };
+const TYPE_ORDER: Record<AccountType, number> = { ASSET: 1, LIABILITY: 2, EQUITY: 3, INCOME: 4, EXPENSE: 5 };
 const TYPE_COLORS = {
   ASSET:     '#1d4ed8', LIABILITY: '#b91c1c',
   EQUITY:    '#7c3aed', INCOME:    '#15803d', EXPENSE:  '#c2410c',
-};
+} satisfies Record<AccountType, string>;
 
-function fmt(n) {
+function fmt(n: number | string | null | undefined) {
   return n === undefined || n === null ? '—'
     : '$' + Number(n).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 }
@@ -38,7 +47,37 @@ function currentMonth() {
 }
 
 // ── Account Ledger Drawer ────────────────────────────────────────────────────
-function AccountLedgerDrawer({ target, onClose }) {
+type LedgerTarget =
+  | { mode: 'account'; accountId: number; accountCode: string; accountName: string }
+  | { mode: 'fund'; fundId: number; fundName: string; fundCode: string; linkedAccountId: number };
+
+type FundLedgerRow = LedgerReportRow & {
+  account_code: string;
+};
+
+type DrawerLedger =
+  | { mode: 'account'; opening_balance: number; closing_balance: number; rows: LedgerReportRow[] }
+  | { mode: 'fund'; opening_balance: null; closing_balance: null; rows: FundLedgerRow[] };
+
+interface AccountFormState {
+  code: string;
+  name: string;
+  type: AccountType;
+}
+
+type AccountFormErrors = Partial<Record<keyof AccountFormState, string>>;
+type AccountModalState = 'add' | AccountSummary | null;
+
+interface FundFormState {
+  name: string;
+  code: string;
+  description: string;
+}
+
+type FundFormErrors = Partial<Record<keyof FundFormState, string>>;
+type FundModalState = 'add' | FundSummary | null;
+
+function AccountLedgerDrawer({ target, onClose }: { target: LedgerTarget | null; onClose: () => void }) {
   const [range, setRange] = useState(currentMonth());
   const [enabled, setEnabled] = useState(true);
   const isFundMode = target?.mode === 'fund';
@@ -53,8 +92,17 @@ function AccountLedgerDrawer({ target, onClose }) {
   );
 
   const reportLedgers = data?.data?.ledger || [];
-  const ledger = useMemo(() => {
-    if (!isFundMode) return reportLedgers[0];
+  const ledger = useMemo<DrawerLedger | null | undefined>(() => {
+    if (!isFundMode) {
+      const accountLedger = reportLedgers[0];
+      if (!accountLedger) return accountLedger;
+      return {
+        mode: 'account',
+        opening_balance: accountLedger.opening_balance,
+        closing_balance: accountLedger.closing_balance,
+        rows: accountLedger.rows,
+      };
+    }
 
     const rows = reportLedgers
       .flatMap((acctLedger) =>
@@ -70,7 +118,7 @@ function AccountLedgerDrawer({ target, onClose }) {
       });
 
     if (rows.length === 0) return null;
-    return { opening_balance: null, closing_balance: null, rows };
+    return { mode: 'fund', opening_balance: null, closing_balance: null, rows };
   }, [isFundMode, reportLedgers]);
 
   const fundTotals = useMemo(() => {
@@ -83,13 +131,13 @@ function AccountLedgerDrawer({ target, onClose }) {
 
   const drawerTitle = !target
     ? ''
-    : isFundMode
-      ? `Fund: ${fundTarget.fundName}${fundTarget.fundCode ? ` (${fundTarget.fundCode})` : ''}`
-      : `${accountTarget.accountCode} — ${accountTarget.accountName}`;
+    : target.mode === 'fund'
+      ? `Fund: ${target.fundName}${target.fundCode ? ` (${target.fundCode})` : ''}`
+      : `${target.accountCode} — ${target.accountName}`;
 
   function exportExcel() {
     if (!ledger) return;
-    const formatReferenceForExport = (referenceNo) => {
+    const formatReferenceForExport = (referenceNo: string | null | undefined) => {
       if (referenceNo === null || referenceNo === undefined || referenceNo === '') return '-';
       return `'${String(referenceNo)}`;
     };
@@ -99,7 +147,7 @@ function AccountLedgerDrawer({ target, onClose }) {
       [`From: ${range.from}`, `To: ${range.to}`, '', '', '', '', ''],
       [],
       ['Date', 'Reference No', 'Description', 'Fund', 'Debit', 'Credit', 'Balance'],
-      ...(isFundMode ? [] : [[`Opening Balance`, '', '', '', '', '', ledger.opening_balance]]),
+      ...(ledger.mode === 'fund' ? [] : [[`Opening Balance`, '', '', '', '', '', ledger.opening_balance]]),
       ...ledger.rows.map((r) => [
         r.date,
         formatReferenceForExport(r.reference_no),
@@ -109,7 +157,7 @@ function AccountLedgerDrawer({ target, onClose }) {
         r.credit || '',
         r.balance,
       ]),
-      ...(isFundMode ? [] : [[], ['Closing Balance', '', '', '', '', '', ledger.closing_balance]]),
+      ...(ledger.mode === 'fund' ? [] : [[], ['Closing Balance', '', '', '', '', '', ledger.closing_balance]]),
     ];
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -123,9 +171,9 @@ function AccountLedgerDrawer({ target, onClose }) {
       { wch: 14 },
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
-    const exportPrefix = isFundMode
-      ? `fund_${fundTarget.fundCode || fundTarget.fundId}`
-      : `account_${accountTarget.accountCode}`;
+    const exportPrefix = target?.mode === 'fund'
+      ? `fund_${target.fundCode || target.fundId}`
+      : `account_${target?.accountCode || 'ledger'}`;
     XLSX.writeFile(wb, `ledger_${exportPrefix}_${range.from}_${range.to}.xlsx`);
   }
 
@@ -143,7 +191,7 @@ function AccountLedgerDrawer({ target, onClose }) {
           <div style={{ display: 'flex', justifyContent: 'space-between',
             alignItems: 'center', marginBottom: '0.75rem' }}>
             <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-              {isFundMode ? (
+              {ledger.mode === 'fund' ? (
                 <>
                   Transactions: <strong>{ledger.rows.length}</strong>
                   &nbsp;•&nbsp;Debits: <strong>{fmt(fundTotals.debit)}</strong>
@@ -218,7 +266,7 @@ function AccountLedgerDrawer({ target, onClose }) {
 }
 
 // ── Main Page ────────────────────────────────────────────────────────────────
-const EMPTY_FORM = { code: '', name: '', type: 'ASSET' };
+const EMPTY_ACCOUNT_FORM: AccountFormState = { code: '', name: '', type: 'ASSET' };
 
 export default function ChartOfAccounts() {
   const { addToast } = useToast();
@@ -233,16 +281,16 @@ export default function ChartOfAccounts() {
   const updateFund = useUpdateFund();
   const deleteFund = useDeleteFund();
 
-  const [modal,   setModal]   = useState(null); // null | 'add' | account
-  const [form,    setForm]    = useState(EMPTY_FORM);
-  const [errors,  setErrors]  = useState({});
-  const [fundModal, setFundModal] = useState(null); // null | 'add' | fund
-  const [fundForm, setFundForm] = useState({ name: '', code: '', description: '' });
-  const [fundErrors, setFundErrors] = useState({});
-  const [ledgerTarget, setLedgerTarget] = useState(null);
+  const [modal,   setModal]   = useState<AccountModalState>(null);
+  const [form,    setForm]    = useState<AccountFormState>(EMPTY_ACCOUNT_FORM);
+  const [errors,  setErrors]  = useState<AccountFormErrors>({});
+  const [fundModal, setFundModal] = useState<FundModalState>(null);
+  const [fundForm, setFundForm] = useState<FundFormState>({ name: '', code: '', description: '' });
+  const [fundErrors, setFundErrors] = useState<FundFormErrors>({});
+  const [ledgerTarget, setLedgerTarget] = useState<LedgerTarget | null>(null);
 
-  const openAdd  = () => { setForm(EMPTY_FORM); setErrors({}); setModal('add'); };
-  const openEdit = (a) => {
+  const openAdd  = () => { setForm(EMPTY_ACCOUNT_FORM); setErrors({}); setModal('add'); };
+  const openEdit = (a: AccountSummary) => {
     setForm({ code: a.code, name: a.name, type: a.type });
     setErrors({});
     setModal(a);
@@ -252,7 +300,7 @@ export default function ChartOfAccounts() {
     setFundErrors({});
     setFundModal('add');
   };
-  const openEditFund = (fund) => {
+  const openEditFund = (fund: FundSummary) => {
     setFundForm({
       name: fund.name,
       code: fund.net_asset_code || '',
@@ -261,10 +309,10 @@ export default function ChartOfAccounts() {
     setFundErrors({});
     setFundModal(fund);
   };
-  const setFund = (k) => (e) => setFundForm((f) => ({ ...f, [k]: e.target.value }));
+  const setFund = (k: keyof FundFormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setFundForm((f) => ({ ...f, [k]: e.target.value }));
 
   function validate() {
-    const e = {};
+    const e: AccountFormErrors = {};
     if (!form.code.trim()) e.code = 'Code is required';
     if (!form.name.trim()) e.name = 'Name is required';
     setErrors(e);
@@ -272,7 +320,7 @@ export default function ChartOfAccounts() {
   }
 
   function validateFund() {
-    const e = {};
+    const e: FundFormErrors = {};
     if (!fundForm.name.trim()) e.name = 'Fund name is required';
     if (!fundForm.code.trim()) e.code = 'Fund code is required';
     setFundErrors(e);
@@ -283,19 +331,19 @@ export default function ChartOfAccounts() {
     if (!validate()) return;
     try {
       if (modal === 'add') {
-        await createAccount.mutateAsync(form);
+        await createAccount.mutateAsync(form satisfies CreateAccountInput);
         addToast('Account created.', 'success');
-      } else {
+      } else if (modal) {
         await updateAccount.mutateAsync({ id: modal.id, ...form });
         addToast('Account updated.', 'success');
       }
       setModal(null);
     } catch (err) {
-      addToast(err.response?.data?.error || 'Failed to save account.', 'error');
+      addToast(getErrorMessage(err, 'Failed to save account.'), 'error');
     }
   }
 
-  async function handleDelete(account) {
+  async function handleDelete(account: AccountSummary) {
     if (!account.is_deletable) return;
     if (!confirm(`Deactivate "${account.name}"?\n\nThis will hide the account from the chart. It can be restored manually if needed.`)) return;
     try {
@@ -303,18 +351,18 @@ export default function ChartOfAccounts() {
       addToast('Account deactivated.', 'success');
       setModal(null);
     } catch (err) {
-      addToast(err.response?.data?.error || 'Cannot deactivate.', 'error');
+      addToast(getErrorMessage(err, 'Cannot deactivate.'), 'error');
     }
   }
 
-  async function handleReactivate(account) {
+  async function handleReactivate(account: AccountSummary) {
     if (!confirm(`Reactivate "${account.name}"?`)) return;
     try {
       await updateAccount.mutateAsync({ id: account.id, is_active: true });
       addToast('Account reactivated.', 'success');
       setModal(null);
     } catch (err) {
-      addToast(err.response?.data?.error || 'Cannot reactivate.', 'error');
+      addToast(getErrorMessage(err, 'Cannot reactivate.'), 'error');
     }
   }
 
@@ -322,15 +370,15 @@ export default function ChartOfAccounts() {
     if (!validateFund()) return;
     try {
       if (fundModal === 'add') {
-        const result = await createFund.mutateAsync(fundForm);
+        const result = await createFund.mutateAsync(fundForm satisfies CreateFundInput);
         addToast(`Fund created with equity account ${result.equityAccount?.code}.`, 'success');
-      } else {
+      } else if (fundModal) {
         await updateFund.mutateAsync({ id: fundModal.id, ...fundForm });
         addToast('Fund updated.', 'success');
       }
       setFundModal(null);
     } catch (err) {
-      addToast(err.response?.data?.error || 'Failed to save fund.', 'error');
+      addToast(getErrorMessage(err, 'Failed to save fund.'), 'error');
     }
   }
 
@@ -342,7 +390,7 @@ export default function ChartOfAccounts() {
       addToast('Fund deactivated.', 'success');
       setFundModal(null);
     } catch (err) {
-      addToast(err.response?.data?.error || 'Cannot deactivate fund.', 'error');
+      addToast(getErrorMessage(err, 'Cannot deactivate fund.'), 'error');
     }
   }
 
@@ -354,21 +402,19 @@ export default function ChartOfAccounts() {
       addToast('Fund reactivated.', 'success');
       setFundModal(null);
     } catch (err) {
-      addToast(err.response?.data?.error || 'Cannot reactivate fund.', 'error');
+      addToast(getErrorMessage(err, 'Cannot reactivate fund.'), 'error');
     }
   }
 
   // Group by type
-  const grouped = {};
+  const grouped = {} as Partial<Record<AccountType, AccountSummary[]>>;
   (accounts || []).forEach((a) => {
     if (!grouped[a.type]) grouped[a.type] = [];
-    grouped[a.type].push(a);
+    grouped[a.type]?.push(a);
   });
-  const sortedTypes = Object.keys(grouped).sort(
-    (a, b) => (TYPE_ORDER[a] || 9) - (TYPE_ORDER[b] || 9)
-  );
+  const sortedTypes = (Object.keys(grouped) as AccountType[]).sort((a, b) => TYPE_ORDER[a] - TYPE_ORDER[b]);
   const fundByAccountId = useMemo(() => {
-    const map = {};
+    const map: Record<number, FundSummary> = {};
     (funds || []).forEach((fund) => {
       if (fund.net_asset_account_id) map[fund.net_asset_account_id] = fund;
     });
@@ -419,7 +465,7 @@ export default function ChartOfAccounts() {
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <tbody>
-                {grouped[type].map((a) => {
+                {(grouped[type] || []).map((a) => {
                   const fund = type === 'EQUITY' ? fundByAccountId[a.id] : undefined;
                   return (
                     <tr key={a.id}
@@ -541,7 +587,7 @@ export default function ChartOfAccounts() {
               error={errors.name} placeholder="Regular Offering" />
           </div>
           <Select label="Type" required value={form.type}
-            onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+            onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as AccountType }))}
             options={TYPE_OPTIONS} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
             {/* Left side — Deactivate / Reactivate */}

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Decimal from 'decimal.js';
@@ -20,10 +19,43 @@ import SaveTemplateModal from '../components/SaveTemplateModal';
 import DateRangePicker from '../components/ui/DateRangePicker';
 import TransactionTable from '../components/ui/TransactionTable';
 import { currentMonthRange, getChurchToday, toDateOnly } from '../utils/date';
+import { getErrorMessage } from '../utils/errors';
+import type React from 'react';
+import type { CreateTransactionInput, TransactionDetail, TransactionListItem, UpdateTransactionInput } from '@shared/contracts';
+import type { FundStatus } from '../components/ui/SummaryBar';
+import type { OptionValue, SelectOption } from '../components/ui/types';
+import type { TransactionTemplate } from '../api/useTransactionTemplates';
+import type { TemplateDropdownTemplate } from '../components/TemplateDropdown';
 
-const dec = (v) => new Decimal(v || 0);
+const dec = (v: Decimal.Value | null | undefined) => new Decimal(v || 0);
 
-const EMPTY_ENTRY = { account_id: '', fund_id: '', debit: '', credit: '', contact_id: '', memo: '' };
+interface JournalEntryState {
+  account_id: OptionValue | '';
+  fund_id: OptionValue | '';
+  debit: string;
+  credit: string;
+  contact_id: OptionValue | '';
+  memo: string;
+}
+
+interface TransactionFormHeader {
+  date: string;
+  description: string;
+  reference_no: string;
+}
+
+interface TransactionFormProps {
+  onClose: () => void;
+  onSaved?: () => void;
+}
+
+interface TransactionEditFormProps extends TransactionFormProps {
+  transaction: TransactionDetail;
+}
+
+type TransactionTypeFilter = '' | TransactionListItem['transaction_type'];
+
+const EMPTY_ENTRY: JournalEntryState = { account_id: '', fund_id: '', debit: '', credit: '', contact_id: '', memo: '' };
 const JOURNAL_GRID_TEMPLATE = 'minmax(250px, 2fr) minmax(150px, 1fr) 110px 110px minmax(220px, 1.2fr) minmax(280px, 1.6fr) 28px';
 
 // ── Shared Journal Entry Form Fields ────────────────────────────────────────
@@ -35,18 +67,27 @@ function JournalEntryLines({
   fundOptions,
   contactOptions,
   defaultFundId = '',
+}: {
+  entries: JournalEntryState[];
+  setEntries: React.Dispatch<React.SetStateAction<JournalEntryState[]>>;
+  accountOptions: SelectOption[];
+  fundOptions: SelectOption[];
+  contactOptions: SelectOption[];
+  defaultFundId?: OptionValue | '';
 }) {
-  function setEntry(i, key, val) {
+  function setEntry<K extends keyof JournalEntryState>(i: number, key: K, val: JournalEntryState[K]) {
     setEntries((prev) => {
       const next = [...prev];
-      next[i] = { ...next[i], [key]: val };
+      const current = next[i];
+      if (!current) return prev;
+      next[i] = { ...current, [key]: val };
       return next;
     });
   }
   function addLine() {
     setEntries((prev) => [...prev, { ...EMPTY_ENTRY, fund_id: defaultFundId || '' }]);
   }
-  function removeLine(i) {
+  function removeLine(i: number) {
     if (entries.length <= 2) return;
     setEntries((prev) => prev.filter((_, idx) => idx !== i));
   }
@@ -80,7 +121,9 @@ function JournalEntryLines({
                   const value = ev.target.value;
                   setEntries((prev) => {
                     const next = [...prev];
-                    next[i] = { ...next[i], debit: value };
+                    const current = next[i];
+                    if (!current) return prev;
+                    next[i] = { ...current, debit: value };
 
                     if (value) {
                       next[i] = { ...next[i], credit: '' };
@@ -126,7 +169,7 @@ function JournalEntryLines({
 }
 
 // ── New Transaction Form ─────────────────────────────────────────────────────
-function TransactionForm({ onClose, onSaved }) {
+function TransactionForm({ onClose, onSaved }: TransactionFormProps) {
   const { addToast }  = useToast();
   const { data: accounts  } = useAccounts();
   const { data: funds     } = useFunds();
@@ -134,18 +177,18 @@ function TransactionForm({ onClose, onSaved }) {
   const createTx = useCreateTransaction();
 
   const today = getChurchToday();
-  const [form, setForm] = useState({ date: today, description: '', reference_no: '' });
-  const [entries, setEntries] = useState([{ ...EMPTY_ENTRY }, { ...EMPTY_ENTRY }]);
-  const [errors, setErrors] = useState([]);
+  const [form, setForm] = useState<TransactionFormHeader>({ date: today, description: '', reference_no: '' });
+  const [entries, setEntries] = useState<JournalEntryState[]>([{ ...EMPTY_ENTRY }, { ...EMPTY_ENTRY }]);
+  const [errors, setErrors] = useState<string[]>([]);
   const { templates, saveTemplate, deleteTemplate } = useTransactionTemplates();
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
-  const dropdownRef = useRef(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   const accountOptions = (accounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
   const fundOptions    = (funds    || []).filter((f) => f.is_active).map((f) => ({ value: f.id, label: f.name }));
   const contactOptions = [{ value: '', label: 'Anonymous' }, ...(contacts || []).map((c) => ({ value: c.id, label: c.name }))];
-  const defaultFundId = fundOptions.length > 0 ? fundOptions[0].value : '';
+  const defaultFundId = fundOptions.length > 0 ? fundOptions[0]?.value ?? '' : '';
 
   useEffect(() => {
     if (!defaultFundId) return;
@@ -163,8 +206,9 @@ function TransactionForm({ onClose, onSaved }) {
   useEffect(() => {
     if (!templateDropdownOpen) return;
 
-    function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target instanceof Node ? event.target : null;
+      if (dropdownRef.current && target && !dropdownRef.current.contains(target)) {
         setTemplateDropdownOpen(false);
       }
     }
@@ -174,14 +218,15 @@ function TransactionForm({ onClose, onSaved }) {
   }, [templateDropdownOpen]);
 
   const fundStatuses = useMemo(() => {
-    const totals = {};
+    const totals: Record<string, { debit: Decimal; credit: Decimal }> = {};
     entries.forEach((e) => {
       if (!e.fund_id) return;
-      if (!totals[e.fund_id]) totals[e.fund_id] = { debit: dec(0), credit: dec(0) };
-      totals[e.fund_id].debit  = totals[e.fund_id].debit.plus(dec(e.debit));
-      totals[e.fund_id].credit = totals[e.fund_id].credit.plus(dec(e.credit));
+      const fundKey = String(e.fund_id);
+      if (!totals[fundKey]) totals[fundKey] = { debit: dec(0), credit: dec(0) };
+      totals[fundKey].debit  = totals[fundKey].debit.plus(dec(e.debit));
+      totals[fundKey].credit = totals[fundKey].credit.plus(dec(e.credit));
     });
-    return Object.entries(totals).map(([fundId, t]) => {
+    return Object.entries(totals).map<FundStatus>(([fundId, t]) => {
       const fund = (funds || []).find((f) => f.id === Number(fundId));
       return { name: fund?.name || `Fund #${fundId}`, balanced: t.debit.equals(t.credit),
         debit: parseFloat(t.debit.toFixed(2)), credit: parseFloat(t.credit.toFixed(2)) };
@@ -192,14 +237,16 @@ function TransactionForm({ onClose, onSaved }) {
   const totalCredit = parseFloat(entries.reduce((s, e) => s.plus(dec(e.credit)), dec(0)).toFixed(2));
   const allBalanced = fundStatuses.every((f) => f.balanced) && Math.abs(totalDebit - totalCredit) < 0.001 && totalDebit > 0;
 
-  function loadTemplate(template) {
+  function loadTemplate(selectedTemplate: TemplateDropdownTemplate) {
+    const template = templates.find((item) => item.id === selectedTemplate.id);
+    if (!template) return;
     const accountValueById = new Map(accountOptions.map((option) => [String(option.value), option.value]));
     const fundValueById = new Map(fundOptions.map((option) => [String(option.value), option.value]));
     const contactValueById = new Map(contactOptions.map((option) => [String(option.value), option.value]));
 
     setForm((prev) => ({ ...prev, description: template.description || '' }));
     setEntries(
-      template.rows.map((row) => ({
+      template.rows.map<JournalEntryState>((row) => ({
         account_id: accountValueById.get(String(row.account_id)) || '',
         fund_id: fundValueById.get(String(row.fund_id)) || (defaultFundId || ''),
         contact_id: contactValueById.get(String(row.contact_id)) || '',
@@ -215,15 +262,15 @@ function TransactionForm({ onClose, onSaved }) {
   async function handleSubmit() {
     setErrors([]);
     const nextReferenceNo = form.reference_no.trim()
-    const payload = {
+    const payload: CreateTransactionInput = {
       date:         form.date,
       description:  form.description,
-      reference_no: nextReferenceNo || null,
+      reference_no: nextReferenceNo || undefined,
       entries: entries.map((e) => ({
         account_id: Number(e.account_id),
         fund_id:    Number(e.fund_id),
-        debit:      parseFloat(e.debit  || 0),
-        credit:     parseFloat(e.credit || 0),
+        debit:      parseFloat(e.debit  || '0'),
+        credit:     parseFloat(e.credit || '0'),
         contact_id: e.contact_id ? Number(e.contact_id) : null,
         memo:       e.memo || undefined,
       })),
@@ -234,8 +281,7 @@ function TransactionForm({ onClose, onSaved }) {
       onSaved?.();
       onClose();
     } catch (err) {
-      const errs = err.response?.data?.errors || [err.response?.data?.error || 'Failed to save.'];
-      setErrors(errs);
+      setErrors([getErrorMessage(err, 'Failed to save.')]);
     }
   }
 
@@ -316,7 +362,13 @@ function TransactionForm({ onClose, onSaved }) {
         title="Save Transaction Template"
         placeholder="Template Name"
         onSave={(name) => {
-          const errorMessage = saveTemplate(name, form, entries);
+          const templateEntries = entries.map((entry) => ({
+            account_id: String(entry.account_id || ''),
+            fund_id: String(entry.fund_id || ''),
+            contact_id: String(entry.contact_id || ''),
+            memo: entry.memo,
+          }));
+          const errorMessage = saveTemplate(name, form, templateEntries);
           if (errorMessage) return errorMessage;
           addToast(`Template "${name.trim()}" saved.`, 'success');
           setSaveModalOpen(false);
@@ -328,7 +380,7 @@ function TransactionForm({ onClose, onSaved }) {
 }
 
 // ── Edit Transaction Form ────────────────────────────────────────────────────
-function TransactionEditForm({ transaction, onClose, onSaved }) {
+function TransactionEditForm({ transaction, onClose, onSaved }: TransactionEditFormProps) {
   const { addToast } = useToast();
   const { data: accounts } = useAccounts();
   const { data: funds     } = useFunds();
@@ -341,8 +393,8 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
     reference_no: transaction.reference_no ?? '',
   });
 
-  const [entries, setEntries] = useState(
-    (transaction.entries || []).map((e) => ({
+  const [entries, setEntries] = useState<JournalEntryState[]>(
+    (transaction.entries || []).map<JournalEntryState>((e) => ({
       account_id: e.account_id ?? '',
       fund_id:    e.fund_id    ?? '',
       debit:      e.debit  > 0 ? String(e.debit)  : '',
@@ -352,21 +404,22 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
     }))
   );
 
-  const [errors, setErrors] = useState([]);
+  const [errors, setErrors] = useState<string[]>([]);
 
   const accountOptions = (accounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
   const fundOptions    = (funds    || []).filter((f) => f.is_active).map((f) => ({ value: f.id, label: f.name }));
   const contactOptions = [{ value: '', label: 'Anonymous' }, ...(contacts || []).map((c) => ({ value: c.id, label: c.name }))];
 
   const fundStatuses = useMemo(() => {
-    const totals = {};
+    const totals: Record<string, { debit: Decimal; credit: Decimal }> = {};
     entries.forEach((e) => {
       if (!e.fund_id) return;
-      if (!totals[e.fund_id]) totals[e.fund_id] = { debit: dec(0), credit: dec(0) };
-      totals[e.fund_id].debit  = totals[e.fund_id].debit.plus(dec(e.debit));
-      totals[e.fund_id].credit = totals[e.fund_id].credit.plus(dec(e.credit));
+      const fundKey = String(e.fund_id);
+      if (!totals[fundKey]) totals[fundKey] = { debit: dec(0), credit: dec(0) };
+      totals[fundKey].debit  = totals[fundKey].debit.plus(dec(e.debit));
+      totals[fundKey].credit = totals[fundKey].credit.plus(dec(e.credit));
     });
-    return Object.entries(totals).map(([fundId, t]) => {
+    return Object.entries(totals).map<FundStatus>(([fundId, t]) => {
       const fund = (funds || []).find((f) => f.id === Number(fundId));
       return { name: fund?.name || `Fund #${fundId}`, balanced: t.debit.equals(t.credit),
         debit: parseFloat(t.debit.toFixed(2)), credit: parseFloat(t.credit.toFixed(2)) };
@@ -380,15 +433,15 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
   async function handleSubmit() {
     setErrors([]);
     const nextReferenceNo = form.reference_no.trim()
-    const payload = {
+    const payload: UpdateTransactionInput = {
       date:         form.date,
       description:  form.description,
       reference_no: nextReferenceNo || null,
       entries: entries.map((e) => ({
         account_id: Number(e.account_id),
         fund_id:    Number(e.fund_id),
-        debit:      parseFloat(e.debit  || 0),
-        credit:     parseFloat(e.credit || 0),
+        debit:      parseFloat(e.debit  || '0'),
+        credit:     parseFloat(e.credit || '0'),
         contact_id: e.contact_id ? Number(e.contact_id) : null,
         memo:       e.memo || undefined,
       })),
@@ -399,8 +452,7 @@ function TransactionEditForm({ transaction, onClose, onSaved }) {
       onSaved?.();
       onClose();
     } catch (err) {
-      const errs = err.response?.data?.errors || [err.response?.data?.error || 'Failed to update.'];
-      setErrors(errs);
+      setErrors([getErrorMessage(err, 'Failed to update.')]);
     }
   }
 
@@ -462,12 +514,12 @@ export default function Transactions() {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const [range,      setRange]      = useState(currentMonthRange());
-  const [typeFilter, setTypeFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState<TransactionTypeFilter>('');
   const [accountFilter, setAccountFilter] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [showForm,   setShowForm]   = useState(false);
-  const [expanded,   setExpanded]   = useState(null);
-  const [editingTx,  setEditingTx]  = useState(null); // holds the full transaction object
+  const [expanded,   setExpanded]   = useState<number | null>(null);
+  const [editingTx,  setEditingTx]  = useState<TransactionDetail | null>(null);
 
   const { data: accounts } = useAccounts({ include_inactive: true });
   const { data, isLoading } = useTransactions({
@@ -491,7 +543,7 @@ export default function Transactions() {
   ];
   const transactions = data?.transactions || [];
 
-  async function handleDelete(e, id) {
+  async function handleDelete(e: React.MouseEvent<HTMLButtonElement>, id: number) {
     e.stopPropagation(); // prevent row click from firing
     if (!confirm('Delete this transaction? This cannot be undone.')) return;
     try {
@@ -499,7 +551,7 @@ export default function Transactions() {
       addToast('Transaction deleted.', 'success');
       setExpanded(null);
     } catch (err) {
-      addToast(err.response?.data?.error || 'Cannot delete.', 'error');
+      addToast(getErrorMessage(err, 'Cannot delete.'), 'error');
     }
   }
 
@@ -520,7 +572,7 @@ export default function Transactions() {
         <Select
           label="Type"
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
+          onChange={(e) => setTypeFilter(e.target.value as TransactionTypeFilter)}
           options={typeOptions}
           style={{ minWidth: '140px' }}
         />
@@ -528,7 +580,7 @@ export default function Transactions() {
           label="Account"
           options={accountOptions}
           value={accountFilter}
-          onChange={setAccountFilter}
+          onChange={(value) => setAccountFilter(String(value))}
           placeholder="All Accounts"
           style={{ minWidth: '220px' }}
         />
