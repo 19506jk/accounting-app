@@ -6,3 +6,4 @@ server/dist/
 client/dist/
 shared/contracts.js
 server/coverage/
+client/coverage/

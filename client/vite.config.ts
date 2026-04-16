@@ -1,5 +1,6 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { playwright } from '@vitest/browser-playwright';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
@@ -45,6 +46,27 @@ export default defineConfig({
           ],
         },
       },
+    },
+  },
+  test: {
+    setupFiles: ['./src/test/setup.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+    },
+    browser: {
+      enabled: true,
+      provider: playwright(),
+      headless: true,
+      api: {
+        port: 63315,
+      },
+      instances: [
+        {
+          browser: 'chromium',
+        },
+      ],
     },
   },
 });
