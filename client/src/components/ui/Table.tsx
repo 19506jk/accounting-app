@@ -60,7 +60,7 @@ export default function Table<Row extends TableRow>({
                 key={col.key}
                 style={{
                   padding:       '0.65rem 1rem',
-                  textAlign:     (col.align || 'left') as React.CSSProperties['textAlign'],
+                  textAlign:     col.align || 'left',
                   fontWeight:    600,
                   color:         '#6b7280',
                   fontSize:      '0.775rem',
@@ -117,7 +117,7 @@ export default function Table<Row extends TableRow>({
                             style={{
                               padding:   '0.75rem 1rem',
                               color:     '#1e293b',
-                              textAlign: (col.align || 'left') as React.CSSProperties['textAlign'],
+                              textAlign: col.align || 'left',
                               whiteSpace: col.wrap ? 'normal' : 'nowrap',
                             }}
                           >

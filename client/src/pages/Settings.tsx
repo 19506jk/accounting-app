@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect, useMemo } from 'react';
 import { useSettings, useUpdateSettings } from '../api/useSettings';
 import { useTaxRates, useUpdateTaxRate, useToggleTaxRate } from '../api/useTaxRates';
@@ -13,6 +12,10 @@ import Table   from '../components/ui/Table';
 import Modal   from '../components/ui/Modal';
 import Combobox from '../components/ui/Combobox';
 import { DEFAULT_CHURCH_TIMEZONE, formatDateOnlyForDisplay } from '../utils/date';
+import { getErrorMessage } from '../utils/errors';
+import type React from 'react';
+import type { FiscalPeriod, SettingsValues, TaxRateSummary } from '@shared/contracts';
+import type { TableColumn } from '../components/ui/types';
 
 const PROVINCES = [
   'AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT',
@@ -53,15 +56,15 @@ export default function Settings() {
   ], [accounts]);
 
   // Per-row editing state: { [id]: '13.00' } — stored as display % string while editing
-  const [editingRates, setEditingRates] = useState({});
+  const [editingRates, setEditingRates] = useState<Record<number, string>>({});
   // Track which rows are currently saving
-  const [savingRate, setSavingRate] = useState({});
+  const [savingRate, setSavingRate] = useState<Record<number, boolean>>({});
 
-  const [form, setForm] = useState({});
-  const [confirmId, setConfirmId] = useState(null);
+  const [form, setForm] = useState<SettingsValues>({});
+  const [confirmId, setConfirmId] = useState<number | null>(null);
   const latestPeriodId = useMemo(() => {
     if (!fiscalPeriods.length) return null;
-    const latest = fiscalPeriods.reduce((current, period) => {
+    const latest = fiscalPeriods.reduce<FiscalPeriod | null>((current, period) => {
       if (!current) return period;
       if (period.period_end > current.period_end) return period;
       if (period.period_end < current.period_end) return current;
@@ -75,15 +78,15 @@ export default function Settings() {
     if (settings) setForm(settings);
   }, [settings]);
 
-  function handleChange(key) {
-    return (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  function handleChange(key: string) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [key]: e.target.value }));
   }
 
-  function handleRateInputChange(id, value) {
+  function handleRateInputChange(id: number, value: string) {
     setEditingRates((prev) => ({ ...prev, [id]: value }));
   }
 
-  async function handleRateSave(taxRate) {
+  async function handleRateSave(taxRate: TaxRateSummary) {
     const displayVal = editingRates[taxRate.id];
     if (displayVal === undefined) return; // nothing changed
 
@@ -109,7 +112,7 @@ export default function Settings() {
     }
   }
 
-  async function handleToggle(taxRate) {
+  async function handleToggle(taxRate: TaxRateSummary) {
     try {
       await toggleTaxRate.mutateAsync(taxRate.id);
       addToast(
@@ -137,15 +140,15 @@ export default function Settings() {
       addToast('Period reopened.', 'success');
       setConfirmId(null);
     } catch (err) {
-      addToast(err.response?.data?.error || 'Failed to reopen period.', 'error');
+      addToast(getErrorMessage(err, 'Failed to reopen period.'), 'error');
     }
   }
 
-  function formatDate(value) {
+  function formatDate(value: string) {
     return formatDateOnlyForDisplay(value) || '—';
   }
 
-  function formatDateTime(value) {
+  function formatDateTime(value: string | null | undefined) {
     if (!value) return '—';
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return '—';
@@ -282,7 +285,7 @@ export default function Settings() {
                 ) : null
               ),
             },
-          ]}
+          ] satisfies TableColumn<FiscalPeriod>[]}
           rows={fiscalPeriods}
           isLoading={periodsLoading}
           emptyText="No closed fiscal periods."

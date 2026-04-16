@@ -10,7 +10,7 @@ export interface SelectOption<TValue extends OptionValue = OptionValue> {
 export interface TableColumn<Row extends object> {
   key: string;
   label: React.ReactNode;
-  align?: string;
+  align?: 'left' | 'center' | 'right';
   wrap?: boolean;
   render?: (row: Row) => React.ReactNode;
 }

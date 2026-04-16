@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useCallback }  from 'react';
 import {
   useContacts,
@@ -17,6 +16,10 @@ import Badge   from '../components/ui/Badge';
 import Button  from '../components/ui/Button';
 import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
+import { getErrorMessage } from '../utils/errors';
+import type React from 'react';
+import type { ContactClass, ContactDetail, ContactSummary, ContactType } from '@shared/contracts';
+import type { TableColumn } from '../components/ui/types';
 
 const PROVINCES = ['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT']
   .map((p) => ({ value: p, label: p }));
@@ -32,10 +35,31 @@ const CLASS_OPTIONS = [
   { value: 'HOUSEHOLD',  label: 'Household' },
 ];
 
-const DONOR_TYPES = ['DONOR', 'BOTH'];
-const isDonorType = (type) => DONOR_TYPES.includes(type?.toUpperCase());
+const DONOR_TYPES: ContactType[] = ['DONOR', 'BOTH'];
+const isDonorType = (type: string | null | undefined) => DONOR_TYPES.includes(type?.toUpperCase() as ContactType);
 
-const EMPTY_FORM = {
+interface ContactFormState {
+  type: ContactType;
+  contact_class: ContactClass;
+  name: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  address_line1: string;
+  address_line2: string;
+  city: string;
+  province: string;
+  postal_code: string;
+  notes: string;
+  donor_id: string;
+}
+
+type ContactDrawerState = 'add' | ContactSummary | null;
+type ContactFormErrors = Partial<Record<keyof ContactFormState, string>>;
+type EditableContact = ContactSummary & Partial<Pick<ContactDetail, 'address_line1' | 'address_line2' | 'notes'>>;
+
+const EMPTY_FORM: ContactFormState = {
   type: 'DONOR', contact_class: 'INDIVIDUAL',
   name: '', first_name: '', last_name: '',
   email: '', phone: '',
@@ -44,8 +68,18 @@ const EMPTY_FORM = {
   notes: '', donor_id: '',
 };
 
-function ContactForm({ form, setForm, errors = {} }) {
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+function ContactForm({
+  form,
+  setForm,
+  errors = {},
+}: {
+  form: ContactFormState;
+  setForm: React.Dispatch<React.SetStateAction<ContactFormState>>;
+  errors?: ContactFormErrors;
+}) {
+  const set = (key: keyof ContactFormState) => (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const isHousehold = form.contact_class === 'HOUSEHOLD';
   const showDonorId = isDonorType(form.type);
 
@@ -122,11 +156,11 @@ export default function Contacts() {
   const { user } = useAuth();
 
   const [search,      setSearch]      = useState('');
-  const [typeFilter,  setTypeFilter]  = useState('');
+  const [typeFilter,  setTypeFilter]  = useState<ContactType | ''>('');
   const [showInactive, setShowInactive] = useState(false);
-  const [drawer,      setDrawer]      = useState(null); // null | 'add' | contact object
-  const [form,        setForm]        = useState(EMPTY_FORM);
-  const [errors,      setErrors]      = useState({});
+  const [drawer,      setDrawer]      = useState<ContactDrawerState>(null);
+  const [form,        setForm]        = useState<ContactFormState>(EMPTY_FORM);
+  const [errors,      setErrors]      = useState<ContactFormErrors>({});
 
   const { data: contacts, isLoading } = useContacts({
     search:           search || undefined,
@@ -156,7 +190,7 @@ export default function Contacts() {
     setDrawer('add');
   }, []);
 
-  const openEdit = useCallback((contact) => {
+  const openEdit = useCallback((contact: EditableContact) => {
     setForm({
       type:          contact.type,
       contact_class: contact.contact_class,
@@ -180,7 +214,7 @@ export default function Contacts() {
   const closeDrawer = useCallback(() => setDrawer(null), []);
 
   function validate() {
-    const errs = {};
+    const errs: ContactFormErrors = {};
     if (!form.name.trim()) errs.name = 'Display name is required';
     if (isDonorType(form.type) && !form.donor_id.trim()) {
       errs.donor_id = 'Donor ID is required for Donor or Both contact types';
@@ -195,14 +229,13 @@ export default function Contacts() {
       if (drawer === 'add') {
         await createContact.mutateAsync(form);
         addToast('Contact added successfully.', 'success');
-      } else {
-        await updateContact.mutateAsync({ id: drawer.id, ...form });
+      } else if (activeDrawerContact) {
+        await updateContact.mutateAsync({ id: activeDrawerContact.id, ...form });
         addToast('Contact updated.', 'success');
       }
       closeDrawer();
     } catch (err) {
-      const msg = err.response?.data?.error || 'Something went wrong.';
-      addToast(msg, 'error');
+      addToast(getErrorMessage(err, 'Something went wrong.'), 'error');
     }
   }
 
@@ -213,7 +246,7 @@ export default function Contacts() {
       addToast('Contact deactivated.', 'success');
       closeDrawer();
     } catch (err) {
-      addToast(err.response?.data?.error || 'Cannot deactivate contact.', 'error');
+      addToast(getErrorMessage(err, 'Cannot deactivate contact.'), 'error');
     }
   }
 
@@ -224,7 +257,7 @@ export default function Contacts() {
       addToast('Contact reactivated.', 'success');
       closeDrawer();
     } catch (err) {
-      addToast(err.response?.data?.error || 'Cannot reactivate contact.', 'error');
+      addToast(getErrorMessage(err, 'Cannot reactivate contact.'), 'error');
     }
   }
 
@@ -236,13 +269,13 @@ export default function Contacts() {
       addToast('Contact deleted.', 'success');
       closeDrawer();
     } catch (err) {
-      addToast(err.response?.data?.error || 'Cannot delete contact.', 'error');
+      addToast(getErrorMessage(err, 'Cannot delete contact.'), 'error');
     }
   }
 
   const isSaving = createContact.isPending || updateContact.isPending;
 
-  const COLUMNS = [
+  const COLUMNS: TableColumn<ContactSummary>[] = [
     {
       key: 'name', label: 'Name',
       render: (c) => (
@@ -317,7 +350,7 @@ export default function Contacts() {
         />
         <select
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
+          onChange={(e) => setTypeFilter(e.target.value as ContactType | '')}
           style={{ padding: '0.45rem 0.75rem', border: '1px solid #d1d5db',
             borderRadius: '6px', fontSize: '0.875rem', cursor: 'pointer' }}
         >

@@ -3,28 +3,7 @@ import client from '../api/client'
 import Button from '../components/ui/Button'
 import { getErrorMessage } from '../utils/errors'
 import type React from 'react'
-
-interface InvestigateResponse {
-  fiscal_year: number
-  period_start: string
-  period_end: string
-  preflight: {
-    trial_balance_plugs: boolean
-    per_fund_balanced: boolean
-    all_asset_accounts_reconciled: boolean
-    no_unmapped_funds: boolean
-  }
-  pro_forma_lines: Array<{
-    account_id: number
-    account_code: string
-    account_name: string
-    account_type: string
-    fund_id: number
-    fund_name: string
-    debit: number
-    credit: number
-  }>
-}
+import type { HardCloseInvestigateResponse } from '@shared/contracts'
 
 interface HardCloseWizardProps {
   open: boolean
@@ -81,7 +60,7 @@ function StepTabs({ step }: { step: number }) {
 
 export default function HardCloseWizard({ open, onClose, onSuccess }: HardCloseWizardProps) {
   const [step, setStep] = useState(1)
-  const [data, setData] = useState<InvestigateResponse | null>(null)
+  const [data, setData] = useState<HardCloseInvestigateResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
   const [error, setError] = useState('')
@@ -96,7 +75,7 @@ export default function HardCloseWizard({ open, onClose, onSuccess }: HardCloseW
     setAcknowledged(false)
     setIsLoading(true)
 
-    client.post<InvestigateResponse>('/fiscal-periods/investigate')
+    client.post<HardCloseInvestigateResponse>('/fiscal-periods/investigate')
       .then(({ data: response }) => {
         if (!cancelled) setData(response)
       })

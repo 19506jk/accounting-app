@@ -7,7 +7,7 @@ import Modal from './ui/Modal'
 interface SaveTemplateModalProps {
   isOpen: boolean
   onClose: () => void
-  onSave: (name: string) => string | null | undefined
+  onSave: (name: string) => string | null
   title?: string
   placeholder?: string
 }

@@ -37,10 +37,37 @@ export default function Modal({
   // Trap focus inside modal
   useEffect(() => {
     if (!isOpen) return;
-    const focusable = modalRef.current?.querySelectorAll(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    if (focusable?.length) (focusable[0] as HTMLElement).focus();
+    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    const getFocusable = () => Array.from(
+      modalRef.current?.querySelectorAll<HTMLElement>(selector) || []
+    ).filter((element) => !element.hasAttribute('disabled') && element.tabIndex !== -1);
+    const focusable = getFocusable();
+    focusable[0]?.focus();
+
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+
+      const elements = getFocusable();
+      if (!elements.length) {
+        event.preventDefault();
+        return;
+      }
+
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (!first || !last) return;
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
   }, [isOpen]);
 
   // Prevent body scroll when open

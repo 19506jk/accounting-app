@@ -1,8 +1,7 @@
-// @ts-nocheck
 import { useState } from 'react';
 import {
   useReconciliations, useReconciliation,
-  useCreateReconciliation, useUpdateReconciliation,
+  useCreateReconciliation,
   useClearItem, useCloseReconciliation, useDeleteReconciliation,
 } from '../api/useReconciliation';
 import { useAccounts }  from '../api/useAccounts';
@@ -14,13 +13,28 @@ import Badge   from '../components/ui/Badge';
 import Button  from '../components/ui/Button';
 import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
-import SummaryBar from '../components/ui/SummaryBar';
 import { formatDateOnlyForDisplay } from '../utils/date';
+import { getErrorMessage } from '../utils/errors';
+import type React from 'react';
+import type { ReconciliationSummary } from '@shared/contracts';
+import type { TableColumn } from '../components/ui/types';
 
-const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
+const fmt = (n: number | null | undefined) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
+
+interface WorkspaceProps {
+  id: number;
+  onBack: () => void;
+}
+
+interface ReconciliationForm {
+  account_id: string;
+  statement_date: string;
+  statement_balance: string;
+  opening_balance: string;
+}
 
 // ── Reconciliation Workspace ─────────────────────────────────────────────────
-function Workspace({ id, onBack }) {
+function Workspace({ id, onBack }: WorkspaceProps) {
   const { addToast }  = useToast();
   const { data: recon, isLoading } = useReconciliation(id);
   const clearItem   = useClearItem(id);
@@ -29,17 +43,18 @@ function Workspace({ id, onBack }) {
   if (isLoading) return <div style={{ padding: '2rem', color: '#6b7280' }}>Loading…</div>;
   if (!recon)    return null;
 
-  const items    = recon.items || [];
+  const currentRecon = recon;
+  const items    = currentRecon.items || [];
   const cleared  = items.filter((i) => i.is_cleared);
   const uncleared = items.filter((i) => !i.is_cleared);
 
-  function selectAll(val) {
+  function selectAll(val: boolean) {
     items.forEach((item) => {
       if (item.is_cleared !== val) clearItem.mutate({ itemId: item.id });
     });
   }
 
-  function selectByType(isDebit) {
+  function selectByType(isDebit: boolean) {
     items.forEach((item) => {
       const isItemDebit = item.debit > 0;
       if (isItemDebit === isDebit && !item.is_cleared) clearItem.mutate({ itemId: item.id });
@@ -47,18 +62,18 @@ function Workspace({ id, onBack }) {
   }
 
   async function handleClose() {
-    if (recon.difference !== 0) return;
+    if (currentRecon.difference !== 0) return;
     if (!confirm('Close this reconciliation? This cannot be undone.')) return;
     try {
       await closeRecon.mutateAsync(id);
       addToast('Reconciliation closed successfully.', 'success');
       onBack();
     } catch (err) {
-      addToast(err.response?.data?.error || 'Failed to close.', 'error');
+      addToast(getErrorMessage(err, 'Failed to close.'), 'error');
     }
   }
 
-  const isBalanced = Math.abs(recon.difference) < 0.001;
+  const isBalanced = Math.abs(currentRecon.difference) < 0.001;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -70,37 +85,37 @@ function Workspace({ id, onBack }) {
             ← Back
           </button>
           <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#1e293b' }}>
-            {recon.account_name} — {recon.statement_date}
+            {currentRecon.account_name} — {currentRecon.statement_date}
           </h1>
-          <Badge label={recon.is_closed ? 'Closed' : recon.status}
-            variant={recon.is_closed ? 'inactive' : isBalanced ? 'success' : 'error'} />
+          <Badge label={currentRecon.is_closed ? 'Closed' : currentRecon.status}
+            variant={currentRecon.is_closed ? 'inactive' : isBalanced ? 'success' : 'error'} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, auto)', gap: '1.5rem',
           fontSize: '0.875rem' }}>
           <div>
             <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.2rem' }}>Statement Balance</div>
-            <div style={{ fontWeight: 600 }}>{fmt(recon.statement_balance)}</div>
+            <div style={{ fontWeight: 600 }}>{fmt(currentRecon.statement_balance)}</div>
           </div>
           <div>
             <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.2rem' }}>Opening Balance</div>
-            <div style={{ fontWeight: 600 }}>{fmt(recon.opening_balance)}</div>
+            <div style={{ fontWeight: 600 }}>{fmt(currentRecon.opening_balance)}</div>
           </div>
           <div>
             <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.2rem' }}>Cleared Balance</div>
-            <div style={{ fontWeight: 600 }}>{fmt(recon.cleared_balance)}</div>
+            <div style={{ fontWeight: 600 }}>{fmt(currentRecon.cleared_balance)}</div>
           </div>
           <div>
             <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.2rem' }}>Difference</div>
             <div style={{ fontWeight: 700, color: isBalanced ? '#15803d' : '#dc2626' }}>
-              {fmt(recon.difference)}
+              {fmt(currentRecon.difference)}
             </div>
           </div>
         </div>
       </div>
 
       {/* Batch controls */}
-      {!recon.is_closed && (
+      {!currentRecon.is_closed && (
         <div style={{ padding: '0.75rem 1.5rem', borderBottom: '1px solid #e5e7eb',
           display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <Button variant="secondary" size="sm" onClick={() => selectAll(true)}>☑ Select All</Button>
@@ -134,15 +149,15 @@ function Workspace({ id, onBack }) {
           <tbody>
             {items.map((item) => (
               <tr key={item.id}
-                onClick={() => !recon.is_closed && clearItem.mutate({ itemId: item.id })}
+                onClick={() => !currentRecon.is_closed && clearItem.mutate({ itemId: item.id })}
                 style={{
                   borderBottom: '1px solid #f3f4f6',
-                  cursor:       recon.is_closed ? 'default' : 'pointer',
+                  cursor:       currentRecon.is_closed ? 'default' : 'pointer',
                   background:   item.is_cleared ? '#f0fdf4' : 'transparent',
                   transition:   'background 0.1s',
                 }}
                 onMouseEnter={(e) => {
-                  if (!recon.is_closed) e.currentTarget.style.background = item.is_cleared ? '#dcfce7' : '#fafafa';
+                  if (!currentRecon.is_closed) e.currentTarget.style.background = item.is_cleared ? '#dcfce7' : '#fafafa';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = item.is_cleared ? '#f0fdf4' : 'transparent';
@@ -170,12 +185,12 @@ function Workspace({ id, onBack }) {
       </div>
 
       {/* Footer */}
-      {!recon.is_closed && (
+      {!currentRecon.is_closed && (
         <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e5e7eb',
           display: 'flex', justifyContent: 'flex-end' }}>
           <Button onClick={handleClose} disabled={!isBalanced}
             isLoading={closeRecon.isPending}>
-            {isBalanced ? 'Close Reconciliation' : `Difference: ${fmt(recon.difference)}`}
+            {isBalanced ? 'Close Reconciliation' : `Difference: ${fmt(currentRecon.difference)}`}
           </Button>
         </div>
       )}
@@ -191,9 +206,9 @@ export default function Reconciliation() {
   const createRecon  = useCreateReconciliation();
   const deleteRecon  = useDeleteReconciliation();
 
-  const [activeId, setActiveId]   = useState(null);
+  const [activeId, setActiveId]   = useState<number | null>(null);
   const [showNew,  setShowNew]    = useState(false);
-  const [form,     setForm]       = useState({
+  const [form,     setForm]       = useState<ReconciliationForm>({
     account_id: '', statement_date: '', statement_balance: '', opening_balance: '0',
   });
 
@@ -203,7 +218,9 @@ export default function Reconciliation() {
     .filter((a) => ['ASSET', 'LIABILITY'].includes(a.type))
     .map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
 
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k: keyof ReconciliationForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+  };
 
   async function handleCreate() {
     try {
@@ -211,27 +228,27 @@ export default function Reconciliation() {
         account_id:        Number(form.account_id),
         statement_date:    form.statement_date,
         statement_balance: parseFloat(form.statement_balance),
-        opening_balance:   parseFloat(form.opening_balance || 0),
+        opening_balance:   parseFloat(form.opening_balance || '0'),
       });
       addToast(`Reconciliation created — ${result.items_loaded} items loaded.`, 'success');
       setShowNew(false);
       setActiveId(result.reconciliation.id);
     } catch (err) {
-      addToast(err.response?.data?.error || 'Failed to create.', 'error');
+      addToast(getErrorMessage(err, 'Failed to create.'), 'error');
     }
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(id: number) {
     if (!confirm('Delete this reconciliation?')) return;
     try {
       await deleteRecon.mutateAsync(id);
       addToast('Reconciliation deleted.', 'success');
     } catch (err) {
-      addToast(err.response?.data?.error || 'Cannot delete.', 'error');
+      addToast(getErrorMessage(err, 'Cannot delete.'), 'error');
     }
   }
 
-  const COLUMNS = [
+  const COLUMNS: TableColumn<ReconciliationSummary>[] = [
     { key: 'account_name', label: 'Account',
       render: (r) => `${r.account_code} — ${r.account_name}` },
     { key: 'statement_date', label: 'Statement Date' },

@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Decimal from 'decimal.js';
 import { useCreateTransaction } from '../api/useTransactions';
 import { useAccounts }  from '../api/useAccounts';
@@ -10,12 +9,31 @@ import Button      from '../components/ui/Button';
 import Input       from '../components/ui/Input';
 import Combobox    from '../components/ui/Combobox';
 import { getChurchToday } from '../utils/date';
+import { getErrorMessage } from '../utils/errors';
+import type { CreateTransactionInput } from '@shared/contracts';
+import type { OptionValue } from '../components/ui/types';
 
-const dec = (v) => new Decimal(v || 0);
-const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
+const dec = (v: Decimal.Value | null | undefined) => new Decimal(v || 0);
+const fmt = (n: number | string | null | undefined) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 const DONATION_GRID_TEMPLATE = 'minmax(220px, 1.8fr) minmax(170px, 1.3fr) minmax(200px, 1.3fr) minmax(240px, 1.8fr) 132px 40px';
 
-const EMPTY_LINE = { contact_id: '', fund_id: '', account_id: '', amount: '', memo: '' };
+interface DepositHeader {
+  date: string;
+  description: string;
+  reference_no: string;
+  total_amount: string;
+  bank_account_id: OptionValue | '';
+}
+
+interface DepositLine {
+  contact_id: OptionValue | '';
+  fund_id: OptionValue | '';
+  account_id: OptionValue | '';
+  amount: string;
+  memo: string;
+}
+
+const EMPTY_LINE: DepositLine = { contact_id: '', fund_id: '', account_id: '', amount: '', memo: '' };
 
 export default function DepositEntry() {
   const { addToast }  = useToast();
@@ -44,10 +62,10 @@ export default function DepositEntry() {
     ...(contacts || []).map((c) => ({ value: c.id, label: c.donor_id ? `${c.donor_id} — ${c.name}` : c.name })),
   ];
 
-  const defaultIncomeAccountId = incomeAccounts.length > 0 ? incomeAccounts[0].value : '';
+  const defaultIncomeAccountId = incomeAccounts.length > 0 ? incomeAccounts[0]?.value ?? '' : '';
 
   // -- State --
-  const [header, setHeader] = useState({
+  const [header, setHeader] = useState<DepositHeader>({
     date: today,
     description: '',
     reference_no: '',
@@ -55,29 +73,31 @@ export default function DepositEntry() {
     bank_account_id: ''
   });
 
-  const [lines, setLines] = useState([{ ...EMPTY_LINE, account_id: defaultIncomeAccountId }]);
-  const [errors, setErrors] = useState([]);
+  const [lines, setLines] = useState<DepositLine[]>([{ ...EMPTY_LINE, account_id: defaultIncomeAccountId }]);
+  const [errors, setErrors] = useState<string[]>([]);
 
   // Auto-set default bank and income accounts once data loads
   useEffect(() => {
     if (assetAccounts.length > 0 && !header.bank_account_id) {
-      setHeader(h => ({ ...h, bank_account_id: assetAccounts[0].value }));
+      setHeader(h => ({ ...h, bank_account_id: assetAccounts[0]?.value ?? '' }));
     }
-    if (defaultIncomeAccountId && lines[0].account_id === '') {
+    if (defaultIncomeAccountId && lines[0]?.account_id === '') {
       setLine(0, 'account_id', defaultIncomeAccountId);
     }
     // 3. Auto-set first available Fund for the first line
-    if (fundOptions.length > 0 && lines[0].fund_id === '') {
-      const firstFundId = fundOptions[0].value;
+    if (fundOptions.length > 0 && lines[0]?.fund_id === '') {
+      const firstFundId = fundOptions[0]?.value ?? '';
       setLine(0, 'fund_id', firstFundId);
     }
   }, [assetAccounts, defaultIncomeAccountId]);
 
   // -- Handlers --
-  function setLine(i, key, val) {
+  function setLine<K extends keyof DepositLine>(i: number, key: K, val: DepositLine[K]) {
     setLines((prev) => {
       const next = [...prev];
-      next[i] = { ...next[i], [key]: val };
+      const current = next[i];
+      if (!current) return prev;
+      next[i] = { ...current, [key]: val };
       return next;
     });
   }
@@ -87,12 +107,12 @@ export default function DepositEntry() {
     const prevLine = lines[lines.length - 1];
     setLines((prev) => [...prev, { 
       ...EMPTY_LINE, 
-      fund_id: prevLine.fund_id || (fundOptions.length > 0 ? fundOptions[0].value : ''), 
-      account_id: prevLine.account_id || defaultIncomeAccountId 
+      fund_id: prevLine?.fund_id || (fundOptions.length > 0 ? fundOptions[0]?.value ?? '' : ''), 
+      account_id: prevLine?.account_id || defaultIncomeAccountId 
     }]); 
   }
 
-  function removeLine(i) {
+  function removeLine(i: number) {
     if (lines.length <= 1) return;
     setLines((prev) => prev.filter((_, idx) => idx !== i));
   }
@@ -109,8 +129,8 @@ export default function DepositEntry() {
     setLines((prev) => [...prev, {
       ...EMPTY_LINE,
       contact_id: '', // Anonymous
-      fund_id: prevLine.fund_id || (fundOptions.length > 0 ? fundOptions[0].value : ''),
-      account_id: prevLine.account_id || defaultIncomeAccountId,
+      fund_id: prevLine?.fund_id || (fundOptions.length > 0 ? fundOptions[0]?.value ?? '' : ''),
+      account_id: prevLine?.account_id || defaultIncomeAccountId,
       amount: remaining.toFixed(2)
     }]);
   }
@@ -119,12 +139,12 @@ export default function DepositEntry() {
     setErrors([]);
     
     // 1. Aggregate credits by fund to create balancing bank debits
-    const fundTotals = {};
+    const fundTotals: Record<string, number> = {};
     lines.forEach(l => {
       if (!l.amount || !l.fund_id) return;
       const amt = parseFloat(l.amount);
-      if (!fundTotals[l.fund_id]) fundTotals[l.fund_id] = 0;
-      fundTotals[l.fund_id] += amt;
+      const fundKey = String(l.fund_id);
+      fundTotals[fundKey] = (fundTotals[fundKey] ?? 0) + amt;
     });
 
     // 2. Map Bank Debits (One per fund involved)
@@ -153,7 +173,7 @@ export default function DepositEntry() {
       memo:       l.memo || undefined,
     }));
 
-    const payload = {
+    const payload: CreateTransactionInput = {
       date:         header.date,
       description:  header.description,
       reference_no: header.reference_no || undefined,
@@ -167,8 +187,7 @@ export default function DepositEntry() {
       setHeader(h => ({ ...h, total_amount: '', reference_no: '' }));
       setLines([{ ...EMPTY_LINE, account_id: defaultIncomeAccountId }]);
     } catch (err) {
-      const errs = err.response?.data?.errors || [err.response?.data?.error || 'Failed to save deposit.'];
-      setErrors(errs);
+      setErrors([getErrorMessage(err, 'Failed to save deposit.')]);
     }
   }
 

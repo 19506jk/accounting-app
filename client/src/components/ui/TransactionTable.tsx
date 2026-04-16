@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type React from 'react';
 import type { TransactionDetail, TransactionListItem, TransactionResponse } from '@shared/contracts';
-import apiClient from '../../api/client';
+import client from '../../api/client';
 import { formatDateOnlyForDisplay } from '../../utils/date';
 import Button from './Button';
 import Table from './Table';
@@ -25,7 +25,7 @@ function TransactionDetail({ id, onEdit }: { id: number; onEdit?: (transaction: 
   useEffect(() => {
     let isMounted = true;
 
-    apiClient.get<TransactionResponse>(`/transactions/${id}`).then(({ data }) => {
+    client.get<TransactionResponse>(`/transactions/${id}`).then(({ data }) => {
       if (!isMounted) return;
       setDetail(data.transaction);
     });

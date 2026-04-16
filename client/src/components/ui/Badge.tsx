@@ -25,7 +25,7 @@ interface BadgeProps {
 
 export default function Badge({ label, variant }: BadgeProps) {
   const key    = String(variant || label || '').toLowerCase();
-  const colors = Object.prototype.hasOwnProperty.call(COLORS, key)
+  const colors = key in COLORS
     ? COLORS[key as keyof typeof COLORS]
     : { bg: '#f3f4f6', color: '#4b5563' };
 
