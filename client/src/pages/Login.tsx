@@ -1,9 +1,11 @@
-// @ts-nocheck
 import { useEffect, useState } from 'react';
 import { useNavigate }         from 'react-router-dom';
 import { GoogleLogin }         from '@react-oauth/google';
+import axios                   from 'axios';
 import { useAuth }             from '../context/AuthContext';
 import client                  from '../api/client';
+import type { CredentialResponse } from '@react-oauth/google';
+import type { GoogleAuthResponse } from '@shared/contracts';
 
 export default function Login() {
   const { login, isAuthenticated } = useAuth();
@@ -16,18 +18,20 @@ export default function Login() {
     if (isAuthenticated) navigate('/dashboard', { replace: true });
   }, [isAuthenticated, navigate]);
 
-  async function handleSuccess(credentialResponse) {
+  async function handleSuccess(credentialResponse: CredentialResponse) {
     setError('');
     setLoading(true);
     try {
-      const { data } = await client.post('/auth/google', {
+      const { data } = await client.post<GoogleAuthResponse>('/auth/google', {
         credential: credentialResponse.credential,
       });
       login(data.token, data.user);
       navigate('/dashboard', { replace: true });
     } catch (err) {
-      const msg = err.response?.data?.error;
-      if (err.response?.status === 403) {
+      const msg = axios.isAxiosError<{ error?: string }>(err)
+        ? err.response?.data?.error
+        : undefined;
+      if (axios.isAxiosError(err) && err.response?.status === 403) {
         setError(msg || 'Your account has not been added. Contact your administrator.');
       } else {
         setError(msg || 'Sign-in failed. Please try again.');

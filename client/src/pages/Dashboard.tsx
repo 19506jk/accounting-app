@@ -1,11 +1,12 @@
-// @ts-nocheck
 import { useState } from 'react';
 import { usePLSummary, useBalanceSheet, useRecentTransactions } from '../api/useDashboard';
 import Card  from '../components/ui/Card';
 import TransactionTable, { TYPE_BADGE, txFmt } from '../components/ui/TransactionTable';
 import { formatDateOnlyForDisplay, monthLabelInChurchZone } from '../utils/date';
+import type { TransactionListItem } from '@shared/contracts';
+import type { TableColumn } from '../components/ui/types';
 
-function fmt(n) {
+function fmt(n: number | null | undefined): string {
   return typeof n === 'number'
     ? '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2 })
     : '—';
@@ -15,7 +16,15 @@ function currentMonthLabel() {
   return monthLabelInChurchZone();
 }
 
-function SummaryCard({ label, value, isLoading, color, sub }) {
+interface SummaryCardProps {
+  label: string;
+  value: string;
+  isLoading: boolean;
+  color?: string;
+  sub?: string;
+}
+
+function SummaryCard({ label, value, isLoading, color, sub }: SummaryCardProps) {
   return (
     <Card>
       <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6b7280',
@@ -36,13 +45,13 @@ function SummaryCard({ label, value, isLoading, color, sub }) {
   );
 }
 
-const TXN_COLUMNS = [
+const TXN_COLUMNS: TableColumn<TransactionListItem>[] = [
   { key: 'date', label: 'Date',
     render: (r) => formatDateOnlyForDisplay(r.date) },
   { key: 'description', label: 'Description', wrap: true },
   { key: 'transaction_type', label: 'Type',
     render: (r) => {
-      const badge = TYPE_BADGE[r.transaction_type] || TYPE_BADGE.transfer;
+      const badge = TYPE_BADGE[r.transaction_type] ?? TYPE_BADGE.transfer;
       return (
         <span style={{ display: 'inline-block', padding: '0.15rem 0.5rem',
           borderRadius: '999px', fontSize: '0.72rem', fontWeight: 600,
@@ -61,7 +70,7 @@ const TXN_COLUMNS = [
 ];
 
 export default function Dashboard() {
-  const [expanded, setExpanded] = useState(null);
+  const [expanded, setExpanded] = useState<number | null>(null);
   const pl     = usePLSummary();
   const bs     = useBalanceSheet();
   const recent = useRecentTransactions(10);
@@ -70,7 +79,7 @@ export default function Dashboard() {
     (a) => a.name.toLowerCase().includes('checking')
   )?.balance ?? null;
 
-  const surplusColor = pl.data?.net_surplus >= 0 ? '#15803d' : '#b91c1c';
+  const surplusColor = typeof pl.data?.net_surplus === 'number' && pl.data.net_surplus >= 0 ? '#15803d' : '#b91c1c';
 
   return (
     <div>

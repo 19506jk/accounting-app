@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState }    from 'react';
 import { useAuth }     from '../context/AuthContext';
 import { useUsers, useCreateUser, useUpdateUserRole,

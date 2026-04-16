@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useMemo, useState } from 'react'
 import { PDFViewer, pdf } from '@react-pdf/renderer'
 import {
@@ -14,10 +13,14 @@ import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Select from '../components/ui/Select'
 import MultiSelectCombobox from '../components/ui/MultiSelectCombobox'
+import { getErrorMessage } from '../utils/errors'
+import type { OptionValue } from '../components/ui/types'
 
-const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 })
+type ReceiptStatusType = 'success' | 'warning' | 'error' | null
 
-function getCurrentFiscalYear(fiscalStartMonth) {
+const fmt = (n: number | string | null | undefined) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 })
+
+function getCurrentFiscalYear(fiscalStartMonth: number) {
   const now = new Date()
   const year = now.getFullYear()
   const month = now.getMonth() + 1
@@ -25,11 +28,7 @@ function getCurrentFiscalYear(fiscalStartMonth) {
   return month >= fiscalStartMonth ? year + 1 : year
 }
 
-function getErrorMessage(error) {
-  return error?.response?.data?.error || error?.response?.data?.errors?.join(', ') || error?.message || 'Request failed'
-}
-
-async function downloadPdf(receipts, filename) {
+async function downloadPdf(receipts: string[], filename: string): Promise<void> {
   const blob = await pdf(<DonationReceiptsPdfDocument receipts={receipts} />).toBlob()
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -47,9 +46,9 @@ export default function DonationReceipts() {
   const currentFiscalYear = getCurrentFiscalYear(fiscalStartMonth)
 
   const [fiscalYear, setFiscalYear] = useState(currentFiscalYear)
-  const [accountIds, setAccountIds] = useState([])
+  const [accountIds, setAccountIds] = useState<OptionValue[]>([])
   const [markdownBody, setMarkdownBody] = useState('')
-  const [status, setStatus] = useState({ message: '', type: null })
+  const [status, setStatus] = useState<{ message: string; type: ReceiptStatusType }>({ message: '', type: null })
 
   useEffect(() => {
     setFiscalYear(currentFiscalYear)
@@ -73,6 +72,10 @@ export default function DonationReceipts() {
 
   const accounts = accountsQuery.data?.accounts || []
   const selectedAccounts = new Set(accountIds)
+  const numericAccountIds = useMemo(
+    () => accountIds.filter((id): id is number => typeof id === 'number'),
+    [accountIds]
+  )
   const accountOptions = accounts.map((account) => ({
     value: account.id,
     label: `${account.code} — ${account.name} (${fmt(account.total)})`,
@@ -95,7 +98,7 @@ export default function DonationReceipts() {
       await saveTemplate.mutateAsync({ markdown_body: markdownBody })
       setStatus({ message: 'Template saved.', type: 'success' })
     } catch (error) {
-      setStatus({ message: getErrorMessage(error), type: 'error' })
+      setStatus({ message: getErrorMessage(error, 'Request failed'), type: 'error' })
     }
   }
 
@@ -104,11 +107,11 @@ export default function DonationReceipts() {
     try {
       await previewReceipt.mutateAsync({
         fiscal_year: fiscalYear,
-        account_ids: accountIds,
+        account_ids: numericAccountIds,
         markdown_body: markdownBody,
       })
     } catch (error) {
-      setStatus({ message: getErrorMessage(error), type: 'error' })
+      setStatus({ message: getErrorMessage(error, 'Request failed'), type: 'error' })
     }
   }
 
@@ -117,7 +120,7 @@ export default function DonationReceipts() {
     try {
       const result = await generateReceipts.mutateAsync({
         fiscal_year: fiscalYear,
-        account_ids: accountIds,
+        account_ids: numericAccountIds,
         markdown_body: markdownBody,
       })
       await downloadPdf(result.receipts || [], `donation_receipts_fy${fiscalYear}.pdf`)
@@ -129,7 +132,7 @@ export default function DonationReceipts() {
         type: warnings.length ? 'warning' : 'success',
       })
     } catch (error) {
-      setStatus({ message: getErrorMessage(error), type: 'error' })
+      setStatus({ message: getErrorMessage(error, 'Request failed'), type: 'error' })
     }
   }
 
@@ -276,13 +279,13 @@ export default function DonationReceipts() {
               variant="secondary"
               onClick={handlePreview}
               isLoading={previewReceipt.isPending}
-              disabled={!accountIds.length || !markdownBody.trim()}
+              disabled={!numericAccountIds.length || !markdownBody.trim()}
             >
               Preview
             </Button>
           </div>
 
-          {previewReceipt.data?.warnings?.length > 0 && (
+          {(previewReceipt.data?.warnings?.length ?? 0) > 0 && (
             <div style={{
               border: '1px solid #fde68a',
               background: '#fffbeb',
@@ -293,7 +296,7 @@ export default function DonationReceipts() {
               marginBottom: '0.75rem',
             }}>
               <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>Warnings</div>
-              {previewReceipt.data.warnings.map((warning, index) => (
+              {(previewReceipt.data?.warnings || []).map((warning, index) => (
                 <div key={index}>{warning}</div>
               ))}
             </div>
@@ -322,7 +325,7 @@ export default function DonationReceipts() {
             <Button
               onClick={handleGenerate}
               isLoading={generateReceipts.isPending}
-              disabled={!accountIds.length || !markdownBody.trim()}
+              disabled={!numericAccountIds.length || !markdownBody.trim()}
             >
               Download PDF
             </Button>

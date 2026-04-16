@@ -1,18 +1,40 @@
-// @ts-nocheck
 import { useEffect, useMemo, useState } from 'react'
 import client from '../api/client'
 import Button from '../components/ui/Button'
+import { getErrorMessage } from '../utils/errors'
+import type React from 'react'
 
-const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 })
-
-function getErrorMessage(error) {
-  const data = error?.response?.data
-  if (data?.error) return data.error
-  if (Array.isArray(data?.errors)) return data.errors.join(', ')
-  return error?.message || 'Unexpected error'
+interface InvestigateResponse {
+  fiscal_year: number
+  period_start: string
+  period_end: string
+  preflight: {
+    trial_balance_plugs: boolean
+    per_fund_balanced: boolean
+    all_asset_accounts_reconciled: boolean
+    no_unmapped_funds: boolean
+  }
+  pro_forma_lines: Array<{
+    account_id: number
+    account_code: string
+    account_name: string
+    account_type: string
+    fund_id: number
+    fund_name: string
+    debit: number
+    credit: number
+  }>
 }
 
-function ChecklistItem({ passed, children }) {
+interface HardCloseWizardProps {
+  open: boolean
+  onClose?: () => void
+  onSuccess?: () => void
+}
+
+const fmt = (n: number | string | null | undefined) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 })
+
+function ChecklistItem({ passed, children }: { passed: boolean; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0' }}>
       <span style={{
@@ -34,7 +56,7 @@ function ChecklistItem({ passed, children }) {
   )
 }
 
-function StepTabs({ step }) {
+function StepTabs({ step }: { step: number }) {
   const items = ['Pre-flight', 'Preview', 'Confirm']
   return (
     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
@@ -57,9 +79,9 @@ function StepTabs({ step }) {
   )
 }
 
-export default function HardCloseWizard({ open, onClose, onSuccess }) {
+export default function HardCloseWizard({ open, onClose, onSuccess }: HardCloseWizardProps) {
   const [step, setStep] = useState(1)
-  const [data, setData] = useState(null)
+  const [data, setData] = useState<InvestigateResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
   const [error, setError] = useState('')
@@ -74,12 +96,12 @@ export default function HardCloseWizard({ open, onClose, onSuccess }) {
     setAcknowledged(false)
     setIsLoading(true)
 
-    client.post('/fiscal-periods/investigate')
+    client.post<InvestigateResponse>('/fiscal-periods/investigate')
       .then(({ data: response }) => {
         if (!cancelled) setData(response)
       })
       .catch((err) => {
-        if (!cancelled) setError(getErrorMessage(err))
+        if (!cancelled) setError(getErrorMessage(err, 'Unexpected error'))
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
@@ -115,7 +137,7 @@ export default function HardCloseWizard({ open, onClose, onSuccess }) {
       onSuccess?.()
       onClose?.()
     } catch (err) {
-      setError(getErrorMessage(err))
+      setError(getErrorMessage(err, 'Unexpected error'))
     } finally {
       setIsExecuting(false)
     }
