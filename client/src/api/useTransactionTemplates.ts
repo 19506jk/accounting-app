@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 
-interface TransactionTemplateRow {
+export interface TransactionTemplateRow {
   account_id: string
   fund_id: string
   contact_id: string
   memo: string
 }
 
-interface TransactionTemplate {
+export interface TransactionTemplate {
   id: string
   name: string
   description: string

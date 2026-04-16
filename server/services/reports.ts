@@ -1007,6 +1007,7 @@ async function getDonorDetail({ from, to, fundId, contactId, accountIds }: Donor
           contact_id: contact.id,
           contact_name: contact.name,
           contact_class: contact.contact_class,
+          donor_id: contact.donor_id,
           total: parseFloat(total.toFixed(2)),
           transactions,
         },
@@ -1048,6 +1049,7 @@ async function getDonorDetail({ from, to, fundId, contactId, accountIds }: Donor
       contact_id: contact.id,
       contact_name: contact.name,
       contact_class: contact.contact_class,
+      donor_id: contact.donor_id,
       total: parseFloat(total.toFixed(2)),
       transactions: contactTransactions,
     });

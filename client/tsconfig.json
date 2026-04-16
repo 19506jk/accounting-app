@@ -10,7 +10,7 @@
         "../shared/*"
       ]
     },
-    "allowJs": true,
+    "allowJs": false,
     "checkJs": false,
     "strict": true,
     "strictNullChecks": true,
@@ -26,6 +26,6 @@
   "include": [
     "src",
     "../shared/**/*.ts",
-    "vite.config.js"
+    "vite.config.ts"
   ]
 }
