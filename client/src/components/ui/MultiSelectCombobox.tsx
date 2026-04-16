@@ -7,7 +7,7 @@ interface MultiSelectComboboxProps {
   label?: string
   options?: SelectOption[]
   value?: OptionValue[]
-  onChange: (value: any[]) => void
+  onChange: (value: OptionValue[]) => void
   placeholder?: string
   required?: boolean
   error?: string

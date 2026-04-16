@@ -1,7 +1,7 @@
 import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 import { marked } from 'marked'
 import type React from 'react'
-import type { Tokens } from 'marked'
+import type { Token, Tokens } from 'marked'
 import type { Style } from '@react-pdf/types'
 
 type InlineContext = {
@@ -15,26 +15,12 @@ type BlockContext = {
 
 type CenterToken = {
   type: 'center'
-  tokens: MarkdownToken[]
+  tokens: Token[]
 }
 
-type MarkdownToken = {
-  type?: string
-  text?: string
-  raw?: string
-  href?: string
-  depth?: number
-  tokens?: MarkdownToken[]
-  ordered?: boolean
-  start?: number
-  items?: MarkdownToken[]
-  header?: TableCell[]
-  rows?: TableCell[][]
-}
-
-type BlockToken = MarkdownToken | CenterToken
-type InlineToken = MarkdownToken | string
-type TableCell = Tokens.TableCell | string | { text?: string; tokens?: MarkdownToken[] }
+type BlockToken = Token | CenterToken
+type InlineToken = Token | string
+type TableCell = Tokens.TableCell | string | { text?: string; tokens?: Token[] }
 
 const styles = StyleSheet.create({
   page: {
@@ -171,6 +157,26 @@ function resolveInlineFontFamily(ctx: InlineContext): string {
   return 'Helvetica'
 }
 
+function textToken(text: string): Tokens.Text {
+  return { type: 'text', raw: text, text }
+}
+
+function tokenText(token: Token | CenterToken | undefined): string {
+  return token && 'text' in token && typeof token.text === 'string' ? token.text : ''
+}
+
+function childTokens(token: Token | CenterToken | undefined): Token[] | undefined {
+  return token && 'tokens' in token && Array.isArray(token.tokens) ? token.tokens : undefined
+}
+
+function inlineFallback(token: Token): Token[] {
+  return childTokens(token) || [textToken(tokenText(token))]
+}
+
+function lexBlocks(markdown: string): Token[] {
+  return marked.lexer(markdown, { gfm: true, breaks: false })
+}
+
 function renderInlineText(
   text: unknown,
   keyPrefix: string,
@@ -210,7 +216,7 @@ function renderInlineTokens(
 
     if (token.type === 'strong') {
       return renderInlineTokens(
-        token.tokens || [{ type: 'text', text: token.text || '' }],
+        inlineFallback(token),
         `${key}-strong`,
         { bold: true, italic: ctx.italic },
       )
@@ -218,7 +224,7 @@ function renderInlineTokens(
 
     if (token.type === 'em') {
       return renderInlineTokens(
-        token.tokens || [{ type: 'text', text: token.text || '' }],
+        inlineFallback(token),
         `${key}-em`,
         { bold: ctx.bold, italic: true },
       )
@@ -227,7 +233,7 @@ function renderInlineTokens(
     if (token.type === 'del') {
       return (
         <Text key={key} style={styles.del}>
-          {renderInlineTokens(token.tokens || [{ type: 'text', text: token.text || '' }], `${key}-del`, ctx)}
+          {renderInlineTokens(inlineFallback(token), `${key}-del`, ctx)}
         </Text>
       )
     }
@@ -247,23 +253,23 @@ function renderInlineTokens(
     if (token.type === 'link') {
       return (
         <Text key={key} style={styles.link}>
-          {renderInlineTokens(token.tokens || [{ type: 'text', text: token.text || token.href || '' }], `${key}-link`, ctx)}
+          {renderInlineTokens(childTokens(token) || [textToken(tokenText(token) || token.href || '')], `${key}-link`, ctx)}
         </Text>
       )
     }
 
-    return renderInlineText(token.text || '', key, ctx)
+    return renderInlineText(tokenText(token), key, ctx)
   })
 }
 
 function renderTableCell(cell: TableCell, key: string, isHeader: boolean) {
   const tokens = typeof cell === 'object' && Array.isArray(cell?.tokens)
-    ? cell.tokens as unknown as MarkdownToken[]
+    ? cell.tokens
     : typeof cell === 'object' && cell !== null && typeof cell.text === 'string'
-      ? [{ type: 'text', text: cell.text }]
+      ? [textToken(cell.text)]
       : typeof cell === 'string'
-        ? [{ type: 'text', text: cell }]
-        : [{ type: 'text', text: '' }]
+        ? [textToken(cell)]
+        : [textToken('')]
 
   const style = isHeader ? [styles.tableCellText, styles.tableHeaderText] : styles.tableCellText
 
@@ -282,7 +288,7 @@ function parseMarkdownBlocks(markdown: unknown): BlockToken[] {
 
   function flushBuffer() {
     if (!buffer.length) return
-    tokens.push(...marked.lexer(buffer.join('\n'), { gfm: true, breaks: false }) as unknown as MarkdownToken[])
+    tokens.push(...lexBlocks(buffer.join('\n')))
     buffer = []
   }
 
@@ -296,7 +302,7 @@ function parseMarkdownBlocks(markdown: unknown): BlockToken[] {
     if (line.trim() === ':::' && centerBuffer !== null) {
       tokens.push({
         type: 'center',
-        tokens: marked.lexer(centerBuffer.join('\n'), { gfm: true, breaks: false }) as unknown as MarkdownToken[],
+        tokens: lexBlocks(centerBuffer.join('\n')),
       })
       centerBuffer = null
       continue
@@ -337,31 +343,34 @@ function renderBlocks(
       )
     }
 
-    if (token.type === 'heading') {
-      const headingStyle = token.depth === 1 ? styles.heading1 : token.depth === 2 ? styles.heading2 : styles.heading3
+    const markedToken = token as Token
+
+    if (markedToken.type === 'heading') {
+      const headingStyle = markedToken.depth === 1 ? styles.heading1 : markedToken.depth === 2 ? styles.heading2 : styles.heading3
       return (
         <Text key={key} style={[headingStyle, { textAlign: blockCtx.textAlign }]}>
-          {renderInlineTokens(token.tokens || [{ type: 'text', text: token.text || '' }], `${key}-inline`, { bold: true, italic: false })}
+          {renderInlineTokens(inlineFallback(markedToken), `${key}-inline`, { bold: true, italic: false })}
         </Text>
       )
     }
 
-    if (token.type === 'paragraph' || token.type === 'text') {
+    if (markedToken.type === 'paragraph' || markedToken.type === 'text') {
       return (
         <Text key={key} style={[inList ? styles.listParagraph : styles.paragraph, { textAlign: blockCtx.textAlign }]}>
-          {renderInlineTokens(token.tokens || [{ type: 'text', text: token.text || '' }], `${key}-inline`, { bold: false, italic: false })}
+          {renderInlineTokens(inlineFallback(markedToken), `${key}-inline`, { bold: false, italic: false })}
         </Text>
       )
     }
 
-    if (token.type === 'list') {
+    if (markedToken.type === 'list') {
+      const listToken = markedToken as Tokens.List
       return (
         <View key={key} style={styles.list}>
-          {(token as Tokens.List).items?.map((item, itemIndex) => {
-            const bulletLabel = token.ordered ? `${itemIndex + (token.start || 1)}.` : '\u2022'
+          {listToken.items?.map((item, itemIndex) => {
+            const bulletLabel = listToken.ordered ? `${itemIndex + (Number(listToken.start) || 1)}.` : '\u2022'
             const itemTokens = Array.isArray(item?.tokens) && item.tokens.length
-              ? item.tokens as unknown as MarkdownToken[]
-              : [{ type: 'text', text: item?.text || '' }]
+              ? item.tokens
+              : [textToken(item?.text || '')]
 
             return (
               <View key={`${key}-item-${itemIndex}`} style={styles.listItem}>
@@ -374,8 +383,8 @@ function renderBlocks(
       )
     }
 
-    if (token.type === 'table') {
-      const tableToken = token as Tokens.Table
+    if (markedToken.type === 'table') {
+      const tableToken = markedToken as Tokens.Table
       const headerCells = Array.isArray(tableToken.header) ? tableToken.header : []
       const rows = Array.isArray(tableToken.rows) ? tableToken.rows : []
       const columnCount = Math.max(1, headerCells.length, ...rows.map((row) => Array.isArray(row) ? row.length : 0))
@@ -417,21 +426,21 @@ function renderBlocks(
       )
     }
 
-    if (token.type === 'blockquote') {
+    if (markedToken.type === 'blockquote') {
       return (
         <View key={key} style={{ borderLeftWidth: 3, borderLeftColor: '#9ca3af', paddingLeft: 8, marginBottom: 8 }}>
-          {renderBlocks(token.tokens || [], `${key}-blockquote`, inList, blockCtx)}
+          {renderBlocks(childTokens(markedToken) || [], `${key}-blockquote`, inList, blockCtx)}
         </View>
       )
     }
 
-    if (token.type === 'hr') {
+    if (markedToken.type === 'hr') {
       return <View key={key} style={styles.hr} />
     }
 
     return (
       <Text key={key} style={[inList ? styles.listParagraph : styles.paragraph, { textAlign: blockCtx.textAlign }]}>
-        {renderInlineTokens((token as MarkdownToken).tokens || [{ type: 'text', text: (token as MarkdownToken).text || '' }], `${key}-inline`, { bold: false, italic: false })}
+        {renderInlineTokens(inlineFallback(markedToken), `${key}-inline`, { bold: false, italic: false })}
       </Text>
     )
   })

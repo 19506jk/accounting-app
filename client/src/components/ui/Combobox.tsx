@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type React from 'react';
-import type { SelectOption } from './types';
+import type { OptionValue, SelectOption } from './types';
 
 interface ComboboxProps {
   label?: string;
   options?: SelectOption[];
-  value?: string | number | null;
-  onChange: (value: any) => void;
+  value?: OptionValue | null;
+  onChange: (value: OptionValue) => void;
   placeholder?: string;
   required?: boolean;
   error?: string;
