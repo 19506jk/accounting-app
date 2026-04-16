@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import Decimal from 'decimal.js';
 import { useNavigate } from 'react-router-dom';
@@ -16,26 +15,38 @@ import Combobox from '../components/ui/Combobox';
 import Modal from '../components/ui/Modal';
 import { parseStatementCsv } from '../utils/parseStatementCsv';
 import { formatDateOnlyForDisplay } from '../utils/date';
+import { getErrorMessage } from '../utils/errors';
+import type React from 'react';
+import type {
+  BillMatchSuggestion,
+  ContactSummary,
+  ImportTransactionRow,
+  ImportTransactionsInput,
+  SkippedImportRow,
+  TaxRateSummary,
+  TransactionSplit,
+} from '@shared/contracts';
+import type { OptionValue, SelectOption } from '../components/ui/types';
 
-const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
+const fmt = (n: Decimal.Value | null | undefined) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 const MAX_ROUNDING_ADJUSTMENT = new Decimal('0.10');
 // Align with server DB column: migrations/004_transactions.js -> t.string('reference_no')
 const REFERENCE_NO_MAX_LENGTH = 255;
-const PREVIEW_CONTROL_LABEL_STYLE = {
+const PREVIEW_CONTROL_LABEL_STYLE: React.CSSProperties = {
   fontSize: '0.7rem',
   color: '#64748b',
   fontWeight: 600,
   textTransform: 'uppercase',
   letterSpacing: '0.02em',
 };
-const PREVIEW_CONTROL_GROUP_STYLE = {
+const PREVIEW_CONTROL_GROUP_STYLE: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: '0.35rem',
   minWidth: '170px',
   flex: '1 1 220px',
 };
-const SR_ONLY_STYLE = {
+const SR_ONLY_STYLE: React.CSSProperties = {
   position: 'absolute',
   width: '1px',
   height: '1px',
@@ -46,14 +57,97 @@ const SR_ONLY_STYLE = {
   whiteSpace: 'nowrap',
   border: 0,
 };
-const normalize = (s) => String(s ?? '').trim().toLowerCase();
+type ImportPhase = 'setup' | 'preview';
+type TransactionRowType = ImportTransactionRow['type'];
+
+interface StatementRowMetadata {
+  description_1?: string;
+  sender?: string;
+  from?: string;
+}
+
+interface ParsedImportRow extends Omit<ImportTransactionRow, 'offset_account_id' | 'payee_id' | 'contact_id' | 'bill_id' | 'splits'> {
+  offset_account_id?: number;
+  payee_id?: number;
+  contact_id?: number;
+  bill_id?: number;
+  splits?: TransactionSplit[];
+}
+
+interface DepositSplitModalLine {
+  type: 'deposit';
+  amount: string;
+  offset_account_id: OptionValue | '';
+  fund_id: OptionValue | '';
+  contact_id: OptionValue | '';
+  memo: string;
+}
+
+interface WithdrawalSplitModalLine {
+  type: 'withdrawal';
+  amount: string;
+  expense_account_id: OptionValue | '';
+  tax_rate_id: string;
+  pre_tax_amount: string;
+  rounding_adjustment: string;
+  description: string;
+  fund_id: OptionValue | '';
+  is_legacy_mapped: boolean;
+}
+
+type SplitModalLine = DepositSplitModalLine | WithdrawalSplitModalLine;
+
+interface WithdrawalSplitSavePayload {
+  payee_id: number;
+  splits: TransactionSplit[];
+}
+
+type SplitSavePayload = TransactionSplit[] | WithdrawalSplitSavePayload;
+
+interface SplitModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (payload: SplitSavePayload) => void;
+  row: ParsedImportRow | undefined;
+  defaultFundId: number;
+  offsetAccountOptions: SelectOption[];
+  fundOptions: SelectOption[];
+  expenseAccountOptions: SelectOption[];
+  activeExpenseAccountIds: number[];
+}
+
+interface PreviewRowProps {
+  row: ParsedImportRow;
+  index: number;
+  isSelected: boolean;
+  onToggle: () => void;
+  offsetOptions: SelectOption[];
+  donorOptions: SelectOption[];
+  payeeOptions: SelectOption[];
+  onOffsetChange: (index: number, offsetId: number) => void;
+  onReferenceChange: (index: number, referenceNo: string) => void;
+  onContactChange: (index: number, contactId: number | undefined, type: TransactionRowType) => void;
+  suggestions: BillMatchSuggestion[];
+  onBillLink: (index: number, billId: number | null) => void;
+  onSplitOpen: (index: number, clear?: boolean) => void;
+}
+
+interface WithdrawalLineTotal {
+  preTax: Decimal;
+  rounding: Decimal;
+  tax: Decimal;
+  gross: Decimal;
+  taxRate: TaxRateSummary | null;
+}
+
+const normalize = (s: unknown) => String(s ?? '').trim().toLowerCase();
 const ETRANSFER_TOKENS = ['e-transfer', 'etransfer', 'interac e-transfer'];
-const isEtransferDeposit = (row, metadata) => {
+const isEtransferDeposit = (row: ImportTransactionRow, metadata?: StatementRowMetadata) => {
   if (row.type !== 'deposit') return false;
   const desc = normalize(metadata?.description_1);
   return ETRANSFER_TOKENS.some((token) => desc.includes(token));
 };
-const dec = (value) => {
+const dec = (value: Decimal.Value | null | undefined) => {
   try {
     return new Decimal(value || 0);
   } catch {
@@ -71,8 +165,8 @@ function SplitModal({
   fundOptions,
   expenseAccountOptions,
   activeExpenseAccountIds,
-}) {
-  const [lines, setLines] = useState([]);
+}: SplitModalProps) {
+  const [lines, setLines] = useState<SplitModalLine[]>([]);
   const [payeeId, setPayeeId] = useState('');
   const [attempted, setAttempted] = useState(false);
   const { data: donorContacts = [] } = useContacts({ type: 'DONOR' });
@@ -107,7 +201,7 @@ function SplitModal({
     })),
   ]), [taxRates]);
 
-  const taxRateMap = useMemo(
+  const taxRateMap = useMemo<Record<string, TaxRateSummary>>(
     () => Object.fromEntries(taxRates.map((taxRate) => [String(taxRate.id), taxRate])),
     [taxRates]
   );
@@ -117,11 +211,13 @@ function SplitModal({
 
     if (isWithdrawal) {
       let nextPayee = row?.payee_id ? String(row.payee_id) : '';
-      if (row?.splits?.length > 0) {
-        setLines(row.splits.map((split) => {
+      const existingSplits = row?.splits ?? [];
+      if (existingSplits.length > 0) {
+        setLines(existingSplits.map((split) => {
           const isLegacyMapped = split.expense_account_id === undefined && split.offset_account_id !== undefined;
           if (!nextPayee && split.contact_id) nextPayee = String(split.contact_id);
           return {
+            type: 'withdrawal',
             amount: String(split.amount ?? ''),
             expense_account_id: split.expense_account_id ?? split.offset_account_id ?? '',
             tax_rate_id: split.tax_rate_id ? String(split.tax_rate_id) : '',
@@ -134,6 +230,7 @@ function SplitModal({
         }));
       } else {
         setLines([{
+          type: 'withdrawal',
           amount: '',
           expense_account_id: '',
           tax_rate_id: '',
@@ -149,16 +246,19 @@ function SplitModal({
       return;
     }
 
-    if (row?.splits?.length > 0) {
-      setLines(row.splits.map((split) => ({
+    const existingSplits = row?.splits ?? [];
+    if (existingSplits.length > 0) {
+      setLines(existingSplits.map((split) => ({
+        type: 'deposit',
         amount: String(split.amount),
-        offset_account_id: split.offset_account_id,
+        offset_account_id: split.offset_account_id ?? '',
         fund_id: split.fund_id,
         contact_id: split.contact_id ?? '',
         memo: split.memo || '',
       })));
     } else {
       setLines([{
+        type: 'deposit',
         amount: '',
         offset_account_id: '',
         fund_id: defaultFundId || '',
@@ -173,19 +273,25 @@ function SplitModal({
   if (!isOpen || !row) return null;
 
   const rowAmount = dec(row.amount).toDecimalPlaces(2);
-  const withdrawalLineTotals = lines.map((line) => {
+  const withdrawalLines = lines.filter((line): line is WithdrawalSplitModalLine => line.type === 'withdrawal');
+  const depositLines = lines.filter((line): line is DepositSplitModalLine => line.type === 'deposit');
+  const withdrawalLineTotals = lines.map((line): WithdrawalLineTotal => {
+    if (line.type !== 'withdrawal') {
+      return { preTax: dec(0), rounding: dec(0), tax: dec(0), gross: dec(0), taxRate: null };
+    }
     const preTax = dec(line.pre_tax_amount).toDecimalPlaces(2);
     const rounding = dec(line.rounding_adjustment || 0).toDecimalPlaces(2);
-    const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null;
+    const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] ?? null : null;
     const tax = taxRate ? preTax.times(dec(taxRate.rate)).toDecimalPlaces(2) : dec(0);
     const gross = preTax.plus(tax).plus(rounding).toDecimalPlaces(2);
     return { preTax, rounding, tax, gross, taxRate };
   });
   const assignedAmount = lines.reduce((sum, line, idx) => (
-    sum.plus(isWithdrawal ? withdrawalLineTotals[idx].gross : dec(line.amount).toDecimalPlaces(2))
+    sum.plus(isWithdrawal ? (withdrawalLineTotals[idx]?.gross ?? dec(0)) : dec(line.amount).toDecimalPlaces(2))
   ), dec(0)).toDecimalPlaces(2);
   const remainingAmount = rowAmount.minus(assignedAmount).toDecimalPlaces(2);
   const hasValidDepositLines = lines.length > 0 && lines.every((line) => {
+    if (line.type !== 'deposit') return false;
     const amount = Number(line.amount);
     return Number.isFinite(amount)
       && amount > 0
@@ -195,7 +301,9 @@ function SplitModal({
       && Number(line.fund_id) > 0;
   });
   const hasValidWithdrawalLines = lines.length > 0 && lines.every((line, idx) => {
+    if (line.type !== 'withdrawal') return false;
     const totals = withdrawalLineTotals[idx];
+    if (!totals) return false;
     if (!Number.isInteger(Number(line.expense_account_id)) || Number(line.expense_account_id) <= 0) return false;
     if (!Number.isInteger(Number(line.fund_id)) || Number(line.fund_id) <= 0) return false;
     if (!line.pre_tax_amount || totals.preTax.lte(0)) return false;
@@ -220,17 +328,30 @@ function SplitModal({
     ? lines
       .map((line, idx) => ({ line, idx }))
       .filter(({ line }) => (
-        line.is_legacy_mapped
+        line.type === 'withdrawal'
+        && line.is_legacy_mapped
         && Number(line.expense_account_id) > 0
         && !activeExpenseAccountIds.includes(Number(line.expense_account_id))
       ))
       .map(({ idx }) => idx + 1)
     : [];
 
-  const updateLine = (index, patch) => {
+  const updateDepositLine = (index: number, patch: Partial<Omit<DepositSplitModalLine, 'type'>>) => {
     setLines((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], ...patch };
+      const current = next[index];
+      if (!current || current.type !== 'deposit') return prev;
+      next[index] = { ...current, ...patch };
+      return next;
+    });
+  };
+
+  const updateWithdrawalLine = (index: number, patch: Partial<Omit<WithdrawalSplitModalLine, 'type'>>) => {
+    setLines((prev) => {
+      const next = [...prev];
+      const current = next[index];
+      if (!current || current.type !== 'withdrawal') return prev;
+      next[index] = { ...current, ...patch };
       return next;
     });
   };
@@ -238,6 +359,7 @@ function SplitModal({
   const onAddLine = () => {
     if (isWithdrawal) {
       setLines((prev) => [...prev, {
+        type: 'withdrawal',
         amount: '',
         expense_account_id: '',
         tax_rate_id: '',
@@ -251,6 +373,7 @@ function SplitModal({
     }
 
     setLines((prev) => [...prev, {
+      type: 'deposit',
       amount: '',
       offset_account_id: '',
       fund_id: defaultFundId || '',
@@ -259,14 +382,14 @@ function SplitModal({
     }]);
   };
 
-  const onDeleteLine = (index) => {
+  const onDeleteLine = (index: number) => {
     setLines((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const onFillAmount = (index) => {
+  const onFillAmount = (index: number) => {
     const currentAmount = dec(lines[index]?.amount).toDecimalPlaces(2);
     const nextAmount = remainingAmount.plus(currentAmount).toDecimalPlaces(2);
-    updateLine(index, { amount: nextAmount.toFixed(2) });
+    updateDepositLine(index, { amount: nextAmount.toFixed(2) });
   };
 
   const onSaveClick = () => {
@@ -278,20 +401,29 @@ function SplitModal({
     if (isWithdrawal) {
       onSave({
         payee_id: Number(payeeId),
-        splits: lines.map((line, idx) => ({
-          amount: parseFloat(withdrawalLineTotals[idx].gross.toFixed(2)),
-          fund_id: Number(line.fund_id),
-          expense_account_id: Number(line.expense_account_id),
-          tax_rate_id: line.tax_rate_id ? Number(line.tax_rate_id) : null,
-          pre_tax_amount: parseFloat(withdrawalLineTotals[idx].preTax.toFixed(2)),
-          rounding_adjustment: parseFloat(withdrawalLineTotals[idx].rounding.toFixed(2)),
-          description: line.description ? line.description.trim() || null : null,
-        })),
+        splits: withdrawalLines.map((line, idx) => {
+          const totals = withdrawalLineTotals[idx] ?? {
+            preTax: dec(0),
+            rounding: dec(0),
+            tax: dec(0),
+            gross: dec(0),
+            taxRate: null,
+          };
+          return {
+            amount: parseFloat(totals.gross.toFixed(2)),
+            fund_id: Number(line.fund_id),
+            expense_account_id: Number(line.expense_account_id),
+            tax_rate_id: line.tax_rate_id ? Number(line.tax_rate_id) : null,
+            pre_tax_amount: parseFloat(totals.preTax.toFixed(2)),
+            rounding_adjustment: parseFloat(totals.rounding.toFixed(2)),
+            description: line.description ? line.description.trim() || null : null,
+          };
+        }),
       });
       return;
     }
 
-    onSave(lines.map((line) => ({
+    onSave(depositLines.map((line) => ({
       amount: parseFloat(line.amount),
       offset_account_id: Number(line.offset_account_id),
       fund_id: Number(line.fund_id),
@@ -347,18 +479,18 @@ function SplitModal({
                 <span style={{ textAlign: 'right' }}>Gross</span>
                 <span />
               </div>
-              {lines.map((line, idx) => (
+              {withdrawalLines.map((line, idx) => (
                 <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: withdrawalGridTemplateColumns, alignItems: 'center' }}>
                   <Combobox
                     options={expenseAccountOptions}
                     value={line.expense_account_id}
-                    onChange={(value) => updateLine(idx, { expense_account_id: value })}
+                    onChange={(value) => updateWithdrawalLine(idx, { expense_account_id: value })}
                     placeholder='Expense account…'
                   />
                   <Combobox
                     options={taxRateOptions}
                     value={line.tax_rate_id}
-                    onChange={(value) => updateLine(idx, { tax_rate_id: value })}
+                    onChange={(value) => updateWithdrawalLine(idx, { tax_rate_id: String(value) })}
                     placeholder='Tax type…'
                   />
                   <Input
@@ -366,7 +498,7 @@ function SplitModal({
                     min='0'
                     step='0.01'
                     value={line.pre_tax_amount}
-                    onChange={(e) => updateLine(idx, { pre_tax_amount: e.target.value })}
+                    onChange={(e) => updateWithdrawalLine(idx, { pre_tax_amount: e.target.value })}
                     placeholder='0.00'
                     style={{ textAlign: 'right' }}
                   />
@@ -376,23 +508,23 @@ function SplitModal({
                     max={MAX_ROUNDING_ADJUSTMENT.toFixed(2)}
                     step='0.01'
                     value={line.rounding_adjustment}
-                    onChange={(e) => updateLine(idx, { rounding_adjustment: e.target.value })}
+                    onChange={(e) => updateWithdrawalLine(idx, { rounding_adjustment: e.target.value })}
                     placeholder='0.00'
                     style={{ textAlign: 'right' }}
                   />
                   <Input
                     value={line.description}
-                    onChange={(e) => updateLine(idx, { description: e.target.value })}
+                    onChange={(e) => updateWithdrawalLine(idx, { description: e.target.value })}
                     placeholder='Line description'
                   />
                   <Combobox
                     options={fundOptions}
                     value={line.fund_id}
-                    onChange={(value) => updateLine(idx, { fund_id: value })}
+                    onChange={(value) => updateWithdrawalLine(idx, { fund_id: value })}
                     placeholder='Fund…'
                   />
                   <div style={{ textAlign: 'right', fontWeight: 600, color: '#1e293b' }}>
-                    {fmt(withdrawalLineTotals[idx].gross.toFixed(2))}
+                    {fmt(withdrawalLineTotals[idx]?.gross.toFixed(2))}
                   </div>
                   <Button
                     variant='ghost'
@@ -427,12 +559,12 @@ function SplitModal({
                 <span>Memo</span>
                 <span>Action</span>
               </div>
-              {lines.map((line, idx) => (
+              {depositLines.map((line, idx) => (
                 <div key={idx} style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: splitGridTemplateColumns }}>
                   <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
                     <Input
                       value={line.amount}
-                      onChange={(e) => updateLine(idx, { amount: e.target.value })}
+                      onChange={(e) => updateDepositLine(idx, { amount: e.target.value })}
                       placeholder='Amount'
                     />
                     <Button
@@ -448,26 +580,26 @@ function SplitModal({
                   <Combobox
                     options={offsetAccountOptions}
                     value={line.offset_account_id}
-                    onChange={(value) => updateLine(idx, { offset_account_id: value })}
+                    onChange={(value) => updateDepositLine(idx, { offset_account_id: value })}
                     placeholder='Offset account…'
                   />
                   <Combobox
                     options={fundOptions}
                     value={line.fund_id}
-                    onChange={(value) => updateLine(idx, { fund_id: value })}
+                    onChange={(value) => updateDepositLine(idx, { fund_id: value })}
                     placeholder='Fund…'
                   />
                   {showDonor && (
                     <Combobox
                       options={donorOptions}
                       value={line.contact_id}
-                      onChange={(value) => updateLine(idx, { contact_id: value })}
+                      onChange={(value) => updateDepositLine(idx, { contact_id: value })}
                       placeholder='Donor…'
                     />
                   )}
                   <Input
                     value={line.memo}
-                    onChange={(e) => updateLine(idx, { memo: e.target.value })}
+                    onChange={(e) => updateDepositLine(idx, { memo: e.target.value })}
                     placeholder='Memo (optional)'
                   />
                   <Button
@@ -532,9 +664,10 @@ const PreviewRow = memo(function PreviewRow({
   suggestions,
   onBillLink,
   onSplitOpen,
-}) {
+}: PreviewRowProps) {
   const isWithdrawal = row.type === 'withdrawal'
-  const hasSplits = row.splits?.length > 0
+  const splits = row.splits ?? []
+  const hasSplits = splits.length > 0
   const isLinked = isWithdrawal && !!row.bill_id
   const linkedBill = isLinked ? suggestions.find((suggestion) => suggestion.bill_id === row.bill_id) : null
 
@@ -580,7 +713,7 @@ const PreviewRow = memo(function PreviewRow({
           {hasSplits ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', minHeight: '38px' }}>
               <span style={{ fontSize: '0.82rem', color: '#1d4ed8', fontWeight: 500 }}>
-                Multiple ({row.splits.length} splits)
+                Multiple ({splits.length} splits)
               </span>
               <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index)}>Edit</Button>
               <Button variant='ghost' size='sm' onClick={() => onSplitOpen(index, true)}>Clear</Button>
@@ -687,34 +820,34 @@ export default function ImportCsv() {
   const getBillMatches = useGetBillMatches();
   const { data: settings } = useSettings();
 
-  const [phase, setPhase] = useState('setup');
+  const [phase, setPhase] = useState<ImportPhase>('setup');
   const [bankAccountId, setBankAccountId] = useState('');
   const [fundId, setFundId] = useState('');
-  const [parsedRows, setParsedRows] = useState([]);
-  const [parseWarnings, setParseWarnings] = useState([]);
+  const [parsedRows, setParsedRows] = useState<ParsedImportRow[]>([]);
+  const [parseWarnings, setParseWarnings] = useState<string[]>([]);
   const [parseError, setParseError] = useState('');
-  const [errors, setErrors] = useState([]);
-  const [skippedRows, setSkippedRows] = useState([]);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [skippedRows, setSkippedRows] = useState<SkippedImportRow[]>([]);
   const [isParsing, setIsParsing] = useState(false);
-  const [suggestionsByRow, setSuggestionsByRow] = useState({});
+  const [suggestionsByRow, setSuggestionsByRow] = useState<Record<number, BillMatchSuggestion[]>>({});
   const [matchLoadError, setMatchLoadError] = useState('');
-  const [splitModalIndex, setSplitModalIndex] = useState(null);
-  const [selectedRows, setSelectedRows] = useState(new Set());
-  const selectAllRef = useRef(null);
+  const [splitModalIndex, setSplitModalIndex] = useState<number | null>(null);
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   const activeAccounts = useMemo(
     () => (accounts || []).filter((a) => a.is_active),
     [accounts]
   );
 
-  const bankAccountOptions = useMemo(
+  const bankAccountOptions = useMemo<SelectOption[]>(
     () => activeAccounts
       .filter((a) => a.type === 'ASSET')
       .map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
     [activeAccounts]
   );
 
-  const offsetAccountOptions = useMemo(
+  const offsetAccountOptions = useMemo<SelectOption[]>(
     () => [
       { value: '', label: 'None' },
       ...activeAccounts
@@ -729,12 +862,12 @@ export default function ImportCsv() {
     return raw ? Number(raw) : 0;
   }, [settings]);
 
-  const fundOptions = useMemo(
+  const fundOptions = useMemo<SelectOption[]>(
     () => (funds || []).filter((f) => f.is_active).map((f) => ({ value: f.id, label: f.name })),
     [funds]
   );
 
-  const expenseAccountOptions = useMemo(
+  const expenseAccountOptions = useMemo<SelectOption[]>(
     () => activeAccounts
       .filter((a) => a.type === 'EXPENSE')
       .map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
@@ -746,7 +879,7 @@ export default function ImportCsv() {
     [activeAccounts]
   );
 
-  const donorOptions = useMemo(() => [
+  const donorOptions = useMemo<SelectOption[]>(() => [
     { value: '', label: 'None' },
     ...donorContacts
       .filter((contact) => contact.is_active)
@@ -756,7 +889,7 @@ export default function ImportCsv() {
       })),
   ], [donorContacts]);
 
-  const payeeOptions = useMemo(() => [
+  const payeeOptions = useMemo<SelectOption[]>(() => [
     { value: '', label: 'None' },
     ...payeeContacts
       .filter((contact) => contact.is_active)
@@ -765,49 +898,59 @@ export default function ImportCsv() {
 
   useEffect(() => {
     if (bankAccountId !== '') return;
-    if (bankAccountOptions.length === 0) return;
-    setBankAccountId(String(bankAccountOptions[0].value));
+    const defaultBankAccount = bankAccountOptions[0];
+    if (!defaultBankAccount) return;
+    setBankAccountId(String(defaultBankAccount.value));
   }, [bankAccountOptions]);
 
   useEffect(() => {
     if (fundId !== '') return;
-    if (fundOptions.length === 0) return;
-    setFundId(String(fundOptions[0].value));
+    const defaultFund = fundOptions[0];
+    if (!defaultFund) return;
+    setFundId(String(defaultFund.value));
   }, [fundOptions]);
 
-  const onOffsetChange = useCallback((index, offsetId) => {
+  const onOffsetChange = useCallback((index: number, offsetId: number) => {
     setParsedRows((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], offset_account_id: offsetId };
+      const current = next[index];
+      if (!current) return prev;
+      next[index] = { ...current, offset_account_id: offsetId };
       return next;
     });
   }, []);
 
-  const onContactChange = useCallback((index, contactId, type) => {
+  const onContactChange = useCallback((index: number, contactId: number | undefined, type: TransactionRowType) => {
     setParsedRows((prev) => {
       const next = [...prev];
+      const current = next[index];
+      if (!current) return prev;
       if (type === 'withdrawal') {
-        next[index] = { ...next[index], payee_id: contactId || undefined };
+        next[index] = { ...current, payee_id: contactId || undefined };
       } else {
-        next[index] = { ...next[index], contact_id: contactId || undefined };
+        next[index] = { ...current, contact_id: contactId || undefined };
       }
       return next;
     });
   }, []);
 
-  const onReferenceChange = useCallback((index, referenceNo) => {
+  const onReferenceChange = useCallback((index: number, referenceNo: string) => {
     setParsedRows((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], reference_no: referenceNo };
+      const current = next[index];
+      if (!current) return prev;
+      next[index] = { ...current, reference_no: referenceNo };
       return next;
     });
   }, []);
 
-  const onBillLink = useCallback((index, billId) => {
+  const onBillLink = useCallback((index: number, billId: number | null) => {
     setParsedRows((prev) => {
       const next = [...prev]
+      const current = next[index]
+      if (!current) return prev
       next[index] = {
-        ...next[index],
+        ...current,
         bill_id: billId || undefined,
         splits: undefined,
         payee_id: undefined,
@@ -817,14 +960,16 @@ export default function ImportCsv() {
     })
   }, [])
 
-  const onSplitOpen = useCallback((index, clear = false) => {
+  const onSplitOpen = useCallback((index: number, clear = false) => {
     if (clear) {
       setParsedRows((prev) => {
         const next = [...prev]
+        const current = next[index]
+        if (!current) return prev
         next[index] = {
-          ...next[index],
+          ...current,
           splits: undefined,
-          offset_account_id: Number(next[index].offset_account_id) || 0,
+          offset_account_id: Number(current.offset_account_id) || 0,
           payee_id: undefined,
           contact_id: undefined,
         }
@@ -837,17 +982,19 @@ export default function ImportCsv() {
 
   const onSplitClose = useCallback(() => setSplitModalIndex(null), [])
 
-  const onSplitSave = useCallback((index, payload) => {
+  const onSplitSave = useCallback((index: number, payload: SplitSavePayload) => {
     setParsedRows((prev) => {
       const next = [...prev]
+      const current = next[index]
+      if (!current) return prev
       const splitPayload = Array.isArray(payload) ? { splits: payload } : payload
       const normalizedSplits = splitPayload.splits || []
       next[index] = {
-        ...next[index],
+        ...current,
         splits: normalizedSplits.length > 0 ? normalizedSplits : undefined,
-        payee_id: splitPayload.payee_id || undefined,
-        contact_id: normalizedSplits.length > 0 ? undefined : next[index].contact_id,
-        offset_account_id: normalizedSplits.length > 0 ? undefined : Number(next[index].offset_account_id) || 0,
+        payee_id: 'payee_id' in splitPayload ? splitPayload.payee_id || undefined : undefined,
+        contact_id: normalizedSplits.length > 0 ? undefined : current.contact_id,
+        offset_account_id: normalizedSplits.length > 0 ? undefined : Number(current.offset_account_id) || 0,
         bill_id: undefined,
       }
       return next
@@ -859,13 +1006,13 @@ export default function ImportCsv() {
     setErrors([]);
     setSkippedRows([]);
     setMatchLoadError('');
-    setSelectedRows(new Set());
+    setSelectedRows(new Set<number>());
     setPhase('setup');
   }, []);
 
-  const onToggleRow = useCallback((index) => {
+  const onToggleRow = useCallback((index: number) => {
     setSelectedRows((prev) => {
-      const next = new Set(prev);
+      const next = new Set<number>(prev);
       if (next.has(index)) next.delete(index);
       else next.add(index);
       return next;
@@ -875,7 +1022,7 @@ export default function ImportCsv() {
   const allSelected = parsedRows.length > 0 && selectedRows.size === parsedRows.length;
   const someSelected = selectedRows.size > 0 && selectedRows.size < parsedRows.length;
   const onToggleAll = useCallback(() => {
-    setSelectedRows(allSelected ? new Set() : new Set(parsedRows.map((_, i) => i)));
+    setSelectedRows(allSelected ? new Set<number>() : new Set<number>(parsedRows.map((_, i) => i)));
   }, [allSelected, parsedRows]);
 
   useEffect(() => {
@@ -883,7 +1030,7 @@ export default function ImportCsv() {
     selectAllRef.current.indeterminate = someSelected;
   }, [someSelected]);
 
-  async function loadBillMatches(nextRows, nextBankAccountId) {
+  async function loadBillMatches(nextRows: ParsedImportRow[], nextBankAccountId: number) {
     setMatchLoadError('')
     setSuggestionsByRow({})
 
@@ -901,18 +1048,17 @@ export default function ImportCsv() {
         })),
       })
 
-      const grouped = {}
+      const grouped: Record<number, BillMatchSuggestion[]> = {}
       ;(result.suggestions || []).forEach((suggestion) => {
-        if (!grouped[suggestion.row_index]) grouped[suggestion.row_index] = []
-        grouped[suggestion.row_index].push(suggestion)
+        ;(grouped[suggestion.row_index] ??= []).push(suggestion)
       })
       setSuggestionsByRow(grouped)
     } catch (err) {
-      setMatchLoadError(err.response?.data?.error || err.response?.data?.errors?.[0] || 'Failed to load bill match suggestions.')
+      setMatchLoadError(getErrorMessage(err, 'Failed to load bill match suggestions.'))
     }
   }
 
-  async function handleFileChange(event) {
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -925,9 +1071,9 @@ export default function ImportCsv() {
     setSelectedRows(new Set());
     try {
       const result = await parseStatementCsv(file);
-      const donorByEmail = new Map();
-      const donorByName = new Map();
-      const householdEntries = [];
+      const donorByEmail = new Map<string, ContactSummary | null>();
+      const donorByName = new Map<string, ContactSummary | null>();
+      const householdEntries: Array<[string, ContactSummary]> = [];
       for (const contact of donorContacts) {
         if (!contact.is_active) continue;
 
@@ -977,7 +1123,7 @@ export default function ImportCsv() {
         const fromEmail = normalize(metadata?.from);
         const senderName = normalize(metadata?.sender);
 
-        let matchedId = null;
+        let matchedId: number | null = null;
 
         if (fromEmail) {
           const emailMatch = donorByEmail.get(fromEmail);
@@ -987,7 +1133,7 @@ export default function ImportCsv() {
         if (!matchedId && senderName) {
           const exactMatch = donorByName.get(senderName);
 
-          let householdPartialId = null;
+          let householdPartialId: number | null = null;
           let multipleHouseholdPartials = false;
           for (const [nameKey, contact] of householdEntries) {
             if (nameKey === senderName) continue;
@@ -1020,14 +1166,14 @@ export default function ImportCsv() {
     } catch (err) {
       setParsedRows([]);
       setParseWarnings([]);
-      setParseError(err.message || 'Failed to parse CSV.');
+      setParseError(getErrorMessage(err, 'Failed to parse CSV.'));
     } finally {
       setIsParsing(false);
     }
   }
 
   async function handlePreview() {
-    const nextErrors = [];
+    const nextErrors: string[] = [];
     if (!bankAccountId) nextErrors.push('Bank account is required');
     if (!fundId) nextErrors.push('Fund is required');
     if (!parsedRows.length) nextErrors.push('Please upload a CSV with at least one transaction row');
@@ -1040,31 +1186,32 @@ export default function ImportCsv() {
     setSkippedRows([]);
     const nextRows = parsedRows
     setParsedRows(nextRows);
-    setSelectedRows(new Set(nextRows.map((_, i) => i)));
+    setSelectedRows(new Set<number>(nextRows.map((_, i) => i)));
     setPhase('preview');
     await loadBillMatches(nextRows, Number(bankAccountId));
   }
 
-  async function handleImport(force) {
+  async function handleImport(force: boolean) {
     if (selectedRows.size === 0) {
       setErrors(['Please select at least one row to import']);
       return;
     }
 
-    const nextErrors = [];
+    const nextErrors: string[] = [];
     const nextBankAccountId = Number(bankAccountId);
     const nextFundId = Number(fundId);
 
     parsedRows.forEach((row, idx) => {
       if (!selectedRows.has(idx)) return;
       const rowNumber = idx + 1;
-      if (row.bill_id && row.splits?.length > 0) {
+      const splits = row.splits ?? [];
+      if (row.bill_id && splits.length > 0) {
         nextErrors.push(`Row ${rowNumber}: cannot combine bill link and split lines`);
         return;
       }
 
-      if (row.splits?.length > 0) {
-        const splitTotal = row.splits.reduce((sum, split) => (
+      if (splits.length > 0) {
+        const splitTotal = splits.reduce((sum, split) => (
           sum.plus(dec(split.amount).toDecimalPlaces(2))
         ), dec(0)).toDecimalPlaces(2);
         const rowAmount = dec(row.amount).toDecimalPlaces(2);
@@ -1096,43 +1243,47 @@ export default function ImportCsv() {
 
     setErrors([]);
     try {
-      const result = await importTransactions.mutateAsync({
+      const payload: ImportTransactionsInput = {
         bank_account_id: nextBankAccountId,
         fund_id: nextFundId,
         rows: parsedRows
           .filter((_, i) => selectedRows.has(i))
-          .map((row) => ({
-            date: row.date,
-            description: row.description,
-            reference_no: row.reference_no,
-            amount: row.amount,
-            type: row.type,
-            offset_account_id: row.splits?.length > 0 ? undefined : Number(row.offset_account_id),
-            payee_id: row.payee_id ? Number(row.payee_id) : undefined,
-            contact_id: row.contact_id ? Number(row.contact_id) : undefined,
-            bill_id: row.bill_id,
-            splits: row.splits?.length > 0
-              ? row.splits.map((split) => ({
-                amount: split.amount,
-                fund_id: Number(split.fund_id),
-                ...(row.type === 'withdrawal'
-                  ? {
-                    expense_account_id: Number(split.expense_account_id),
-                    tax_rate_id: split.tax_rate_id ? Number(split.tax_rate_id) : null,
-                    pre_tax_amount: Number(split.pre_tax_amount),
-                    rounding_adjustment: Number(split.rounding_adjustment || 0),
-                    description: split.description || null,
-                  }
-                  : {
-                    offset_account_id: Number(split.offset_account_id),
-                    contact_id: split.contact_id ? Number(split.contact_id) : null,
-                    memo: split.memo || null,
-                  }),
-              }))
-              : undefined,
-          })),
+          .map((row) => {
+            const splits = row.splits ?? [];
+            return {
+              date: row.date,
+              description: row.description,
+              reference_no: row.reference_no,
+              amount: row.amount,
+              type: row.type,
+              offset_account_id: splits.length > 0 ? undefined : Number(row.offset_account_id),
+              payee_id: row.payee_id ? Number(row.payee_id) : undefined,
+              contact_id: row.contact_id ? Number(row.contact_id) : undefined,
+              bill_id: row.bill_id,
+              splits: splits.length > 0
+                ? splits.map((split) => ({
+                  amount: split.amount,
+                  fund_id: Number(split.fund_id),
+                  ...(row.type === 'withdrawal'
+                    ? {
+                      expense_account_id: Number(split.expense_account_id),
+                      tax_rate_id: split.tax_rate_id ? Number(split.tax_rate_id) : null,
+                      pre_tax_amount: Number(split.pre_tax_amount),
+                      rounding_adjustment: Number(split.rounding_adjustment || 0),
+                      description: split.description || null,
+                    }
+                    : {
+                      offset_account_id: Number(split.offset_account_id),
+                      contact_id: split.contact_id ? Number(split.contact_id) : null,
+                      memo: split.memo || null,
+                    }),
+                }))
+                : undefined,
+            };
+          }),
         force,
-      });
+      };
+      const result = await importTransactions.mutateAsync(payload);
 
       if (result.skipped > 0 && !force) {
         setSkippedRows(result.skipped_rows || []);
@@ -1145,8 +1296,7 @@ export default function ImportCsv() {
       );
       navigate('/transactions');
     } catch (err) {
-      const next = err.response?.data?.errors || [err.response?.data?.error || 'Import failed.'];
-      setErrors(next);
+      setErrors([getErrorMessage(err, 'Import failed.')]);
     }
   }
 
