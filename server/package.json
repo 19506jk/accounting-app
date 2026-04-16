@@ -17,7 +17,10 @@
     "seed": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts seed:run",
     "seed:dev": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts seed:run --env development",
     "db:reset": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:rollback --all && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:latest && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts seed:run",
-    "db:reset-dev": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:rollback --all --env development && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:latest --env development && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts seed:run --env development"
+    "db:reset-dev": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:rollback --all --env development && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:latest --env development && tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts seed:run --env development",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@react-pdf/renderer": "^3.4.5",
@@ -35,6 +38,7 @@
     "react": "^18.3.1"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
@@ -42,6 +46,7 @@
     "@types/react": "^18.3.28",
     "nodemon": "^3.1.4",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
   }
 }
