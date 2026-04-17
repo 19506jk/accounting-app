@@ -29,10 +29,18 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html'],
       include: ['**/*.ts'],
+      thresholds: {
+        statements: 56,
+        branches: 57,
+        functions: 62,
+        lines: 56,
+      },
       exclude: [
         'db/migrations/**',
         'db/seeds/**',
         'dist/**',
+        '**/*.d.ts',
+        'index.ts',
         '**/*.config.*',
         'knexfile.ts',
         'ecosystem.config.cjs',

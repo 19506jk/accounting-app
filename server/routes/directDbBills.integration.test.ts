@@ -339,4 +339,197 @@ describe('direct DB bills integration smoke checks', () => {
       .first() as { is_voided: boolean } | undefined;
     expect(storedTransaction?.is_voided).toBe(true);
   });
+
+  it('lists, applies, and unapplies vendor credits using the development database', async () => {
+    const fixture = await createFixture();
+    const date = todayDateOnly();
+
+    const target = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+      body: {
+        contact_id: fixture.vendor.id,
+        date,
+        due_date: date,
+        bill_number: `BILL-CREDIT-TARGET-${fixture.suffix}`,
+        description: `Integration Credit Target ${fixture.suffix}`,
+        amount: 100,
+        fund_id: fixture.fund.id,
+        line_items: [
+          {
+            expense_account_id: fixture.expenseAccount.id,
+            amount: 100,
+            description: 'Target bill',
+          },
+        ],
+      },
+    });
+
+    expect(target.status).toBe(201);
+    const targetBillId = target.body.bill.id as number;
+    createdBillIds.push(targetBillId);
+    createdTransactionIds.push(target.body.transaction.id as number);
+
+    const credit = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+      body: {
+        contact_id: fixture.vendor.id,
+        date,
+        due_date: date,
+        bill_number: `BILL-CREDIT-SOURCE-${fixture.suffix}`,
+        description: `Integration Vendor Credit ${fixture.suffix}`,
+        amount: -30,
+        fund_id: fixture.fund.id,
+        line_items: [
+          {
+            expense_account_id: fixture.expenseAccount.id,
+            amount: -30,
+            description: 'Vendor credit',
+          },
+        ],
+      },
+    });
+
+    expect(credit.status).toBe(201);
+    const creditBillId = credit.body.bill.id as number;
+    createdBillIds.push(creditBillId);
+    createdTransactionIds.push(credit.body.transaction.id as number);
+
+    const available = await requestRoute({
+      probePath: `/${targetBillId}/available-credits`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+
+    expect(available.status).toBe(200);
+    expect(available.body).toEqual(expect.objectContaining({
+      target_bill_id: targetBillId,
+      target_outstanding: 100,
+    }));
+    expect(available.body.credits).toEqual([
+      expect.objectContaining({
+        bill_id: creditBillId,
+        bill_number: `BILL-CREDIT-SOURCE-${fixture.suffix}`,
+        original_amount: -30,
+        amount_paid: 0,
+        outstanding: -30,
+        available_amount: 30,
+      }),
+    ]);
+
+    const overApplied = await requestRoute({
+      probePath: `/${targetBillId}/apply-credits`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        applications: [
+          {
+            credit_bill_id: creditBillId,
+            amount: 30.01,
+          },
+        ],
+      },
+    });
+
+    expect(overApplied.status).toBe(400);
+    expect(overApplied.body.errors).toEqual([
+      `Credit bill #BILL-CREDIT-SOURCE-${fixture.suffix} exceeds available balance`,
+    ]);
+
+    const applied = await requestRoute({
+      probePath: `/${targetBillId}/apply-credits`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        applications: [
+          {
+            credit_bill_id: creditBillId,
+            amount: 30,
+          },
+        ],
+      },
+    });
+
+    expect(applied.status).toBe(200);
+    expect(applied.body.bill).toEqual(expect.objectContaining({
+      id: targetBillId,
+      amount: 100,
+      amount_paid: 30,
+      status: 'UNPAID',
+      available_credit_total: 0,
+    }));
+    expect(applied.body.applications).toEqual([
+      expect.objectContaining({
+        target_bill_id: targetBillId,
+        credit_bill_id: creditBillId,
+        amount: 30,
+        credit_bill_number: `BILL-CREDIT-SOURCE-${fixture.suffix}`,
+      }),
+    ]);
+    expect(applied.body.transaction).toEqual(expect.objectContaining({
+      id: expect.any(Number),
+      reference_no: `BILL-CREDIT-TARGET-${fixture.suffix}`,
+      fund_id: fixture.fund.id,
+      created_by: fixture.userId,
+    }));
+    createdTransactionIds.push(applied.body.transaction.id as number);
+
+    const storedCredit = await db('bills')
+      .where({ id: creditBillId })
+      .first() as { amount_paid: string | number; status: string } | undefined;
+    expect(storedCredit).toEqual(expect.objectContaining({
+      status: 'PAID',
+    }));
+    expect(Number(storedCredit?.amount_paid)).toBe(-30);
+
+    const transactionIdsBeforeUnapply = await db('transactions')
+      .where({
+        created_by: fixture.userId,
+        fund_id: fixture.fund.id,
+      })
+      .pluck('id') as number[];
+
+    const unapplied = await requestRoute({
+      probePath: `/${targetBillId}/unapply-credits`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+
+    const transactionIdsAfterUnapply = await db('transactions')
+      .where({
+        created_by: fixture.userId,
+        fund_id: fixture.fund.id,
+      })
+      .pluck('id') as number[];
+    const unapplyTransactionIds = transactionIdsAfterUnapply
+      .filter((id) => !transactionIdsBeforeUnapply.includes(id));
+    createdTransactionIds.push(...unapplyTransactionIds);
+
+    expect(unapplied.status).toBe(200);
+    expect(unapplied.body).toEqual(expect.objectContaining({
+      unapplied_count: 1,
+    }));
+    expect(unapplied.body.bill).toEqual(expect.objectContaining({
+      id: targetBillId,
+      amount: 100,
+      amount_paid: 0,
+      status: 'UNPAID',
+      available_credit_total: 30,
+    }));
+
+    const storedApplyTransaction = await db('transactions')
+      .where({ id: applied.body.transaction.id })
+      .first() as { is_voided: boolean } | undefined;
+    expect(storedApplyTransaction?.is_voided).toBe(true);
+    expect(unapplyTransactionIds).toEqual([]);
+  });
 });
