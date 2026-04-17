@@ -117,4 +117,155 @@ describe('createMultiLineJournalEntries', () => {
       },
     ]);
   });
+
+  it('posts tax lines and AP totals for mixed taxed and untaxed items', async () => {
+    const now = '2026-04-16T12:00:00.000Z';
+    const returningMock = vi.fn().mockResolvedValue([{ id: 10 }]);
+    const insertMock = vi.fn().mockReturnValue({ returning: returningMock });
+    const whereInMock = vi.fn().mockResolvedValue([
+      { id: 2, name: 'GST', rate: '0.05', recoverable_account_id: 150 },
+    ]);
+
+    const trx = vi.fn((table: string) => {
+      if (table === 'tax_rates') return { whereIn: whereInMock };
+      if (table === 'journal_entries') return { insert: insertMock };
+      throw new Error(`Unexpected table: ${table}`);
+    }) as any;
+    trx.fn = { now: vi.fn(() => now) };
+
+    await createMultiLineJournalEntries(
+      5,
+      [
+        {
+          expense_account_id: 300,
+          amount: 100,
+          description: 'Taxed expense',
+          tax_rate_id: 2,
+          rounding_adjustment: 0,
+        },
+        {
+          expense_account_id: 301,
+          amount: 50,
+          description: 'Untaxed expense',
+          tax_rate_id: null,
+          rounding_adjustment: 0,
+        },
+      ],
+      10,
+      200,
+      88,
+      'Vendor A',
+      'B-500',
+      trx
+    );
+
+    const insertedRows = insertMock.mock.calls[0]?.[0];
+    expect(insertedRows).toHaveLength(4);
+    expect(insertedRows).toEqual([
+      expect.objectContaining({
+        transaction_id: 5,
+        account_id: 300,
+        debit: '100.00',
+        credit: 0,
+        tax_rate_id: 2,
+        is_tax_line: false,
+      }),
+      expect.objectContaining({
+        transaction_id: 5,
+        account_id: 150,
+        debit: '5.00',
+        credit: 0,
+        tax_rate_id: 2,
+        is_tax_line: true,
+      }),
+      expect.objectContaining({
+        transaction_id: 5,
+        account_id: 301,
+        debit: '50.00',
+        credit: 0,
+        tax_rate_id: null,
+        is_tax_line: false,
+      }),
+      expect.objectContaining({
+        transaction_id: 5,
+        account_id: 200,
+        contact_id: 88,
+        debit: 0,
+        credit: '155.00',
+        tax_rate_id: null,
+        is_tax_line: false,
+      }),
+    ]);
+    expect(whereInMock).toHaveBeenCalledWith('id', [2]);
+  });
+
+  it('throws when rounding adjustment exists and rounding account is missing', async () => {
+    const whereFirst = vi.fn().mockResolvedValue(undefined);
+    const trx = vi.fn((table: string) => {
+      if (table === 'accounts') return { where: vi.fn().mockReturnValue({ first: whereFirst }) };
+      if (table === 'journal_entries') return { insert: vi.fn() };
+      if (table === 'tax_rates') return { whereIn: vi.fn().mockResolvedValue([]) };
+      throw new Error(`Unexpected table: ${table}`);
+    }) as any;
+    trx.fn = { now: vi.fn(() => '2026-04-16T12:00:00.000Z') };
+
+    await expect(createMultiLineJournalEntries(
+      1,
+      [
+        {
+          expense_account_id: 300,
+          amount: 10,
+          description: 'Rounded',
+          tax_rate_id: null,
+          rounding_adjustment: 0.01,
+        },
+      ],
+      10,
+      200,
+      null,
+      'Vendor',
+      'B-1',
+      trx
+    )).rejects.toThrow('Rounding account (59999) is missing or inactive');
+  });
+
+  it('adds automatic rounding entry when journal diff is within tolerance', async () => {
+    const now = '2026-04-16T12:00:00.000Z';
+    const returningMock = vi.fn().mockResolvedValue([{ id: 11 }]);
+    const insertMock = vi.fn().mockReturnValue({ returning: returningMock });
+    const roundingAccountFirst = vi.fn().mockResolvedValue({ id: 999 });
+
+    const trx = vi.fn((table: string) => {
+      if (table === 'accounts') {
+        return { where: vi.fn().mockReturnValue({ first: roundingAccountFirst }) };
+      }
+      if (table === 'journal_entries') return { insert: insertMock };
+      if (table === 'tax_rates') return { whereIn: vi.fn().mockResolvedValue([]) };
+      throw new Error(`Unexpected table: ${table}`);
+    }) as any;
+    trx.fn = { now: vi.fn(() => now) };
+
+    await createMultiLineJournalEntries(
+      9,
+      [
+        { expense_account_id: 300, amount: 0.335, description: 'A', tax_rate_id: null, rounding_adjustment: 0 },
+        { expense_account_id: 301, amount: 0.335, description: 'B', tax_rate_id: null, rounding_adjustment: 0 },
+      ],
+      10,
+      200,
+      null,
+      'Vendor',
+      'B-9',
+      trx
+    );
+
+    const insertedRows = insertMock.mock.calls[0]?.[0];
+    expect(insertedRows).toHaveLength(4);
+    expect(insertedRows[3]).toEqual(expect.objectContaining({
+      account_id: 999,
+      debit: 0,
+      credit: '0.01',
+      memo: 'Rounding adjustment',
+    }));
+  });
 });

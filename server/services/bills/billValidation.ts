@@ -106,7 +106,14 @@ export async function resolveTaxRateMap(
 }
 
 export async function validateLineItemAccounts(lineItems: BillLineItemInput[]): Promise<string[]> {
-  const db = require('../../db') as Knex;
+  return validateLineItemAccountsWithExecutor(lineItems);
+}
+
+export async function validateLineItemAccountsWithExecutor(
+  lineItems: BillLineItemInput[],
+  executor?: Knex | Knex.Transaction,
+): Promise<string[]> {
+  const db = (executor ?? require('../../db')) as Knex;
   const errors: string[] = [];
 
   const taxRateIds = getUniqueTaxRateIds(lineItems);

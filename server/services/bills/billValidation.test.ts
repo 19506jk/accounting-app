@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { validateBillData } from './billValidation';
+import {
+  resolveTaxRateMap,
+  validateBillData,
+  validateLineItemAccountsWithExecutor,
+} from './billValidation';
 
 describe('validateBillData', () => {
   it('accepts a complete bill payload', () => {
@@ -91,5 +95,110 @@ describe('validateBillData', () => {
     expect(validateBillData({ date: 'not-a-date', due_date: '2026-04-10' }, true)).toEqual([
       'date must be a valid date (YYYY-MM-DD)',
     ]);
+  });
+});
+
+describe('resolveTaxRateMap', () => {
+  it('returns an id-keyed map for active line-item tax rates', async () => {
+    const whereIn = vi.fn().mockResolvedValue([
+      { id: 2, name: 'GST', rate: '0.05', recoverable_account_id: 150 },
+      { id: 3, name: 'HST', rate: '0.13', recoverable_account_id: 151 },
+    ]);
+    const executor = vi.fn((table: string) => {
+      if (table === 'tax_rates') return { whereIn };
+      throw new Error(`Unexpected table ${table}`);
+    }) as any;
+
+    const taxRateMap = await resolveTaxRateMap([
+      { expense_account_id: 300, amount: 10, tax_rate_id: 2 },
+      { expense_account_id: 301, amount: 20, tax_rate_id: 3 },
+      { expense_account_id: 302, amount: 30, tax_rate_id: 2 },
+    ], executor);
+
+    expect(whereIn).toHaveBeenCalledWith('id', [2, 3]);
+    expect(taxRateMap).toEqual({
+      2: { id: 2, name: 'GST', rate: '0.05', recoverable_account_id: 150 },
+      3: { id: 3, name: 'HST', rate: '0.13', recoverable_account_id: 151 },
+    });
+  });
+
+  it('returns empty map when no line items have tax rate ids', async () => {
+    const executor = vi.fn() as any;
+    const taxRateMap = await resolveTaxRateMap([
+      { expense_account_id: 300, amount: 10, tax_rate_id: null },
+    ], executor);
+
+    expect(taxRateMap).toEqual({});
+    expect(executor).not.toHaveBeenCalled();
+  });
+});
+
+describe('validateLineItemAccounts', () => {
+  it('validates account types and active tax rates', async () => {
+    const db = vi.fn((table: string) => {
+      if (table === 'tax_rates') {
+        return {
+          whereIn: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([{ id: 2 }]),
+          }),
+        };
+      }
+      if (table === 'accounts') {
+        return {
+          whereIn: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([
+              { id: 300, type: 'EXPENSE' },
+              { id: 301, type: 'ASSET' },
+            ]),
+          }),
+          where: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue({ id: 999, type: 'EXPENSE' }),
+          }),
+        };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    }) as any;
+
+    const errors = await validateLineItemAccountsWithExecutor([
+      { expense_account_id: 300, amount: 10, tax_rate_id: 2 },
+      { expense_account_id: 301, amount: 20, tax_rate_id: 3 },
+      { expense_account_id: 302, amount: 30, tax_rate_id: null },
+    ], db);
+
+    expect(errors).toEqual([
+      'Line 2: Selected account must be an EXPENSE type',
+      'Line 2: Tax can only be applied to EXPENSE accounts',
+      'Line 2: Tax rate #3 does not exist or is inactive',
+      'Line 3: Expense account not found or inactive',
+    ]);
+  });
+
+  it('requires rounding account when rounding adjustments are present', async () => {
+    const db = vi.fn((table: string) => {
+      if (table === 'tax_rates') {
+        return {
+          whereIn: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([]),
+          }),
+        };
+      }
+      if (table === 'accounts') {
+        return {
+          whereIn: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([{ id: 300, type: 'EXPENSE' }]),
+          }),
+          where: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue(undefined),
+          }),
+        };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    }) as any;
+
+    const errors = await validateLineItemAccountsWithExecutor([
+      { expense_account_id: 300, amount: 10, rounding_adjustment: 0.01 },
+    ], db);
+
+    expect(errors).toContain('Rounding account (59999) is missing or inactive');
   });
 });
