@@ -1,18 +1,18 @@
 import dotenv from 'dotenv';
-import express from 'express';
-import jwt from 'jsonwebtoken';
+import type { Router } from 'express';
 import type { Knex } from 'knex';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-
-dotenv.config({ override: true });
+import { beforeAll, describe, expect, it } from 'vitest';
+import { requestMountedRoute } from './routeTestHelpers.js';
 
 process.env.NODE_ENV = 'development';
+
+dotenv.config();
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
 
 const db = require('../db') as Knex;
 
-let accountsRouter: express.Router;
-let fundsRouter: express.Router;
+let accountsRouter: Router;
+let fundsRouter: Router;
 
 beforeAll(async () => {
   await db.raw('select 1');
@@ -22,20 +22,9 @@ beforeAll(async () => {
     import('./funds.js'),
   ]);
 
-  accountsRouter = accountsModule.default as unknown as express.Router;
-  fundsRouter = fundsModule.default as unknown as express.Router;
+  accountsRouter = accountsModule.default as unknown as Router;
+  fundsRouter = fundsModule.default as unknown as Router;
 });
-
-afterAll(async () => {
-  await db.destroy();
-});
-
-function buildToken(role: 'admin' | 'editor' | 'viewer' = 'viewer') {
-  return jwt.sign(
-    { id: 1, email: `${role}@example.com`, role },
-    process.env.JWT_SECRET || 'jwt-secret',
-  );
-}
 
 async function requestRoute({
   mountPath,
@@ -44,30 +33,9 @@ async function requestRoute({
 }: {
   mountPath: string;
   probePath: string;
-  router: express.Router;
+  router: Router;
 }) {
-  const app = express();
-  app.use(express.json());
-  app.use(mountPath, router);
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status(500).json({ error: err.message });
-  });
-
-  const server = await new Promise<import('node:http').Server>((resolve) => {
-    const s = app.listen(0, () => resolve(s));
-  });
-
-  const address = server.address();
-  const port = typeof address === 'object' && address ? address.port : 0;
-  const response = await fetch(`http://127.0.0.1:${port}${mountPath}${probePath}`, {
-    headers: {
-      authorization: `Bearer ${buildToken()}`,
-    },
-  });
-  const json = await response.json();
-  await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
-
-  return { status: response.status, body: json };
+  return requestMountedRoute({ mountPath, probePath, router, role: 'viewer' });
 }
 
 describe('direct DB route read integration smoke checks', () => {
@@ -92,6 +60,44 @@ describe('direct DB route read integration smoke checks', () => {
     }
   });
 
+  it('filters accounts by type using the development database', async () => {
+    const account = await db('accounts')
+      .where({ is_active: true })
+      .orderBy('id', 'asc')
+      .first() as { id: number; type: string } | undefined;
+
+    expect(account).toBeDefined();
+    if (!account) return;
+
+    const res = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: `/?type=${account.type}`,
+      router: accountsRouter,
+    });
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.accounts)).toBe(true);
+    expect(res.body.accounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: account.id,
+        type: account.type,
+        is_active: true,
+      }),
+    ]));
+    expect(res.body.accounts.every((row: { type: string }) => row.type === account.type)).toBe(true);
+  });
+
+  it('rejects invalid account type filters before reading accounts', async () => {
+    const res = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: '/?type=not-a-type',
+      router: accountsRouter,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid type. Must be one of: ASSET, LIABILITY, EQUITY, INCOME, EXPENSE' });
+  });
+
   it('returns funds from the development database', async () => {
     const res = await requestRoute({
       mountPath: '/api/funds',
@@ -109,5 +115,16 @@ describe('direct DB route read integration smoke checks', () => {
         is_active: expect.any(Boolean),
       }));
     }
+  });
+
+  it('returns 404 when reading a missing fund', async () => {
+    const res = await requestRoute({
+      mountPath: '/api/funds',
+      probePath: '/999999999',
+      router: fundsRouter,
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Fund not found' });
   });
 });

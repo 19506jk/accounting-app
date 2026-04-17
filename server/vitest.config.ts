@@ -22,6 +22,9 @@ export default defineConfig({
     },
     include: ['**/*.test.ts'],
     exclude: ['dist/**', 'node_modules/**', 'db/migrations/**', 'db/seeds/**'],
+    sequence: {
+      concurrent: false,
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
@@ -35,6 +38,7 @@ export default defineConfig({
         'ecosystem.config.cjs',
         'types/**',
         '**/*.test.ts',
+        'routes/routeTestHelpers.ts',
       ],
     },
   },
