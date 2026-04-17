@@ -15,10 +15,15 @@ import type {
 } from '@shared/contracts';
 
 const auth = require('../middleware/auth.js');
-import reports = require('../services/reports');
+import {
+  getPL,
+  getBalanceSheet,
+  getLedger,
+  getTrialBalance,
+  getDonorSummary,
+  getDonorDetail,
+} from '../services/reports.js';
 import { isValidDateOnly } from '../utils/date.js';
-
-const { getPL, getBalanceSheet, getLedger, getTrialBalance, getDonorSummary, getDonorDetail } = reports;
 
 const router = express.Router();
 router.use(auth);

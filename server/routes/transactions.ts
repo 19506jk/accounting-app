@@ -21,9 +21,9 @@ import type {
 const auth = require('../middleware/auth.js');
 const requireRole = require('../middleware/roles.js');
 import transactionService = require('../services/transactions');
-import transactionListService = require('../services/transactions/list');
+import { listTransactions } from '../services/transactions/list.js';
 import transactionImportService = require('../services/transactions/imports');
-import transactionBillMatchService = require('../services/transactions/billMatches');
+import { getBillMatchSuggestions } from '../services/transactions/billMatches.js';
 
 const router = express.Router();
 router.use(auth);
@@ -52,7 +52,7 @@ router.get(
     next: NextFunction
   ) => {
     try {
-      const result = await transactionListService.listTransactions(req.query);
+      const result = await listTransactions(req.query);
       res.json(result);
     } catch (err) {
       return handleServiceError(err, res, next);
@@ -69,7 +69,7 @@ router.post(
     next: NextFunction
   ) => {
     try {
-      const result = await transactionBillMatchService.getBillMatchSuggestions(req.body);
+      const result = await getBillMatchSuggestions(req.body);
       return res.json(result);
     } catch (err) {
       return handleServiceError(err, res, next);
