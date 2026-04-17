@@ -18,8 +18,8 @@ import type {
   UpdateTransactionInput,
 } from '@shared/contracts';
 
-const auth = require('../middleware/auth');
-const requireRole = require('../middleware/roles');
+const auth = require('../middleware/auth.js');
+const requireRole = require('../middleware/roles.js');
 import transactionService = require('../services/transactions');
 import transactionListService = require('../services/transactions/list');
 import transactionImportService = require('../services/transactions/imports');

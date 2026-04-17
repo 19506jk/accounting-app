@@ -14,6 +14,12 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        execArgv: ['--require', 'tsx/cjs'],
+      },
+    },
     include: ['**/*.test.ts'],
     exclude: ['dist/**', 'node_modules/**', 'db/migrations/**', 'db/seeds/**'],
     coverage: {

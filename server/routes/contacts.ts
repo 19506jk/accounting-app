@@ -24,8 +24,8 @@ import type {
 } from '../types/db';
 
 const db = require('../db');
-const auth = require('../middleware/auth');
-const requireRole = require('../middleware/roles');
+const auth = require('../middleware/auth.js');
+const requireRole = require('../middleware/roles.js');
 
 const router = express.Router();
 router.use(auth);

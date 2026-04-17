@@ -19,7 +19,7 @@ import {
   saveReceiptTemplate,
 } from '../services/donationReceipts.js';
 
-const auth = require('../middleware/auth');
+const auth = require('../middleware/auth.js');
 
 const router = express.Router();
 router.use(auth);

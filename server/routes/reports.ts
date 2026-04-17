@@ -14,7 +14,7 @@ import type {
   TrialBalanceReportData,
 } from '@shared/contracts';
 
-const auth = require('../middleware/auth');
+const auth = require('../middleware/auth.js');
 import reports = require('../services/reports');
 import { isValidDateOnly } from '../utils/date.js';
 

@@ -13,7 +13,7 @@ import type {
 import type { UserRow } from '../types/db';
 
 const db = require('../db');
-const auth = require('../middleware/auth');
+const auth = require('../middleware/auth.js');
 
 const router = express.Router();
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
