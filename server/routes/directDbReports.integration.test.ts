@@ -323,4 +323,114 @@ describe('direct DB reports integration smoke checks', () => {
       grand_total: 40,
     }));
   });
+
+  it('returns balance sheet and trial balance reports from the development database', async () => {
+    const fixture = await createDonationFixture();
+
+    const balanceSheet = await requestRoute(`/balance-sheet?as_of=${fixture.date}&fund_id=${fixture.fund.id}`);
+
+    expect(balanceSheet.status).toBe(200);
+    expect(balanceSheet.body.report).toEqual(expect.objectContaining({
+      type: 'balance-sheet',
+      filters: {
+        as_of: fixture.date,
+        fund_id: String(fixture.fund.id),
+      },
+    }));
+    expect(balanceSheet.body.report.data).toEqual(expect.objectContaining({
+      assets: [
+        {
+          id: fixture.bankAccount.id,
+          code: fixture.bankAccount.code,
+          name: fixture.bankAccount.name,
+          balance: 40,
+        },
+      ],
+      liabilities: [],
+      total_assets: 40,
+      total_liabilities: 0,
+      total_equity: 40,
+      total_liabilities_and_equity: 40,
+      is_balanced: true,
+      last_hard_close_date: null,
+    }));
+    expect(balanceSheet.body.report.data.equity).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: expect.any(String),
+        name: `[System] Net Income (Current Year) - ${fixture.fund.name}`,
+        balance: 40,
+        is_synthetic: true,
+        synthetic_note: `Synthetic current-year net income for ${fixture.fund.name}`,
+        investigate_filters: expect.objectContaining({
+          to: fixture.date,
+          fund_id: fixture.fund.id,
+          account_id: null,
+        }),
+      }),
+    ]));
+    expect(balanceSheet.body.report.data.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'BALANCED',
+        severity: 'info',
+        message: 'Balance Sheet is balanced.',
+        fund_id: fixture.fund.id,
+      }),
+    ]));
+
+    const trialBalance = await requestRoute(`/trial-balance?as_of=${fixture.date}&fund_id=${fixture.fund.id}`);
+
+    expect(trialBalance.status).toBe(200);
+    expect(trialBalance.body.report).toEqual(expect.objectContaining({
+      type: 'trial-balance',
+      filters: {
+        as_of: fixture.date,
+        fund_id: String(fixture.fund.id),
+      },
+    }));
+    expect(trialBalance.body.report.data).toEqual(expect.objectContaining({
+      grand_total_debit: 40,
+      grand_total_credit: 40,
+      is_balanced: true,
+      as_of: fixture.date,
+      last_hard_close_date: null,
+    }));
+    expect(trialBalance.body.report.data.accounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: fixture.bankAccount.id,
+        code: fixture.bankAccount.code,
+        name: fixture.bankAccount.name,
+        type: 'ASSET',
+        account_class: 'ASSET',
+        normal_balance: 'DEBIT',
+        net_side: 'DEBIT',
+        net_debit: 40,
+        net_credit: 0,
+        total_debit: 40,
+        total_credit: 0,
+        is_abnormal_balance: false,
+      }),
+      expect.objectContaining({
+        id: fixture.incomeAccount.id,
+        code: fixture.incomeAccount.code,
+        name: fixture.incomeAccount.name,
+        type: 'INCOME',
+        account_class: 'INCOME',
+        normal_balance: 'CREDIT',
+        net_side: 'CREDIT',
+        net_debit: 0,
+        net_credit: 40,
+        total_debit: 0,
+        total_credit: 40,
+        is_abnormal_balance: false,
+      }),
+    ]));
+    expect(trialBalance.body.report.data.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'BALANCED',
+        severity: 'info',
+        message: 'Trial Balance is balanced.',
+        fund_id: fixture.fund.id,
+      }),
+    ]));
+  });
 });

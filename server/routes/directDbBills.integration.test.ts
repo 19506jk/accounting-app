@@ -67,7 +67,7 @@ async function requestRoute({
   body,
 }: {
   probePath: string;
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PUT';
   userId: number;
   role?: 'admin' | 'editor' | 'viewer';
   body?: unknown;
@@ -89,6 +89,12 @@ function uniqueSuffix() {
 
 function todayDateOnly() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function addDaysDateOnly(dateOnly: string, days: number) {
+  const date = new Date(`${dateOnly}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 async function createFixture() {
@@ -136,6 +142,20 @@ async function createFixture() {
   if (!expenseAccount) throw new Error('Failed to create bill fixture expense account');
   createdAccountIds.push(expenseAccount.id);
 
+  const [bankAccount] = await db('accounts')
+    .insert({
+      code: `IBBANK-${suffix}`,
+      name: `Integration Bill Bank ${suffix}`,
+      type: 'ASSET',
+      account_class: 'ASSET',
+      is_active: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number; code: string; name: string }>;
+  if (!bankAccount) throw new Error('Failed to create bill fixture bank account');
+  createdAccountIds.push(bankAccount.id);
+
   const apAccount = await db('accounts')
     .where({ code: '20000', is_active: true })
     .first() as { id: number } | undefined;
@@ -172,6 +192,7 @@ async function createFixture() {
     userId: user.id,
     vendor,
     expenseAccount,
+    bankAccount,
     apAccount,
     fund,
     suffix,
@@ -531,5 +552,518 @@ describe('direct DB bills integration smoke checks', () => {
       .first() as { is_voided: boolean } | undefined;
     expect(storedApplyTransaction?.is_voided).toBe(true);
     expect(unapplyTransactionIds).toEqual([]);
+  });
+
+  it('returns unpaid summary and aging buckets from the development database', async () => {
+    const fixture = await createFixture();
+    const asOfDate = todayDateOnly();
+    const currentDueDate = asOfDate;
+    const days31DueDate = addDaysDateOnly(asOfDate, -47);
+    const days61DueDate = addDaysDateOnly(asOfDate, -75);
+
+    const baselineSummary = await requestRoute({
+      probePath: '/summary',
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+
+    expect(baselineSummary.status).toBe(200);
+    const baselineCount = Number(baselineSummary.body.summary.count);
+    const baselineOutstanding = Number(baselineSummary.body.summary.total_outstanding);
+
+    const reportBills = await db('bills')
+      .insert([
+        {
+          contact_id: fixture.vendor.id,
+          date: '2026-04-01',
+          due_date: '1900-01-01',
+          bill_number: `BILL-AGING-OLD-${fixture.suffix}`,
+          description: `Integration Aging Old ${fixture.suffix}`,
+          amount: '40.00',
+          amount_paid: '0.00',
+          status: 'UNPAID',
+          fund_id: fixture.fund.id,
+          created_by: fixture.userId,
+          created_at: db.fn.now(),
+          updated_at: db.fn.now(),
+        },
+        {
+          contact_id: fixture.vendor.id,
+          date: '2026-04-01',
+          due_date: days61DueDate,
+          bill_number: `BILL-AGING-61-${fixture.suffix}`,
+          description: `Integration Aging 61 ${fixture.suffix}`,
+          amount: '30.00',
+          amount_paid: '0.00',
+          status: 'UNPAID',
+          fund_id: fixture.fund.id,
+          created_by: fixture.userId,
+          created_at: db.fn.now(),
+          updated_at: db.fn.now(),
+        },
+        {
+          contact_id: fixture.vendor.id,
+          date: '2026-04-01',
+          due_date: days31DueDate,
+          bill_number: `BILL-AGING-31-${fixture.suffix}`,
+          description: `Integration Aging 31 ${fixture.suffix}`,
+          amount: '20.00',
+          amount_paid: '0.00',
+          status: 'UNPAID',
+          fund_id: fixture.fund.id,
+          created_by: fixture.userId,
+          created_at: db.fn.now(),
+          updated_at: db.fn.now(),
+        },
+        {
+          contact_id: fixture.vendor.id,
+          date: '2026-04-01',
+          due_date: currentDueDate,
+          bill_number: `BILL-AGING-CURRENT-${fixture.suffix}`,
+          description: `Integration Aging Current ${fixture.suffix}`,
+          amount: '10.00',
+          amount_paid: '0.00',
+          status: 'UNPAID',
+          fund_id: fixture.fund.id,
+          created_by: fixture.userId,
+          created_at: db.fn.now(),
+          updated_at: db.fn.now(),
+        },
+        {
+          contact_id: fixture.vendor.id,
+          date: '2026-04-01',
+          due_date: currentDueDate,
+          bill_number: `BILL-AGING-PAID-${fixture.suffix}`,
+          description: `Integration Aging Paid ${fixture.suffix}`,
+          amount: '50.00',
+          amount_paid: '50.00',
+          status: 'PAID',
+          fund_id: fixture.fund.id,
+          created_by: fixture.userId,
+          created_at: db.fn.now(),
+          updated_at: db.fn.now(),
+        },
+      ])
+      .returning(['id']) as Array<{ id: number }>;
+    createdBillIds.push(...reportBills.map((bill) => bill.id));
+
+    const summary = await requestRoute({
+      probePath: '/summary',
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+
+    expect(summary.status).toBe(200);
+    expect(Number(summary.body.summary.count)).toBe(baselineCount + 4);
+    expect(Number(summary.body.summary.total_outstanding)).toBe(baselineOutstanding + 100);
+    expect(String(summary.body.summary.earliest_due).slice(0, 10)).toBe('1900-01-01');
+
+    const aging = await requestRoute({
+      probePath: `/reports/aging?as_of=${asOfDate}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+
+    expect(aging.status).toBe(200);
+    expect(aging.body.report.as_of_date).toBe(asOfDate);
+    expect(aging.body.report.vendor_aging).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        vendor_name: fixture.vendor.name,
+        contact_id: fixture.vendor.id,
+        current: 10,
+        days31_60: 20,
+        days61_90: 30,
+        days90_plus: 40,
+        total: 100,
+      }),
+    ]));
+    expect(aging.body.report.buckets.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        contact_id: fixture.vendor.id,
+        bill_number: `BILL-AGING-CURRENT-${fixture.suffix}`,
+        outstanding: 10,
+        days_overdue: 0,
+      }),
+    ]));
+    expect(aging.body.report.buckets.days31_60).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        contact_id: fixture.vendor.id,
+        bill_number: `BILL-AGING-31-${fixture.suffix}`,
+        outstanding: 20,
+        days_overdue: 47,
+      }),
+    ]));
+    expect(aging.body.report.buckets.days61_90).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        contact_id: fixture.vendor.id,
+        bill_number: `BILL-AGING-61-${fixture.suffix}`,
+        outstanding: 30,
+        days_overdue: 75,
+      }),
+    ]));
+    expect(aging.body.report.buckets.days90_plus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        contact_id: fixture.vendor.id,
+        bill_number: `BILL-AGING-OLD-${fixture.suffix}`,
+        outstanding: 40,
+      }),
+    ]));
+  });
+
+  it('validates and records bill payments using the development database', async () => {
+    const fixture = await createFixture();
+    const date = todayDateOnly();
+    const billNumber = `BILL-PAY-${fixture.suffix}`;
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+      body: {
+        contact_id: fixture.vendor.id,
+        date,
+        due_date: date,
+        bill_number: billNumber,
+        description: `Integration Pay Bill ${fixture.suffix}`,
+        amount: 40,
+        fund_id: fixture.fund.id,
+        line_items: [
+          {
+            expense_account_id: fixture.expenseAccount.id,
+            amount: 40,
+            description: 'Payment test bill',
+          },
+        ],
+      },
+    });
+
+    expect(created.status).toBe(201);
+    const billId = created.body.bill.id as number;
+    createdBillIds.push(billId);
+    createdTransactionIds.push(created.body.transaction.id as number);
+
+    const missingFields = await requestRoute({
+      probePath: `/${billId}/pay`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {},
+    });
+
+    expect(missingFields.status).toBe(400);
+    expect(missingFields.body).toEqual({
+      errors: [
+        'payment_date is required',
+        'bank_account_id is required',
+      ],
+    });
+
+    const overpayment = await requestRoute({
+      probePath: `/${billId}/pay`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        payment_date: date,
+        bank_account_id: fixture.bankAccount.id,
+        amount: 40.01,
+      },
+    });
+
+    expect(overpayment.status).toBe(400);
+    expect(overpayment.body).toEqual({
+      errors: ['Payment amount ($40.01) exceeds outstanding balance ($40.00)'],
+      outstanding: 40,
+    });
+
+    const partialPayment = await requestRoute({
+      probePath: `/${billId}/pay`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        payment_date: date,
+        bank_account_id: fixture.bankAccount.id,
+        reference_no: `PAY-PART-${fixture.suffix}`,
+        amount: 15,
+      },
+    });
+
+    expect(partialPayment.status).toBe(200);
+    const partialPaymentTransactionId = partialPayment.body.transaction.id as number;
+    createdTransactionIds.push(partialPaymentTransactionId);
+    expect(partialPayment.body.bill).toEqual(expect.objectContaining({
+      id: billId,
+      amount: 40,
+      amount_paid: 15,
+      status: 'UNPAID',
+      transaction_id: partialPaymentTransactionId,
+    }));
+
+    const paymentEntries = await db('journal_entries')
+      .where({ transaction_id: partialPaymentTransactionId })
+      .orderBy('id', 'asc') as Array<{
+        account_id: number;
+        fund_id: number;
+        contact_id: number | null;
+        debit: string | number;
+        credit: string | number;
+      }>;
+
+    expect(paymentEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        account_id: fixture.apAccount.id,
+        fund_id: fixture.fund.id,
+        contact_id: fixture.vendor.id,
+        debit: '15.00',
+        credit: '0.00',
+      }),
+      expect.objectContaining({
+        account_id: fixture.bankAccount.id,
+        fund_id: fixture.fund.id,
+        contact_id: fixture.vendor.id,
+        debit: '0.00',
+        credit: '15.00',
+      }),
+    ]));
+
+    const voidPartial = await requestRoute({
+      probePath: `/${billId}/void`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+
+    expect(voidPartial.status).toBe(400);
+    expect(voidPartial.body).toEqual({
+      errors: ['Cannot void a bill that has partial payments. Reverse all payments first.'],
+    });
+
+    const finalPayment = await requestRoute({
+      probePath: `/${billId}/pay`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        payment_date: date,
+        bank_account_id: fixture.bankAccount.id,
+        reference_no: `PAY-FINAL-${fixture.suffix}`,
+      },
+    });
+
+    expect(finalPayment.status).toBe(200);
+    const finalPaymentTransactionId = finalPayment.body.transaction.id as number;
+    createdTransactionIds.push(finalPaymentTransactionId);
+    expect(finalPayment.body.bill).toEqual(expect.objectContaining({
+      id: billId,
+      amount: 40,
+      amount_paid: 40,
+      status: 'PAID',
+      transaction_id: finalPaymentTransactionId,
+      paid_by: fixture.userId,
+    }));
+
+    const voidPaid = await requestRoute({
+      probePath: `/${billId}/void`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+
+    expect(voidPaid.status).toBe(400);
+    expect(voidPaid.body).toEqual({
+      errors: ['Cannot void a paid bill'],
+    });
+  });
+
+  it('updates editable bills and rejects edits after payment state changes', async () => {
+    const fixture = await createFixture();
+    const date = todayDateOnly();
+    const billNumber = `BILL-UPDATE-${fixture.suffix}`;
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+      body: {
+        contact_id: fixture.vendor.id,
+        date,
+        due_date: date,
+        bill_number: billNumber,
+        description: `Integration Update Bill ${fixture.suffix}`,
+        amount: 25,
+        fund_id: fixture.fund.id,
+        line_items: [
+          {
+            expense_account_id: fixture.expenseAccount.id,
+            amount: 25,
+            description: 'Original update bill',
+          },
+        ],
+      },
+    });
+
+    expect(created.status).toBe(201);
+    const billId = created.body.bill.id as number;
+    const createdTransactionId = created.body.transaction.id as number;
+    createdBillIds.push(billId);
+    createdTransactionIds.push(createdTransactionId);
+
+    const metadataUpdated = await requestRoute({
+      probePath: `/${billId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        description: `Updated Metadata Bill ${fixture.suffix}`,
+        due_date: date,
+      },
+    });
+
+    expect(metadataUpdated.status).toBe(200);
+    expect(metadataUpdated.body.bill).toEqual(expect.objectContaining({
+      id: billId,
+      description: `Updated Metadata Bill ${fixture.suffix}`,
+      amount: 25,
+      amount_paid: 0,
+      status: 'UNPAID',
+    }));
+
+    const lineItemsUpdated = await requestRoute({
+      probePath: `/${billId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        line_items: [
+          {
+            expense_account_id: fixture.expenseAccount.id,
+            amount: 45,
+            description: 'Updated line item',
+          },
+        ],
+      },
+    });
+
+    expect(lineItemsUpdated.status).toBe(200);
+    expect(lineItemsUpdated.body.bill).toEqual(expect.objectContaining({
+      id: billId,
+      amount: 45,
+      amount_paid: 0,
+      status: 'UNPAID',
+      created_transaction_id: createdTransactionId,
+    }));
+    expect(lineItemsUpdated.body.bill.line_items).toEqual([
+      expect.objectContaining({
+        expense_account_id: fixture.expenseAccount.id,
+        amount: 45,
+        description: 'Updated line item',
+      }),
+    ]);
+
+    const rewrittenEntries = await db('journal_entries')
+      .where({ transaction_id: createdTransactionId })
+      .orderBy('id', 'asc') as Array<{
+        account_id: number;
+        fund_id: number;
+        contact_id: number | null;
+        debit: string | number;
+        credit: string | number;
+      }>;
+
+    expect(rewrittenEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        account_id: fixture.expenseAccount.id,
+        fund_id: fixture.fund.id,
+        contact_id: null,
+        debit: '45.00',
+        credit: '0.00',
+      }),
+      expect.objectContaining({
+        account_id: fixture.apAccount.id,
+        fund_id: fixture.fund.id,
+        contact_id: fixture.vendor.id,
+        debit: '0.00',
+        credit: '45.00',
+      }),
+    ]));
+
+    const partialPayment = await requestRoute({
+      probePath: `/${billId}/pay`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        payment_date: date,
+        bank_account_id: fixture.bankAccount.id,
+        reference_no: `UPDATE-PART-${fixture.suffix}`,
+        amount: 10,
+      },
+    });
+
+    expect(partialPayment.status).toBe(200);
+    createdTransactionIds.push(partialPayment.body.transaction.id as number);
+
+    const lineItemEditAfterPartialPayment = await requestRoute({
+      probePath: `/${billId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        line_items: [
+          {
+            expense_account_id: fixture.expenseAccount.id,
+            amount: 50,
+            description: 'Rejected line item update',
+          },
+        ],
+      },
+    });
+
+    expect(lineItemEditAfterPartialPayment.status).toBe(400);
+    expect(lineItemEditAfterPartialPayment.body).toEqual({
+      errors: ['Cannot edit a bill that has partial payments. Reverse all payments first.'],
+    });
+
+    const finalPayment = await requestRoute({
+      probePath: `/${billId}/pay`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        payment_date: date,
+        bank_account_id: fixture.bankAccount.id,
+        reference_no: `UPDATE-FINAL-${fixture.suffix}`,
+      },
+    });
+
+    expect(finalPayment.status).toBe(200);
+    createdTransactionIds.push(finalPayment.body.transaction.id as number);
+    expect(finalPayment.body.bill).toEqual(expect.objectContaining({
+      id: billId,
+      amount: 45,
+      amount_paid: 45,
+      status: 'PAID',
+    }));
+
+    const editPaid = await requestRoute({
+      probePath: `/${billId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        description: `Rejected Paid Bill Edit ${fixture.suffix}`,
+      },
+    });
+
+    expect(editPaid.status).toBe(400);
+    expect(editPaid.body).toEqual({
+      errors: ['Cannot edit PAID bills'],
+    });
   });
 });

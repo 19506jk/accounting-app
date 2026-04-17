@@ -30,10 +30,10 @@ export default defineConfig({
       reporter: ['text', 'html'],
       include: ['**/*.ts'],
       thresholds: {
-        statements: 56,
-        branches: 57,
-        functions: 62,
-        lines: 56,
+        statements: 73,
+        branches: 58,
+        functions: 69,
+        lines: 73,
       },
       exclude: [
         'db/migrations/**',
