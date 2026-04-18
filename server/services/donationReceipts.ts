@@ -9,7 +9,6 @@ import type {
   DonationReceiptTemplateResponse,
 } from '@shared/contracts';
 import { getDonationLines, type DonationLine } from './donorDonations.js';
-import { renderDonationReceiptsPdfBase64 } from './donationReceiptPdf.js';
 
 const db = require('../db') as Knex;
 
@@ -360,6 +359,8 @@ export async function generateReceiptPdf(
   const receipts = data.receipts.map((receipt) =>
     renderReceiptMarkdown(data.template, receipt, data.settings, data.fiscalYear)
   );
+  const { renderDonationReceiptsPdfBase64 } =
+    require('./donationReceiptPdf.js') as typeof import('./donationReceiptPdf.js');
   const pdfBase64 = await renderDonationReceiptsPdfBase64(receipts);
 
   return {

@@ -45,6 +45,7 @@ export default defineConfig({
         'knexfile.ts',
         'ecosystem.config.cjs',
         'types/**',
+        '**/*.tsx',
         '**/*.test.ts',
         'routes/routeTestHelpers.ts',
       ],

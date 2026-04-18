@@ -11,7 +11,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
 
 const db = require('../../db') as Knex;
 
-vi.mock('../services/donationReceiptPdf.js', () => ({
+vi.mock('../../services/donationReceiptPdf.js', () => ({
   renderDonationReceiptsPdfBase64: vi.fn().mockResolvedValue('JVBERi0='),
 }));
 

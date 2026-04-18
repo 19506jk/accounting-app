@@ -47,11 +47,11 @@ const reportsMocks = vi.hoisted(() => ({
   getDonorDetail: vi.fn(),
 }));
 
-vi.mock('../services/donationReceipts.js', () => donationReceiptServiceMocks);
-vi.mock('../services/bills.js', () => billsServiceMocks);
-vi.mock('../services/transactions/list.js', () => transactionListMocks);
-vi.mock('../services/transactions/billMatches.js', () => transactionBillMatchesMocks);
-vi.mock('../services/reports.js', () => reportsMocks);
+vi.mock('../../services/donationReceipts.js', () => donationReceiptServiceMocks);
+vi.mock('../../services/bills.js', () => billsServiceMocks);
+vi.mock('../../services/transactions/list.js', () => transactionListMocks);
+vi.mock('../../services/transactions/billMatches.js', () => transactionBillMatchesMocks);
+vi.mock('../../services/reports.js', () => reportsMocks);
 
 let billsRouter: express.Router;
 let transactionsRouter: express.Router;
