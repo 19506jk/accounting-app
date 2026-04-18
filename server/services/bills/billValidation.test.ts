@@ -133,7 +133,33 @@ describe('resolveTaxRateMap', () => {
   });
 });
 
-describe('validateLineItemAccounts', () => {
+describe('validateLineItemAccountsWithExecutor', () => {
+  it('accepts active expense accounts without tax or rounding lookups', async () => {
+    const accountsWhereIn = vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue([{ id: 300, type: 'EXPENSE' }]),
+    });
+    const accountsWhere = vi.fn();
+    const db = vi.fn((table: string) => {
+      if (table === 'accounts') {
+        return {
+          whereIn: accountsWhereIn,
+          where: accountsWhere,
+        };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    }) as any;
+
+    const errors = await validateLineItemAccountsWithExecutor([
+      { expense_account_id: 300, amount: 10, tax_rate_id: null, rounding_adjustment: 0 },
+    ], db);
+
+    expect(errors).toEqual([]);
+    expect(db).toHaveBeenCalledTimes(1);
+    expect(db).toHaveBeenCalledWith('accounts');
+    expect(accountsWhereIn).toHaveBeenCalledWith('id', [300]);
+    expect(accountsWhere).not.toHaveBeenCalled();
+  });
+
   it('validates account types and active tax rates', async () => {
     const db = vi.fn((table: string) => {
       if (table === 'tax_rates') {
@@ -200,5 +226,29 @@ describe('validateLineItemAccounts', () => {
     ], db);
 
     expect(errors).toContain('Rounding account (59999) is missing or inactive');
+  });
+
+  it('accepts rounding adjustments when the rounding account is active', async () => {
+    const roundingAccountFirst = vi.fn().mockResolvedValue({ id: 999, type: 'EXPENSE' });
+    const db = vi.fn((table: string) => {
+      if (table === 'accounts') {
+        return {
+          whereIn: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([{ id: 300, type: 'EXPENSE' }]),
+          }),
+          where: vi.fn().mockReturnValue({
+            first: roundingAccountFirst,
+          }),
+        };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    }) as any;
+
+    const errors = await validateLineItemAccountsWithExecutor([
+      { expense_account_id: 300, amount: 10, rounding_adjustment: -0.01 },
+    ], db);
+
+    expect(errors).toEqual([]);
+    expect(roundingAccountFirst).toHaveBeenCalledTimes(1);
   });
 });

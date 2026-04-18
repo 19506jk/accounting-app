@@ -199,6 +199,118 @@ describe('createMultiLineJournalEntries', () => {
     expect(whereInMock).toHaveBeenCalledWith('id', [2]);
   });
 
+  it('posts signed credit memo entries for negative bill amounts', async () => {
+    const now = '2026-04-16T12:00:00.000Z';
+    const returningMock = vi.fn().mockResolvedValue([{ id: 12 }]);
+    const insertMock = vi.fn().mockReturnValue({ returning: returningMock });
+
+    const trx = vi.fn((table: string) => {
+      if (table === 'journal_entries') return { insert: insertMock };
+      throw new Error(`Unexpected table: ${table}`);
+    }) as any;
+    trx.fn = { now: vi.fn(() => now) };
+
+    await createMultiLineJournalEntries(
+      12,
+      [
+        {
+          expense_account_id: 300,
+          amount: -25,
+          description: 'Vendor credit',
+          tax_rate_id: null,
+          rounding_adjustment: 0,
+        },
+      ],
+      10,
+      200,
+      88,
+      'Vendor Credit',
+      null,
+      trx
+    );
+
+    const insertedRows = insertMock.mock.calls[0]?.[0];
+    expect(insertedRows).toEqual([
+      expect.objectContaining({
+        transaction_id: 12,
+        account_id: 300,
+        contact_id: null,
+        debit: 0,
+        credit: '25.00',
+        memo: 'Bill - Vendor credit',
+      }),
+      expect.objectContaining({
+        transaction_id: 12,
+        account_id: 200,
+        contact_id: 88,
+        debit: '25.00',
+        credit: 0,
+        memo: 'Bill - Vendor Credit',
+      }),
+    ]);
+  });
+
+  it('posts explicit rounding adjustment lines when a rounding account exists', async () => {
+    const now = '2026-04-16T12:00:00.000Z';
+    const returningMock = vi.fn().mockResolvedValue([{ id: 13 }]);
+    const insertMock = vi.fn().mockReturnValue({ returning: returningMock });
+    const roundingAccountFirst = vi.fn().mockResolvedValue({ id: 999 });
+
+    const trx = vi.fn((table: string) => {
+      if (table === 'accounts') {
+        return { where: vi.fn().mockReturnValue({ first: roundingAccountFirst }) };
+      }
+      if (table === 'journal_entries') return { insert: insertMock };
+      if (table === 'tax_rates') return { whereIn: vi.fn().mockResolvedValue([]) };
+      throw new Error(`Unexpected table: ${table}`);
+    }) as any;
+    trx.fn = { now: vi.fn(() => now) };
+
+    await createMultiLineJournalEntries(
+      13,
+      [
+        {
+          expense_account_id: 300,
+          amount: 10,
+          description: 'Rounded charge',
+          tax_rate_id: null,
+          rounding_adjustment: -0.02,
+        },
+      ],
+      10,
+      200,
+      null,
+      'Vendor',
+      'B-13',
+      trx
+    );
+
+    const insertedRows = insertMock.mock.calls[0]?.[0];
+    expect(insertedRows).toEqual([
+      expect.objectContaining({
+        transaction_id: 13,
+        account_id: 300,
+        debit: '10.00',
+        credit: 0,
+        memo: 'Bill B-13 - Rounded charge',
+      }),
+      expect.objectContaining({
+        transaction_id: 13,
+        account_id: 999,
+        debit: 0,
+        credit: '0.02',
+        memo: 'Rounding adjustment - Rounded charge',
+      }),
+      expect.objectContaining({
+        transaction_id: 13,
+        account_id: 200,
+        debit: 0,
+        credit: '9.98',
+        memo: 'Bill B-13 - Vendor',
+      }),
+    ]);
+  });
+
   it('throws when rounding adjustment exists and rounding account is missing', async () => {
     const whereFirst = vi.fn().mockResolvedValue(undefined);
     const trx = vi.fn((table: string) => {
@@ -267,5 +379,45 @@ describe('createMultiLineJournalEntries', () => {
       credit: '0.01',
       memo: 'Rounding adjustment',
     }));
+  });
+
+  it('does not add automatic rounding entry when the rounding account is unavailable', async () => {
+    const now = '2026-04-16T12:00:00.000Z';
+    const returningMock = vi.fn().mockResolvedValue([{ id: 14 }]);
+    const insertMock = vi.fn().mockReturnValue({ returning: returningMock });
+    const roundingAccountFirst = vi.fn().mockResolvedValue(undefined);
+
+    const trx = vi.fn((table: string) => {
+      if (table === 'accounts') {
+        return { where: vi.fn().mockReturnValue({ first: roundingAccountFirst }) };
+      }
+      if (table === 'journal_entries') return { insert: insertMock };
+      if (table === 'tax_rates') return { whereIn: vi.fn().mockResolvedValue([]) };
+      throw new Error(`Unexpected table: ${table}`);
+    }) as any;
+    trx.fn = { now: vi.fn(() => now) };
+
+    await createMultiLineJournalEntries(
+      14,
+      [
+        { expense_account_id: 300, amount: 0.335, description: 'A', tax_rate_id: null, rounding_adjustment: 0 },
+        { expense_account_id: 301, amount: 0.335, description: 'B', tax_rate_id: null, rounding_adjustment: 0 },
+      ],
+      10,
+      200,
+      null,
+      'Vendor',
+      'B-14',
+      trx
+    );
+
+    const insertedRows = insertMock.mock.calls[0]?.[0];
+    expect(roundingAccountFirst).toHaveBeenCalledTimes(1);
+    expect(insertedRows).toHaveLength(3);
+    expect(insertedRows).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        memo: 'Rounding adjustment',
+      }),
+    ]));
   });
 });

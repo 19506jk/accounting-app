@@ -62,13 +62,16 @@ function dayNumberFromDateOnly(dateOnly: string) {
   return Date.UTC(year || 0, (month || 1) - 1, day || 1);
 }
 
-export async function getAgingReport(asOfDate: string | Date = getChurchToday(getChurchTimeZone())): Promise<BillAgingReportResponse['report']> {
+export async function getAgingReport(
+  asOfDate: string | Date = getChurchToday(getChurchTimeZone()),
+  executor: Knex | Knex.Transaction = db
+): Promise<BillAgingReportResponse['report']> {
   const asOfInput = typeof asOfDate === 'string' ? asOfDate : normalizeDateOnly(asOfDate);
   const asOf = parseDateOnlyStrict(asOfInput)
     ? asOfInput
     : getChurchToday(getChurchTimeZone());
   
-  const bills = await db('bills as b')
+  const bills = await executor('bills as b')
     .join('contacts as c', 'c.id', 'b.contact_id')
     .where('b.status', 'UNPAID')
     .select(
@@ -168,13 +171,13 @@ export async function getAgingReport(asOfDate: string | Date = getChurchToday(ge
   };
 }
 
-export async function getUnpaidSummary(): Promise<BillSummaryResponse['summary']> {
-  const summary = await db('bills')
+export async function getUnpaidSummary(executor: Knex | Knex.Transaction = db): Promise<BillSummaryResponse['summary']> {
+  const summary = await executor('bills')
     .where('status', 'UNPAID')
     .select(
-      db.raw('SUM(CASE WHEN amount - amount_paid > 0 THEN 1 ELSE 0 END) as count'),
-      db.raw('SUM(CASE WHEN amount - amount_paid > 0 THEN amount - amount_paid ELSE 0 END) as total_outstanding'),
-      db.raw('MIN(CASE WHEN amount - amount_paid > 0 THEN due_date ELSE NULL END) as earliest_due'),
+      executor.raw('SUM(CASE WHEN amount - amount_paid > 0 THEN 1 ELSE 0 END) as count'),
+      executor.raw('SUM(CASE WHEN amount - amount_paid > 0 THEN amount - amount_paid ELSE 0 END) as total_outstanding'),
+      executor.raw('MIN(CASE WHEN amount - amount_paid > 0 THEN due_date ELSE NULL END) as earliest_due'),
     )
     .first() as UnpaidSummaryRow | undefined;
 
