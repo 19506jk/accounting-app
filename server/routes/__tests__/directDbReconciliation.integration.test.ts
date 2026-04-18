@@ -61,7 +61,7 @@ async function requestRoute({
   body,
 }: {
   probePath: string;
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   userId: number;
   role?: 'admin' | 'editor' | 'viewer';
   body?: unknown;
@@ -129,6 +129,19 @@ async function createFixture() {
     .returning('*') as Array<{ id: number }>;
   if (!incomeAccount) throw new Error('Failed to create reconciliation fixture income account');
 
+  const [liabilityAccount] = await db('accounts')
+    .insert({
+      code: `IRLIAB-${suffix}`,
+      name: `Integration Reconciliation Liability ${suffix}`,
+      type: 'LIABILITY',
+      account_class: 'LIABILITY',
+      is_active: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!liabilityAccount) throw new Error('Failed to create reconciliation fixture liability account');
+
   const [equityAccount] = await db('accounts')
     .insert({
       code: `IREQ-${suffix}`,
@@ -142,7 +155,7 @@ async function createFixture() {
     .returning('*') as Array<{ id: number }>;
   if (!equityAccount) throw new Error('Failed to create reconciliation fixture equity account');
 
-  createdAccountIds.push(bankAccount.id, incomeAccount.id, equityAccount.id);
+  createdAccountIds.push(bankAccount.id, incomeAccount.id, liabilityAccount.id, equityAccount.id);
 
   const [fund] = await db('funds')
     .insert({
@@ -204,9 +217,104 @@ async function createFixture() {
   return {
     userId: user.id,
     bankAccountId: bankAccount.id,
+    incomeAccountId: incomeAccount.id,
+    liabilityAccountId: liabilityAccount.id,
     bankEntryId: bankEntry.id,
+    fundId: fund.id,
     date,
+    suffix,
   };
+}
+
+async function createTransactionEntry({
+  date,
+  description,
+  referenceNo,
+  fundId,
+  createdBy,
+  entries,
+}: {
+  date: string;
+  description: string;
+  referenceNo: string;
+  fundId: number;
+  createdBy: number;
+  entries: Array<{
+    account_id: number;
+    fund_id: number;
+    debit: string;
+    credit: string;
+    memo?: string;
+  }>;
+}) {
+  const [transaction] = await db('transactions')
+    .insert({
+      date,
+      description,
+      reference_no: referenceNo,
+      fund_id: fundId,
+      created_by: createdBy,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!transaction) throw new Error('Failed to create reconciliation transaction fixture');
+  createdTransactionIds.push(transaction.id);
+
+  const insertedEntries = await db('journal_entries')
+    .insert(entries.map((entry) => ({
+      ...entry,
+      transaction_id: transaction.id,
+      is_reconciled: false,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })))
+    .returning('*') as Array<{ id: number; account_id: number }>;
+
+  return {
+    transactionId: transaction.id,
+    entries: insertedEntries,
+  };
+}
+
+async function createDirectReconciliation({
+  accountId,
+  statementDate,
+  statementBalance,
+  openingBalance = '0.00',
+  isClosed = false,
+  userId,
+}: {
+  accountId: number;
+  statementDate: string;
+  statementBalance: string;
+  openingBalance?: string;
+  isClosed?: boolean;
+  userId: number;
+}) {
+  const [reconciliation] = await db('reconciliations')
+    .insert({
+      account_id: accountId,
+      statement_date: statementDate,
+      statement_balance: statementBalance,
+      opening_balance: openingBalance,
+      is_closed: isClosed,
+      created_by: userId,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!reconciliation) throw new Error('Failed to create reconciliation fixture');
+  createdReconciliationIds.push(reconciliation.id);
+  return reconciliation.id;
+}
+
+async function countReconciliationItems(reconciliationId: number) {
+  const row = await db('rec_items')
+    .where({ reconciliation_id: reconciliationId })
+    .count('id as count')
+    .first() as { count: string } | undefined;
+  return parseInt(row?.count || '0', 10);
 }
 
 describe('direct DB reconciliation integration smoke checks', () => {
@@ -324,5 +432,421 @@ describe('direct DB reconciliation integration smoke checks', () => {
         is_closed: true,
       }),
     ]));
+  });
+
+  it('updates statement dates by reloading items without duplicating existing rows', async () => {
+    const fixture = await createFixture();
+    const early = await createTransactionEntry({
+      date: '2026-01-05',
+      description: `Reconciliation Early ${fixture.suffix}`,
+      referenceNo: `IR-EARLY-${fixture.suffix}`,
+      fundId: fixture.fundId,
+      createdBy: fixture.userId,
+      entries: [
+        {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          debit: '10.00',
+          credit: '0.00',
+          memo: 'Early bank entry',
+        },
+        {
+          account_id: fixture.incomeAccountId,
+          fund_id: fixture.fundId,
+          debit: '0.00',
+          credit: '10.00',
+          memo: 'Early income entry',
+        },
+      ],
+    });
+    const late = await createTransactionEntry({
+      date: '2026-01-20',
+      description: `Reconciliation Late ${fixture.suffix}`,
+      referenceNo: `IR-LATE-${fixture.suffix}`,
+      fundId: fixture.fundId,
+      createdBy: fixture.userId,
+      entries: [
+        {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          debit: '15.00',
+          credit: '0.00',
+          memo: 'Late bank entry',
+        },
+        {
+          account_id: fixture.incomeAccountId,
+          fund_id: fixture.fundId,
+          debit: '0.00',
+          credit: '15.00',
+          memo: 'Late income entry',
+        },
+      ],
+    });
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: '2026-01-10',
+        statement_balance: 10,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+    expect(created.body.items_loaded).toBe(1);
+    expect(await countReconciliationItems(reconciliationId)).toBe(1);
+
+    const expanded = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        statement_date: '2026-01-25',
+      },
+    });
+    expect(expanded.status).toBe(200);
+    expect(await countReconciliationItems(reconciliationId)).toBe(2);
+
+    const expandedAgain = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        statement_date: '2026-01-26',
+      },
+    });
+    expect(expandedAgain.status).toBe(200);
+    expect(await countReconciliationItems(reconciliationId)).toBe(2);
+
+    const reduced = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        statement_date: '2026-01-12',
+      },
+    });
+    expect(reduced.status).toBe(200);
+
+    const items = await db('rec_items as ri')
+      .where({ reconciliation_id: reconciliationId })
+      .orderBy('journal_entry_id', 'asc')
+      .select('journal_entry_id') as Array<{ journal_entry_id: number }>;
+    const earlyBankEntry = early.entries.find((entry) => entry.account_id === fixture.bankAccountId);
+    const lateBankEntry = late.entries.find((entry) => entry.account_id === fixture.bankAccountId);
+    if (!earlyBankEntry || !lateBankEntry) throw new Error('Bank entries not found in fixture');
+    expect(items).toEqual([{ journal_entry_id: earlyBankEntry.id }]);
+    expect(items).not.toEqual(expect.arrayContaining([{ journal_entry_id: lateBankEntry.id }]));
+  });
+
+  it('updates statement balance without reloading items and rejects invalid or closed edits', async () => {
+    const fixture = await createFixture();
+    await createTransactionEntry({
+      date: '2026-01-05',
+      description: `Reconciliation Balance Only ${fixture.suffix}`,
+      referenceNo: `IR-BAL-${fixture.suffix}`,
+      fundId: fixture.fundId,
+      createdBy: fixture.userId,
+      entries: [
+        {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          debit: '12.00',
+          credit: '0.00',
+        },
+        {
+          account_id: fixture.incomeAccountId,
+          fund_id: fixture.fundId,
+          debit: '0.00',
+          credit: '12.00',
+        },
+      ],
+    });
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: '2026-01-10',
+        statement_balance: 12,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+    expect(await countReconciliationItems(reconciliationId)).toBe(1);
+
+    const balanceOnly = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        statement_balance: 18,
+      },
+    });
+    expect(balanceOnly.status).toBe(200);
+    expect(balanceOnly.body.reconciliation).toEqual(expect.objectContaining({
+      id: reconciliationId,
+      statement_balance: '18.00',
+    }));
+    expect(await countReconciliationItems(reconciliationId)).toBe(1);
+
+    const invalidDate = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        statement_date: '01/31/2026',
+      },
+    });
+    expect(invalidDate.status).toBe(400);
+    expect(invalidDate.body).toEqual({ error: 'statement_date is not a valid date (YYYY-MM-DD)' });
+
+    const closedId = await createDirectReconciliation({
+      accountId: fixture.liabilityAccountId,
+      statementDate: '2026-01-31',
+      statementBalance: '0.00',
+      isClosed: true,
+      userId: fixture.userId,
+    });
+    const closedEdit = await requestRoute({
+      probePath: `/${closedId}`,
+      method: 'PUT',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        statement_balance: 1,
+      },
+    });
+    expect(closedEdit.status).toBe(409);
+    expect(closedEdit.body).toEqual({ error: 'Cannot edit a closed reconciliation' });
+  });
+
+  it('deletes open reconciliations and rejects deleting closed reconciliations', async () => {
+    const fixture = await createFixture();
+    const openId = await createDirectReconciliation({
+      accountId: fixture.bankAccountId,
+      statementDate: '2026-01-31',
+      statementBalance: '0.00',
+      userId: fixture.userId,
+    });
+
+    const deleted = await requestRoute({
+      probePath: `/${openId}`,
+      method: 'DELETE',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+    expect(deleted.status).toBe(200);
+    expect(deleted.body).toEqual({ message: 'Reconciliation deleted successfully' });
+    createdReconciliationIds.splice(createdReconciliationIds.indexOf(openId), 1);
+    await expect(db('reconciliations').where({ id: openId }).first()).resolves.toBeUndefined();
+
+    const closedId = await createDirectReconciliation({
+      accountId: fixture.bankAccountId,
+      statementDate: '2026-02-28',
+      statementBalance: '0.00',
+      isClosed: true,
+      userId: fixture.userId,
+    });
+    const rejected = await requestRoute({
+      probePath: `/${closedId}`,
+      method: 'DELETE',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+    expect(rejected.status).toBe(409);
+    expect(rejected.body).toEqual({
+      error: 'Cannot delete a closed reconciliation — it is part of the audit trail',
+    });
+  });
+
+  it('rejects invalid POST reconciliation inputs for previous closes, account type, and open conflicts', async () => {
+    const fixture = await createFixture();
+
+    const closedId = await createDirectReconciliation({
+      accountId: fixture.bankAccountId,
+      statementDate: '2026-03-31',
+      statementBalance: '100.00',
+      isClosed: true,
+      userId: fixture.userId,
+    });
+
+    const beforeClosed = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: '2026-03-15',
+        statement_balance: 100,
+        opening_balance: 100,
+      },
+    });
+    expect(beforeClosed.status).toBe(400);
+    expect(beforeClosed.body).toEqual({
+      error: 'Statement date must be after the last closed reconciliation (2026-03-31)',
+    });
+
+    const openingMismatch = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: '2026-04-30',
+        statement_balance: 110,
+        opening_balance: 90,
+      },
+    });
+    expect(openingMismatch.status).toBe(400);
+    expect(openingMismatch.body).toEqual({
+      error: 'Opening balance must equal the previous closing balance of $100.00',
+      expected: 100,
+    });
+
+    const incomeAccount = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.incomeAccountId,
+        statement_date: '2026-01-31',
+        statement_balance: 0,
+        opening_balance: 0,
+      },
+    });
+    expect(incomeAccount.status).toBe(400);
+    expect(incomeAccount.body).toEqual({ error: 'Only ASSET or LIABILITY accounts can be reconciled' });
+
+    await db('reconciliations').where({ id: closedId }).delete();
+    createdReconciliationIds.splice(createdReconciliationIds.indexOf(closedId), 1);
+    const openId = await createDirectReconciliation({
+      accountId: fixture.bankAccountId,
+      statementDate: '2026-05-31',
+      statementBalance: '110.00',
+      userId: fixture.userId,
+    });
+
+    const openConflict = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: '2026-06-30',
+        statement_balance: 120,
+        opening_balance: 110,
+      },
+    });
+    expect(openConflict.status).toBe(409);
+    expect(openConflict.body.error).toBe(`Account already has an open reconciliation (#${openId}). Close it before starting a new one.`);
+  });
+
+  it('handles zero-item reconciliations, liability sign convention, and cleared summaries', async () => {
+    const fixture = await createFixture();
+
+    const empty = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: '2000-01-01',
+        statement_balance: 0,
+        opening_balance: 0,
+      },
+    });
+    expect(empty.status).toBe(201);
+    const emptyId = empty.body.reconciliation.id as number;
+    createdReconciliationIds.push(emptyId);
+    expect(empty.body.items_loaded).toBe(0);
+
+    const emptyDetail = await requestRoute({
+      probePath: `/${emptyId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(emptyDetail.status).toBe(200);
+    expect(emptyDetail.body.reconciliation.summary).toEqual({
+      total_items: 0,
+      cleared_items: 0,
+      uncleared_items: 0,
+      cleared_debits: 0,
+      cleared_credits: 0,
+    });
+
+    await createTransactionEntry({
+      date: '2026-02-05',
+      description: `Liability Reconciliation ${fixture.suffix}`,
+      referenceNo: `IR-LIAB-${fixture.suffix}`,
+      fundId: fixture.fundId,
+      createdBy: fixture.userId,
+      entries: [
+        {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          debit: '50.00',
+          credit: '0.00',
+          memo: 'Cash received',
+        },
+        {
+          account_id: fixture.liabilityAccountId,
+          fund_id: fixture.fundId,
+          debit: '0.00',
+          credit: '50.00',
+          memo: 'Liability credit',
+        },
+      ],
+    });
+
+    const liability = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.liabilityAccountId,
+        statement_date: '2026-02-10',
+        statement_balance: 50,
+        opening_balance: 0,
+      },
+    });
+    expect(liability.status).toBe(201);
+    const liabilityId = liability.body.reconciliation.id as number;
+    createdReconciliationIds.push(liabilityId);
+    expect(liability.body.items_loaded).toBe(1);
+
+    const liabilityDetail = await requestRoute({
+      probePath: `/${liabilityId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    const liabilityItemId = liabilityDetail.body.reconciliation.items[0].id as number;
+    const cleared = await requestRoute({
+      probePath: `/${liabilityId}/items/${liabilityItemId}/clear`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body).toEqual(expect.objectContaining({
+      cleared_balance: 50,
+      difference: 0,
+      status: 'BALANCED',
+    }));
   });
 });
