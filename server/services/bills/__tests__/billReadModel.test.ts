@@ -4,7 +4,6 @@ import type { BillDetail } from '@shared/contracts';
 
 import type { ApplicationJoinedRow } from '../billReadModel.js';
 
-process.env.NODE_ENV = 'development';
 
 dotenv.config();
 

@@ -1,7 +1,6 @@
 import dotenv from 'dotenv';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-process.env.NODE_ENV = 'development';
 
 dotenv.config();
 

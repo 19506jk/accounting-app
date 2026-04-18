@@ -4,7 +4,6 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Knex } from 'knex';
 import { requestMountedRoute } from '../routeTestHelpers.js';
 
-process.env.NODE_ENV = 'development';
 
 dotenv.config();
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';

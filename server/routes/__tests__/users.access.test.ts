@@ -2,7 +2,6 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-process.env.NODE_ENV = 'development';
 process.env.DB_NAME = process.env.DB_NAME || 'test_db';
 process.env.DB_USER = process.env.DB_USER || 'test_user';
 process.env.DB_PASS = process.env.DB_PASS || 'test_pass';

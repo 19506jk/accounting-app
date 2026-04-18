@@ -2,7 +2,6 @@ import dotenv from 'dotenv';
 import type { Knex } from 'knex';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-process.env.NODE_ENV = 'development';
 dotenv.config();
 
 const db = require('../../db') as Knex;

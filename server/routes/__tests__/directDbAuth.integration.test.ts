@@ -5,7 +5,6 @@ import jwt from 'jsonwebtoken';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { requestMountedRoute } from '../routeTestHelpers.js';
 
-process.env.NODE_ENV = 'development';
 
 dotenv.config();
 process.env.GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'google-client-id';
