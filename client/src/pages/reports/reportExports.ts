@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import Decimal from 'decimal.js';
 import { getVisibleTrialBalanceAccounts } from './trialBalanceHelpers';
 import type {
   BalanceSheetReportData,
@@ -12,7 +13,6 @@ import type {
   PLReportData,
   PLReportFilters,
   ReconciliationReport,
-  ReconciliationReportItem,
   TrialBalanceReportData,
   TrialBalanceReportFilters,
 } from '@shared/contracts';
@@ -180,108 +180,193 @@ export function exportDonorDetail(data: DonorDetailReportData, filters: DonorDet
   downloadXlsx(rows, `donor_detail_${filters.from}_${filters.to}.xlsx`, 'Donor Detail');
 }
 
-function getReconciliationStatusLabel(report: ReconciliationReport) {
-  if (report.is_closed && report.status === 'BALANCED') return 'FINAL - BALANCED'
-  if (report.is_closed && report.status === 'UNBALANCED') return 'CLOSED - UNBALANCED (REVIEW REQUIRED)'
-  if (!report.is_closed && report.status === 'BALANCED') return 'IN PROGRESS - BALANCED (NOT YET CLOSED)'
-  return 'IN PROGRESS - UNBALANCED'
-}
-
-function getReconciliationSectionLabels(accountType: ReconciliationReport['account_type']) {
+function getQbLabels(accountType: ReconciliationReport['account_type']) {
   if (accountType === 'ASSET') {
     return {
-      clearedIn: 'Cleared Deposits',
-      clearedOut: 'Cleared Payments',
-      inTransit: 'Deposits In Transit',
+      clearedOut: 'Cheques and Payments',
+      clearedIn: 'Deposits and Credits',
       outstandingOut: 'Outstanding Payments',
+      inTransit: 'Deposits In Transit',
+      outType: 'Cheque',
+      inType: 'Deposit',
     }
   }
   return {
-    clearedIn: 'Cleared Receipts',
-    clearedOut: 'Cleared Charges',
-    inTransit: 'Receipts In Transit',
+    clearedOut: 'Charges',
+    clearedIn: 'Receipts',
     outstandingOut: 'Outstanding Charges',
+    inTransit: 'Receipts In Transit',
+    outType: 'Charge',
+    inType: 'Receipt',
   }
 }
 
-function sumAmounts(items: Array<{ amount: number }>) {
-  return items.reduce((sum, item) => sum + Number(item.amount || 0), 0)
+function formatQbDate(dateStr: string): string {
+  const parts = dateStr.split('-')
+  if (parts.length !== 3) return dateStr
+  const [year, month, day] = parts as [string, string, string]
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const monthLabel = months[Number(month) - 1]
+  if (!monthLabel) return dateStr
+  return `${Number(day)} ${monthLabel} ${year.slice(2)}`
 }
 
+function formatReportDateTime(isoTimestamp: string): string {
+  const d = new Date(isoTimestamp)
+  if (Number.isNaN(d.getTime())) return ''
+  const hours = d.getHours() % 12 || 12
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  const ampm = d.getHours() < 12 ? 'AM' : 'PM'
+  return `${hours}:${minutes} ${ampm}`
+}
+
+const dec = (n: number) => new Decimal(n)
+
 export function exportReconciliationReport(report: ReconciliationReport): void {
-  const labels = getReconciliationSectionLabels(report.account_type)
+  const labels = getQbLabels(report.account_type)
+  const clearedNet = dec(report.cleared_in).minus(report.cleared_out)
+  const clearedBalance = dec(report.opening_balance).plus(clearedNet)
+  const unclearedNet = dec(report.in_transit).minus(report.outstanding_out)
+  const registerNet = dec(report.book_balance).minus(report.opening_balance)
+  const reportTime = formatReportDateTime(report.reconciliation_date)
+  const statementDate = formatQbDate(report.statement_period_end)
+  const accountLabel = `${report.account_code} ${report.account_name}`
+  const periodLabel = `${report.account_code}-${report.account_name}, Period Ending ${report.statement_period_end}`
+
   const summaryRows: XlsxRow[] = [
-    ['Reconciliation Report', '', '', ''],
-    [getReconciliationStatusLabel(report), '', '', ''],
+    [accountLabel, '', '', '', reportTime],
+    ['Reconciliation Summary', '', '', '', statementDate],
+    [periodLabel, '', '', '', ''],
     [],
-    ['Account', `${report.account_code} - ${report.account_name}`, '', ''],
-    ['Statement Period', report.statement_period_start
-      ? `${report.statement_period_start} to ${report.statement_period_end}`
-      : `Up to ${report.statement_period_end}`, '', ''],
-    ['Reconciliation Date', report.reconciliation_date, '', ''],
-    ['Reconciler', report.reconciler_name || 'Unknown', '', ''],
-    [],
-    ['Bridge', '', '', ''],
-    ['Opening Balance', report.opening_balance, '', ''],
-    ['Cleared In', report.cleared_in, '', ''],
-    ['Cleared Out', report.cleared_out, '', ''],
-    ['Statement Ending Balance', report.statement_ending_balance, '', ''],
-    ['In Transit', report.in_transit, '', ''],
-    ['Outstanding Out', report.outstanding_out, '', ''],
-    ['Adjusted Bank Balance', report.adjusted_bank_balance, '', ''],
-    ['Book Balance', report.book_balance, '', ''],
-    ['Difference', report.difference, '', ''],
-    [],
-    ['Fund Activity of Listed Items', '', '', ''],
-    ['Fund', 'Net Activity', '', ''],
-    ...(report.fund_activity || []).map((fund) => [fund.fund_name, fund.net_activity, '', '']),
-    ...(report.fund_activity?.length ? [] : [['No items', 0, '', '']]),
-    [],
-    ['Note', 'Represents all items listed in this reconciliation, including carried-forward outstanding items.', '', ''],
+    ['', '', '', '', statementDate],
+    ['Beginning Balance', '', '', '', report.opening_balance],
+    ['', 'Cleared Transactions', '', '', ''],
+    ['', '', `${labels.clearedOut} - ${report.cleared_out_items.length} items`, '', Number(dec(report.cleared_out).negated())],
+    ['', '', `${labels.clearedIn} - ${report.cleared_in_items.length} items`, '', report.cleared_in],
+    ['', 'Total Cleared Transactions', '', '', Number(clearedNet)],
+    ['Cleared Balance', '', '', '', Number(clearedBalance)],
+    ['', 'Uncleared Transactions', '', '', ''],
+    ['', '', `${labels.outstandingOut} - ${report.outstanding_out_items.length} items`, '', Number(dec(report.outstanding_out).negated())],
+    ['', '', `${labels.inTransit} - ${report.in_transit_items.length} items`, '', report.in_transit],
+    ['', 'Total Uncleared Transactions', '', '', Number(unclearedNet)],
+    [`Register Balance as of ${report.statement_period_end}`, '', '', '', report.book_balance],
+    ['Ending Balance', '', '', '', report.book_balance],
   ]
 
   const detailRows: XlsxRow[] = [
-    ['Reconciliation Detail', '', '', '', '', '', '', ''],
-    ['Section', 'Date', 'Ref #', 'Payee', 'Description', 'Memo', 'Fund', 'Amount'],
+    [accountLabel, '', '', '', '', '', '', '', '', '', reportTime],
+    ['Reconciliation Detail', '', '', '', '', '', '', '', '', '', statementDate],
+    [periodLabel, '', '', '', '', '', '', '', '', '', ''],
+    [],
+    ['', '', '', '', 'Type', 'Date', 'Num', 'Name', 'Clr', 'Amount', 'Balance'],
+    ['Beginning Balance', '', '', '', '', '', '', '', '', '', report.opening_balance],
   ]
 
-  const pushSection = (title: string, items: ReconciliationReportItem[]) => {
-    detailRows.push([title, '', '', '', '', '', '', ''])
-    detailRows.push(['', 'Date', 'Ref #', 'Payee', 'Description', 'Memo', 'Fund', 'Amount'])
-    items.forEach((item) => {
-      detailRows.push([
-        '',
-        item.date,
-        formatReferenceForExport(item.reference_no),
-        item.payee || '',
-        item.description,
-        item.memo || '',
-        item.fund_name,
-        item.amount,
-      ])
-    })
-    detailRows.push(['', '', '', '', '', '', 'Subtotal', sumAmounts(items)])
-    detailRows.push([])
-  }
+  let running = dec(report.opening_balance)
 
-  pushSection(labels.clearedIn, report.cleared_in_items)
-  pushSection(labels.clearedOut, report.cleared_out_items)
-  pushSection(labels.inTransit, report.in_transit_items)
-  pushSection(labels.outstandingOut, report.outstanding_out_items)
+  detailRows.push(['', '', 'Cleared Transactions', '', '', '', '', '', '', '', ''])
+  detailRows.push(['', '', '', `${labels.clearedOut} - ${report.cleared_out_items.length} items`, '', '', '', '', '', '', ''])
+  report.cleared_out_items.forEach((item) => {
+    const signedAmount = dec(item.amount).negated()
+    running = running.plus(signedAmount)
+    detailRows.push([
+      '',
+      '',
+      '',
+      '',
+      labels.outType,
+      item.date,
+      formatReferenceForExport(item.reference_no),
+      item.payee || '',
+      'x',
+      Number(signedAmount),
+      Number(running),
+    ])
+  })
+  detailRows.push(['', '', '', `Total ${labels.clearedOut}`, '', '', '', '', '', Number(dec(report.cleared_out).negated()), Number(running)])
+
+  detailRows.push(['', '', '', `${labels.clearedIn} - ${report.cleared_in_items.length} items`, '', '', '', '', '', '', ''])
+  report.cleared_in_items.forEach((item) => {
+    const signedAmount = dec(item.amount)
+    running = running.plus(signedAmount)
+    detailRows.push([
+      '',
+      '',
+      '',
+      '',
+      labels.inType,
+      item.date,
+      formatReferenceForExport(item.reference_no),
+      item.payee || '',
+      'x',
+      Number(item.amount),
+      Number(running),
+    ])
+  })
+  detailRows.push(['', '', '', `Total ${labels.clearedIn}`, '', '', '', '', '', report.cleared_in, Number(running)])
+  detailRows.push(['', '', 'Total Cleared Transactions', '', '', '', '', '', '', Number(clearedNet), Number(running)])
+  detailRows.push(['Cleared Balance', '', '', '', '', '', '', '', '', Number(clearedNet), Number(clearedBalance)])
+
+  detailRows.push(['', '', 'Uncleared Transactions', '', '', '', '', '', '', '', ''])
+  detailRows.push(['', '', '', `${labels.outstandingOut} - ${report.outstanding_out_items.length} items`, '', '', '', '', '', '', ''])
+  report.outstanding_out_items.forEach((item) => {
+    const signedAmount = dec(item.amount).negated()
+    running = running.plus(signedAmount)
+    detailRows.push([
+      '',
+      '',
+      '',
+      '',
+      labels.outType,
+      item.date,
+      formatReferenceForExport(item.reference_no),
+      item.payee || '',
+      '',
+      Number(signedAmount),
+      Number(running),
+    ])
+  })
+  detailRows.push(['', '', '', `Total ${labels.outstandingOut}`, '', '', '', '', '', Number(dec(report.outstanding_out).negated()), Number(running)])
+
+  detailRows.push(['', '', '', `${labels.inTransit} - ${report.in_transit_items.length} items`, '', '', '', '', '', '', ''])
+  report.in_transit_items.forEach((item) => {
+    const signedAmount = dec(item.amount)
+    running = running.plus(signedAmount)
+    detailRows.push([
+      '',
+      '',
+      '',
+      '',
+      labels.inType,
+      item.date,
+      formatReferenceForExport(item.reference_no),
+      item.payee || '',
+      '',
+      item.amount,
+      Number(running),
+    ])
+  })
+  detailRows.push(['', '', '', `Total ${labels.inTransit}`, '', '', '', '', '', report.in_transit, Number(running)])
+  detailRows.push(['', '', 'Total Uncleared Transactions', '', '', '', '', '', '', Number(unclearedNet), Number(running)])
+  detailRows.push([`Register Balance as of ${report.statement_period_end}`, '', '', '', '', '', '', '', '', Number(registerNet), report.book_balance])
+  detailRows.push(['Ending Balance', '', '', '', '', '', '', '', '', Number(registerNet), report.book_balance])
 
   const wb = XLSX.utils.book_new()
   const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows)
   const detailSheet = XLSX.utils.aoa_to_sheet(detailRows)
 
-  summarySheet['!cols'] = [{ wch: 40 }, { wch: 40 }, { wch: 12 }, { wch: 12 }]
+  summarySheet['!cols'] = [{ wch: 40 }, { wch: 30 }, { wch: 30 }, { wch: 12 }, { wch: 16 }]
   detailSheet['!cols'] = [
     { wch: 30 },
+    { wch: 4 },
+    { wch: 26 },
+    { wch: 30 },
+    { wch: 16 },
     { wch: 12 },
     { wch: 18 },
     { wch: 24 },
-    { wch: 30 },
-    { wch: 22 },
-    { wch: 18 },
+    { wch: 6 },
+    { wch: 14 },
     { wch: 14 },
   ]
 
