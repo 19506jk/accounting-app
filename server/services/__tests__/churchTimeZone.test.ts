@@ -4,7 +4,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { DEFAULT_CHURCH_TIMEZONE } from '../../utils/date.js';
 
-process.env.NODE_ENV = 'development';
 
 dotenv.config();
 

@@ -2,7 +2,6 @@ import dotenv from 'dotenv';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BillAgingReportResponse, BillSummaryResponse } from '@shared/contracts';
 
-process.env.NODE_ENV = 'development';
 
 dotenv.config();
 

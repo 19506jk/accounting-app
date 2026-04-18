@@ -2,7 +2,6 @@ import dotenv from 'dotenv';
 import type { TransactionsQuery } from '@shared/contracts';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-process.env.NODE_ENV = 'development';
 dotenv.config();
 
 let listTransactions: (query: TransactionsQuery) => Promise<unknown>;

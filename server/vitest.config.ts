@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    env: {
+      NODE_ENV: 'test',
+    },
     pool: 'forks',
     poolOptions: {
       forks: {
