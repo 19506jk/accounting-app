@@ -14,7 +14,7 @@ The DonationReceipts subsystem handles **5 routes** and touches: auth.
   `server/routes/donationReceipts.ts`
 - `POST` `/api/donation-receipts/preview` [auth] `[inferred]`
   `server/routes/donationReceipts.ts`
-- `POST` `/api/donation-receipts/generate` [auth] `[inferred]`
+- `POST` `/api/donation-receipts/generate-pdf` [auth] `[inferred]`
   `server/routes/donationReceipts.ts`
 
 ## Source Files

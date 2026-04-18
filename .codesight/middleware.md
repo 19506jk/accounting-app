@@ -6,8 +6,11 @@
 - 03_tax_rates — `server/db/seeds/03_tax_rates.js`
 
 ## auth
+- auth.test — `server/middleware/__tests__/auth.test.ts`
+- roles.test — `server/middleware/__tests__/roles.test.ts`
 - auth — `server/middleware/auth.ts`
 - roles — `server/middleware/roles.ts`
+- auth.test — `server/routes/__tests__/auth.test.ts`
 - auth — `server/routes/auth.ts`
 - authRoutes — `server/index.ts`
 

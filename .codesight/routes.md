@@ -13,9 +13,9 @@
 ## Other Routes
 
 - `GET` `/api/health` [auth, cache] `[inferred]`
-- `GET` `*` [auth, cache] `[inferred]`
-- `POST` `/api/auth/google` [auth, db] `[inferred]`
-- `GET` `/api/auth/me` [auth, db] `[inferred]`
+- `GET` `*` [auth, cache] `[inferred]` ✓
+- `POST` `/api/auth/google` [auth, db] `[inferred]` ✓
+- `GET` `/api/auth/me` [auth, db] `[inferred]` ✓
 - `GET` `/api/bills/summary` [auth, db] `[inferred]`
 - `GET` `/api/bills/reports/aging` [auth, db] `[inferred]`
 - `GET` `/api/bills/:id/available-credits` params(id) [auth, db] `[inferred]`
@@ -35,7 +35,7 @@
 - `POST` `/api/donation-receipts/generate-pdf` [auth] `[inferred]`
 - `POST` `/api/fiscal-periods/investigate` [auth, db] `[inferred]`
 - `POST` `/api/fiscal-periods/close` [auth, db] `[inferred]`
-- `GET` `/api/fiscal-periods` [auth, db] `[inferred]`
+- `GET` `/api/fiscal-periods` [auth, db] `[inferred]` ✓
 - `DELETE` `/api/fiscal-periods/:id/reopen` params(id) [auth, db] `[inferred]`
 - `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db] `[inferred]`
 - `POST` `/api/reconciliations/:id/close` params(id) [auth, db] `[inferred]`
@@ -45,9 +45,9 @@
 - `GET` `/api/reports/trial-balance` [auth] `[inferred]`
 - `GET` `/api/reports/donors/summary` [auth] `[inferred]`
 - `GET` `/api/reports/donors/detail` [auth] `[inferred]`
-- `GET` `/api/settings` [auth, db] `[inferred]`
-- `PUT` `/api/settings` [auth, db] `[inferred]`
-- `GET` `/api/tax-rates` [auth, db] `[inferred]`
+- `GET` `/api/settings` [auth, db] `[inferred]` ✓
+- `PUT` `/api/settings` [auth, db] `[inferred]` ✓
+- `GET` `/api/tax-rates` [auth, db] `[inferred]` ✓
 - `PUT` `/api/tax-rates/:id` params(id) [auth, db] `[inferred]`
 - `PATCH` `/api/tax-rates/:id/toggle` params(id) [auth, db] `[inferred]`
 - `POST` `/api/transactions/import/bill-matches` [auth, db] `[inferred]`

@@ -90,9 +90,9 @@
 - `client/src/utils/errors.ts` — function getErrorMessage: (err, fallback) => string
 - `client/src/utils/parseStatementCsv.ts` — function parseStatementCsv: (file) => Promise<ParseStatementCsvResult>
 - `server/services/bills/billCredits.ts`
-  - function getAvailableCreditsForBill: (id) => Promise<AvailableBillCredit[]>
-  - function unapplyBillCredits: (id, userId) => Promise<
-  - function applyBillCredits: (id, payload, userId) => Promise<
+  - function getAvailableCreditsForBill: (id, executor) => Promise<AvailableBillCredit[]>
+  - function unapplyBillCredits: (id, userId, executor) => Promise<
+  - function applyBillCredits: (id, payload, userId, executor) => Promise<
 - `server/services/bills/billPosting.ts`
   - function getUniqueTaxRateIds: (lineItems) => void
   - function calculateGrossTotalFromLineItems: (lineItems, taxRateMap, TaxRateRow>) => void
@@ -103,7 +103,7 @@
   - function normaliseApplications: (rows) => BillCreditApplication[]
   - function getBillWithLineItems: (billId, executor) => Promise<BillDetail | null>
   - interface ApplicationJoinedRow
-- `server/services/bills/billReports.ts` — function getAgingReport: (asOfDate) => void, function getUnpaidSummary: () => Promise<BillSummaryResponse['summary']>
+- `server/services/bills/billReports.ts` — function getAgingReport: (asOfDate) => void, function getUnpaidSummary: (executor) => Promise<BillSummaryResponse['summary']>
 - `server/services/bills/billSettlement.ts`
   - function getOutstanding: (amount, amountPaid) => void
   - function isSettledOutstanding: (outstanding) => void
@@ -115,6 +115,7 @@
   - function validateBillData: (data, isUpdate) => string[]
   - function resolveTaxRateMap: (lineItems, executor) => Promise<Record<number, TaxRateRow>>
   - function validateLineItemAccounts: (lineItems) => Promise<string[]>
+  - function validateLineItemAccountsWithExecutor: (lineItems, executor?) => Promise<string[]>
 - `server/services/churchTimeZone.ts`
   - function getChurchTimeZone: () => void
   - function setChurchTimeZone: (value?) => void

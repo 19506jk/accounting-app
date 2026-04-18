@@ -2,37 +2,45 @@
 
 > **Navigation aid.** Component inventory and prop signatures extracted via AST. Read the source files before adding props or modifying component logic.
 
-**27 components** (react)
+**35 components** (react)
 
 ## Components
 
-- **App** — `client/src/App.jsx`
-- **DonationReceiptsPdfDocument** — props: receipts — `client/src/components/DonationReceiptsPdfDocument.jsx`
-- **ExpenseBreakdown** — props: lines, lineTotals, expenseAccountOptions, taxRateOptions, onChange, onRemove, errors, readOnly, showGrossColumn, minWidth — `client/src/components/ExpenseBreakdown.jsx`
-- **FullScreenSpinner** — `client/src/components/FullScreenSpinner.jsx`
-- **Layout** — `client/src/components/Layout.jsx`
-- **ProtectedRoute** — `client/src/components/ProtectedRoute.jsx`
-- **RoleGuard** — props: roles, fallback — `client/src/components/RoleGuard.jsx`
-- **SaveTemplateModal** — props: isOpen, onClose, onSave, title, placeholder, Weekly Office Supplies' — `client/src/components/SaveTemplateModal.jsx`
-- **TemplateDropdown** — props: templates, isOpen, onToggle, onLoad, onDelete — `client/src/components/TemplateDropdown.jsx`
+- **App** — `client/src/App.tsx`
+- **ExpenseBreakdown** — props: lines, lineTotals, expenseAccountOptions, taxRateOptions, onChange, onRemove, errors, readOnly, showGrossColumn, minWidth — `client/src/components/ExpenseBreakdown.tsx`
+- **FullScreenSpinner** — `client/src/components/FullScreenSpinner.tsx`
+- **Layout** — `client/src/components/Layout.tsx`
+- **ProtectedRoute** — `client/src/components/ProtectedRoute.tsx`
+- **RoleGuard** — props: roles, fallback — `client/src/components/RoleGuard.tsx`
+- **SaveTemplateModal** — props: isOpen, onClose, onSave, title, placeholder — `client/src/components/SaveTemplateModal.tsx`
+- **TemplateDropdown** — props: templates, isOpen, onToggle, onLoad, onDelete — `client/src/components/TemplateDropdown.tsx`
 - **AuthProvider** — `client/src/context/AuthContext.tsx`
 - **DateProvider** — `client/src/context/DateContext.tsx`
-- **GOOGLE_CLIENT_ID** — `client/src/main.jsx`
-- **Bills** — `client/src/pages/Bills.jsx`
-- **ChartOfAccounts** — `client/src/pages/ChartOfAccounts.jsx`
-- **Contacts** — `client/src/pages/Contacts.jsx`
-- **Dashboard** — `client/src/pages/Dashboard.jsx`
-- **DepositEntry** — `client/src/pages/DepositEntry.jsx`
-- **DonationReceipts** — `client/src/pages/DonationReceipts.jsx`
-- **ExpenseEntry** — `client/src/pages/ExpenseEntry.jsx`
-- **HardCloseWizard** — props: open, onClose, onSuccess — `client/src/pages/HardClose.jsx`
-- **ImportCsv** — `client/src/pages/ImportCsv.jsx`
-- **Login** — `client/src/pages/Login.jsx`
-- **Reconciliation** — `client/src/pages/Reconciliation.jsx`
-- **Reports** — `client/src/pages/Reports.jsx`
-- **Settings** — `client/src/pages/Settings.jsx`
-- **Transactions** — `client/src/pages/Transactions.jsx`
-- **UserManagement** — `client/src/pages/UserManagement.jsx`
+- **GOOGLE_CLIENT_ID** — `client/src/main.tsx`
+- **Bills** — `client/src/pages/Bills.tsx`
+- **ChartOfAccounts** — `client/src/pages/ChartOfAccounts.tsx`
+- **Contacts** — `client/src/pages/Contacts.tsx`
+- **Dashboard** — props: label, value, isLoading, color, sub — `client/src/pages/Dashboard.tsx`
+- **DepositEntry** — `client/src/pages/DepositEntry.tsx`
+- **DonationReceipts** — `client/src/pages/DonationReceipts.tsx`
+- **ExpenseEntry** — `client/src/pages/ExpenseEntry.tsx`
+- **HardCloseWizard** — props: open, onClose, onSuccess — `client/src/pages/HardClose.tsx`
+- **ImportCsv** — `client/src/pages/ImportCsv.tsx`
+- **Login** — `client/src/pages/Login.tsx`
+- **Reconciliation** — props: id, onBack — `client/src/pages/Reconciliation.tsx`
+- **Reports** — `client/src/pages/Reports.tsx`
+- **Settings** — `client/src/pages/Settings.tsx`
+- **Transactions** — props: onClose, onSaved — `client/src/pages/Transactions.tsx`
+- **UserManagement** — `client/src/pages/UserManagement.tsx`
+- **BillForm** — props: bill, onClose, onSaved — `client/src/pages/bills/BillForm.tsx`
+- **BillsTable** — props: bills, isLoading, canEdit, onPay, onRowClick — `client/src/pages/bills/BillsTable.tsx`
+- **PaymentModal** — props: bill, isOpen, onClose, onPaid — `client/src/pages/bills/PaymentModal.tsx`
+- **ImportPreviewTable** — props: rows, selectedRows, suggestionsByRow, offsetOptions, donorOptions, payeeOptions, onSelectedRowsChange, onToggleRow, onOffsetChange, onReferenceChange — `client/src/pages/importCsv/ImportPreviewTable.tsx`
+- **ImportSetupPanel** — props: bankAccountId, fundId, bankAccountOptions, fundOptions, isParsing, parsedRowCount, parseError, parseWarnings, onFileChange, onBankAccountChange — `client/src/pages/importCsv/ImportSetupPanel.tsx`
+- **SplitTransactionModal** — props: isOpen, onClose, onSave, row, defaultFundId, offsetAccountOptions, fundOptions, donorOptions, payeeOptions, expenseAccountOptions — `client/src/pages/importCsv/SplitTransactionModal.tsx`
+- **DiagnosticsPanel** — props: diagnostics, onInvestigate — `client/src/pages/reports/ReportSections.tsx`
+- **PLReport** — props: data — `client/src/pages/reports/reportRenderers.tsx`
+- **DonationReceiptsPdfDocument** — props: receipts — `server/services/donationReceiptPdf.tsx`
 
 ---
 _Back to [overview.md](./overview.md)_
