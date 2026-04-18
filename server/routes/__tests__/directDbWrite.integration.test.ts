@@ -11,6 +11,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
 
 const db = require('../../db') as Knex;
 
+const createdTransactionIds: number[] = [];
 const createdFundIds: number[] = [];
 const createdAccountIds: number[] = [];
 
@@ -30,6 +31,11 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  if (createdTransactionIds.length > 0) {
+    await db('transactions').whereIn('id', createdTransactionIds).delete();
+    createdTransactionIds.length = 0;
+  }
+
   if (createdFundIds.length > 0) {
     await db('funds').whereIn('id', createdFundIds).delete();
     createdFundIds.length = 0;
@@ -70,6 +76,48 @@ function uniqueSuffix() {
   return `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 }
 
+async function createTransaction({
+  date,
+  description,
+  fundId,
+  entries,
+}: {
+  date: string;
+  description: string;
+  fundId: number;
+  entries: Array<{
+    account_id: number;
+    fund_id: number;
+    debit: string;
+    credit: string;
+    memo?: string;
+  }>;
+}) {
+  const [transaction] = await db('transactions')
+    .insert({
+      date,
+      description,
+      reference_no: null,
+      fund_id: fundId,
+      created_by: null,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!transaction) throw new Error('Failed to create route write transaction fixture');
+  createdTransactionIds.push(transaction.id);
+
+  await db('journal_entries').insert(entries.map((entry) => ({
+    ...entry,
+    transaction_id: transaction.id,
+    is_reconciled: false,
+    created_at: db.fn.now(),
+    updated_at: db.fn.now(),
+  })));
+
+  return transaction.id;
+}
+
 describe('direct DB route write integration smoke checks', () => {
   it('creates an account using the development database', async () => {
     const suffix = uniqueSuffix();
@@ -94,10 +142,80 @@ describe('direct DB route write integration smoke checks', () => {
       code: payload.code,
       name: payload.name,
       type: 'EXPENSE',
+      account_class: 'EXPENSE',
+      normal_balance: null,
       is_active: true,
     }));
 
     createdAccountIds.push(res.body.account.id);
+  });
+
+  it('lists inactive accounts only when include_inactive is true', async () => {
+    const suffix = uniqueSuffix();
+    const active = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: '/',
+      method: 'POST',
+      router: accountsRouter,
+      role: 'admin',
+      body: {
+        code: `ITL-A-${suffix}`,
+        name: `Listed Active Account ${suffix}`,
+        type: 'EXPENSE',
+      },
+    });
+    const inactive = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: '/',
+      method: 'POST',
+      router: accountsRouter,
+      role: 'admin',
+      body: {
+        code: `ITL-I-${suffix}`,
+        name: `Listed Inactive Account ${suffix}`,
+        type: 'EXPENSE',
+      },
+    });
+    expect(active.status).toBe(201);
+    expect(inactive.status).toBe(201);
+    createdAccountIds.push(active.body.account.id, inactive.body.account.id);
+
+    const deactivated = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: `/${inactive.body.account.id}`,
+      method: 'PUT',
+      router: accountsRouter,
+      role: 'editor',
+      body: { is_active: false },
+    });
+    expect(deactivated.status).toBe(200);
+
+    const defaultList = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: `/?type=EXPENSE`,
+      method: 'GET',
+      router: accountsRouter,
+      role: 'viewer',
+    });
+    expect(defaultList.status).toBe(200);
+    expect(defaultList.body.accounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: active.body.account.id, is_active: true }),
+    ]));
+    expect(defaultList.body.accounts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: inactive.body.account.id }),
+    ]));
+
+    const inactiveList = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: `/?type=EXPENSE&include_inactive=true`,
+      method: 'GET',
+      router: accountsRouter,
+      role: 'viewer',
+    });
+    expect(inactiveList.status).toBe(200);
+    expect(inactiveList.body.accounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: inactive.body.account.id, is_active: false }),
+    ]));
   });
 
   it('creates a fund and linked equity account using the development database', async () => {
@@ -199,6 +317,46 @@ describe('direct DB route write integration smoke checks', () => {
     }));
   });
 
+  it('preserves provided normal balance on create and clears it with null on update', async () => {
+    const suffix = uniqueSuffix();
+    const created = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: '/',
+      method: 'POST',
+      router: accountsRouter,
+      role: 'admin',
+      body: {
+        code: `ITNB-${suffix}`,
+        name: `Normal Balance Account ${suffix}`,
+        type: 'ASSET',
+        normal_balance: 'debit',
+      },
+    });
+
+    expect(created.status).toBe(201);
+    const accountId = created.body.account.id as number;
+    createdAccountIds.push(accountId);
+    expect(created.body.account).toEqual(expect.objectContaining({
+      id: accountId,
+      normal_balance: 'DEBIT',
+    }));
+
+    const cleared = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: `/${accountId}`,
+      method: 'PUT',
+      router: accountsRouter,
+      role: 'editor',
+      body: { normal_balance: null },
+    });
+
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.account).toEqual(expect.objectContaining({
+      id: accountId,
+      normal_balance: null,
+    }));
+  });
+
   it('updates a fund and linked equity account using the development database', async () => {
     const suffix = uniqueSuffix();
     const createPayload = {
@@ -275,6 +433,77 @@ describe('direct DB route write integration smoke checks', () => {
     }));
   });
 
+  it('rejects account type changes when journal entry history exists', async () => {
+    const suffix = uniqueSuffix();
+    const created = await requestRoute({
+      mountPath: '/api/funds',
+      probePath: '/',
+      method: 'POST',
+      router: fundsRouter,
+      role: 'admin',
+      body: {
+        name: `Account History Fund ${suffix}`,
+        description: 'Account history test fund',
+        code: `ITHF-${suffix}`,
+      },
+    });
+    expect(created.status).toBe(201);
+    const fundId = created.body.fund.id as number;
+    const equityAccountId = created.body.equityAccount.id as number;
+    createdFundIds.push(fundId);
+    createdAccountIds.push(equityAccountId);
+
+    const expense = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: '/',
+      method: 'POST',
+      router: accountsRouter,
+      role: 'admin',
+      body: {
+        code: `ITHA-${suffix}`,
+        name: `History Account ${suffix}`,
+        type: 'EXPENSE',
+      },
+    });
+    expect(expense.status).toBe(201);
+    const expenseAccountId = expense.body.account.id as number;
+    createdAccountIds.push(expenseAccountId);
+
+    await createTransaction({
+      date: '2026-04-01',
+      description: `Account History Transaction ${suffix}`,
+      fundId,
+      entries: [
+        {
+          account_id: expenseAccountId,
+          fund_id: fundId,
+          debit: '5.00',
+          credit: '0.00',
+        },
+        {
+          account_id: equityAccountId,
+          fund_id: fundId,
+          debit: '0.00',
+          credit: '5.00',
+        },
+      ],
+    });
+
+    const rejected = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: `/${expenseAccountId}`,
+      method: 'PUT',
+      router: accountsRouter,
+      role: 'editor',
+      body: { type: 'ASSET' },
+    });
+
+    expect(rejected.status).toBe(409);
+    expect(rejected.body).toEqual({
+      error: 'Cannot change account type — this account has transaction history.',
+    });
+  });
+
   it('deactivates an account through delete route when no transaction history exists', async () => {
     const suffix = uniqueSuffix();
     const createPayload = {
@@ -347,6 +576,147 @@ describe('direct DB route write integration smoke checks', () => {
 
     const stored = await db('funds').where({ id: fundId }).first() as { is_active: boolean } | undefined;
     expect(stored?.is_active).toBe(false);
+  });
+
+  it('rejects fund delete when transaction history exists', async () => {
+    const suffix = uniqueSuffix();
+    const created = await requestRoute({
+      mountPath: '/api/funds',
+      probePath: '/',
+      method: 'POST',
+      router: fundsRouter,
+      role: 'admin',
+      body: {
+        name: `History Fund ${suffix}`,
+        description: 'Integration history delete test fund',
+        code: `ITDH-${suffix}`,
+      },
+    });
+
+    expect(created.status).toBe(201);
+    const fundId = created.body.fund.id as number;
+    const equityAccountId = created.body.equityAccount.id as number;
+    createdFundIds.push(fundId);
+    createdAccountIds.push(equityAccountId);
+
+    const expense = await requestRoute({
+      mountPath: '/api/accounts',
+      probePath: '/',
+      method: 'POST',
+      router: accountsRouter,
+      role: 'admin',
+      body: {
+        code: `ITDHE-${suffix}`,
+        name: `History Expense ${suffix}`,
+        type: 'EXPENSE',
+      },
+    });
+    expect(expense.status).toBe(201);
+    const expenseAccountId = expense.body.account.id as number;
+    createdAccountIds.push(expenseAccountId);
+
+    await createTransaction({
+      date: '2026-04-02',
+      description: `Fund History Transaction ${suffix}`,
+      fundId,
+      entries: [
+        {
+          account_id: expenseAccountId,
+          fund_id: fundId,
+          debit: '7.00',
+          credit: '0.00',
+        },
+        {
+          account_id: equityAccountId,
+          fund_id: fundId,
+          debit: '0.00',
+          credit: '7.00',
+        },
+      ],
+    });
+
+    const rejected = await requestRoute({
+      mountPath: '/api/funds',
+      probePath: `/${fundId}`,
+      method: 'DELETE',
+      router: fundsRouter,
+      role: 'admin',
+    });
+
+    expect(rejected.status).toBe(409);
+    expect(rejected.body).toEqual({
+      error: 'Fund has transaction history and cannot be deactivated. Set it to inactive manually if needed.',
+    });
+  });
+
+  it('rejects fund delete when equity entries leave a non-zero balance', async () => {
+    const suffix = uniqueSuffix();
+    const target = await requestRoute({
+      mountPath: '/api/funds',
+      probePath: '/',
+      method: 'POST',
+      router: fundsRouter,
+      role: 'admin',
+      body: {
+        name: `Balance Fund ${suffix}`,
+        description: 'Integration balance delete test fund',
+        code: `ITDB-${suffix}`,
+      },
+    });
+    const host = await requestRoute({
+      mountPath: '/api/funds',
+      probePath: '/',
+      method: 'POST',
+      router: fundsRouter,
+      role: 'admin',
+      body: {
+        name: `Balance Host Fund ${suffix}`,
+        description: 'Integration balance host fund',
+        code: `ITDBH-${suffix}`,
+      },
+    });
+
+    expect(target.status).toBe(201);
+    expect(host.status).toBe(201);
+    const targetFundId = target.body.fund.id as number;
+    const targetEquityAccountId = target.body.equityAccount.id as number;
+    const hostFundId = host.body.fund.id as number;
+    const hostEquityAccountId = host.body.equityAccount.id as number;
+    createdFundIds.push(targetFundId, hostFundId);
+    createdAccountIds.push(targetEquityAccountId, hostEquityAccountId);
+
+    await createTransaction({
+      date: '2026-04-03',
+      description: `Fund Balance Transaction ${suffix}`,
+      fundId: hostFundId,
+      entries: [
+        {
+          account_id: hostEquityAccountId,
+          fund_id: hostFundId,
+          debit: '20.00',
+          credit: '0.00',
+        },
+        {
+          account_id: targetEquityAccountId,
+          fund_id: targetFundId,
+          debit: '0.00',
+          credit: '20.00',
+        },
+      ],
+    });
+
+    const rejected = await requestRoute({
+      mountPath: '/api/funds',
+      probePath: `/${targetFundId}`,
+      method: 'DELETE',
+      router: fundsRouter,
+      role: 'admin',
+    });
+
+    expect(rejected.status).toBe(409);
+    expect(rejected.body).toEqual({
+      error: 'Fund still carries a balance of $20.00. Zero it out before deactivating.',
+    });
   });
 
   it('rejects account create when required fields are missing', async () => {

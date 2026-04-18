@@ -206,7 +206,56 @@ async function createDonationFixture() {
 }
 
 describe('direct DB contact donation integration smoke checks', () => {
-  it('returns donor donations, summary, receipt, and bulk receipt from the development database', async () => {
+  it('returns an empty bulk receipt list when no donors have donations in the year', async () => {
+    const bulk = await requestRoute({
+      probePath: '/receipts/bulk?year=1901',
+      role: 'admin',
+    });
+
+    expect(bulk.status).toBe(200);
+    expect(bulk.body).toEqual(expect.objectContaining({
+      year: 1901,
+      count: 0,
+      receipts: [],
+    }));
+  });
+
+  it('returns bulk receipt data for donors with donations in the requested year', async () => {
+    const fixture = await createDonationFixture();
+
+    const bulk = await requestRoute({
+      probePath: `/receipts/bulk?year=${fixture.year}`,
+      role: 'admin',
+    });
+
+    expect(bulk.status).toBe(200);
+    expect(bulk.body).toEqual(expect.objectContaining({
+      year: fixture.year,
+      count: expect.any(Number),
+      receipts: expect.arrayContaining([
+        expect.objectContaining({
+          donor: expect.objectContaining({
+            id: fixture.contact.id,
+            name: fixture.contact.name,
+            donor_id: fixture.contact.donor_id,
+          }),
+          year: fixture.year,
+          total: 40,
+          eligible_amount: 40,
+          donations: [
+            expect.objectContaining({
+              date: expect.any(String),
+              description: fixture.transaction.description,
+              account_name: fixture.incomeAccount.name,
+              amount: 40,
+            }),
+          ],
+        }),
+      ]),
+    }));
+  });
+
+  it('returns donor donations, summary, and receipt from the development database', async () => {
     const fixture = await createDonationFixture();
 
     const donations = await requestRoute({
@@ -274,35 +323,5 @@ describe('direct DB contact donation integration smoke checks', () => {
       ],
     }));
 
-    const bulk = await requestRoute({
-      probePath: `/receipts/bulk?year=${fixture.year}`,
-      role: 'admin',
-    });
-
-    expect(bulk.status).toBe(200);
-    expect(bulk.body).toEqual(expect.objectContaining({
-      year: fixture.year,
-      count: expect.any(Number),
-      receipts: expect.arrayContaining([
-        expect.objectContaining({
-          donor: expect.objectContaining({
-            id: fixture.contact.id,
-            name: fixture.contact.name,
-            donor_id: fixture.contact.donor_id,
-          }),
-          year: fixture.year,
-          total: 40,
-          eligible_amount: 40,
-          donations: [
-            expect.objectContaining({
-              date: expect.any(String),
-              description: fixture.transaction.description,
-              account_name: fixture.incomeAccount.name,
-              amount: 40,
-            }),
-          ],
-        }),
-      ]),
-    }));
   });
 });
