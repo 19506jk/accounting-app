@@ -60,10 +60,10 @@ let donationReceiptsRouter: express.Router;
 
 beforeAll(async () => {
   const [billsModule, transactionsModule, reportsModule, donationReceiptsModule] = await Promise.all([
-    import('./bills.js'),
-    import('./transactions.js'),
-    import('./reports.js'),
-    import('./donationReceipts.js'),
+    import('../bills.js'),
+    import('../transactions.js'),
+    import('../reports.js'),
+    import('../donationReceipts.js'),
   ]);
   billsRouter = billsModule.default as unknown as express.Router;
   transactionsRouter = transactionsModule.default as unknown as express.Router;

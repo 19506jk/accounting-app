@@ -2,14 +2,14 @@ import dotenv from 'dotenv';
 import type { Router } from 'express';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Knex } from 'knex';
-import { requestMountedRoute } from './routeTestHelpers.js';
+import { requestMountedRoute } from '../routeTestHelpers.js';
 
 process.env.NODE_ENV = 'development';
 
 dotenv.config();
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
 
-const db = require('../db') as Knex;
+const db = require('../../db') as Knex;
 
 const createdFiscalPeriodIds: number[] = [];
 const createdTransactionIds: number[] = [];
@@ -21,7 +21,7 @@ let fiscalPeriodsRouter: Router;
 beforeAll(async () => {
   await db.raw('select 1');
 
-  const fiscalPeriodsModule = await import('./fiscalPeriods.js');
+  const fiscalPeriodsModule = await import('../fiscalPeriods.js');
   fiscalPeriodsRouter = fiscalPeriodsModule.default as unknown as Router;
 });
 

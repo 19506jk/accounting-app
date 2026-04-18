@@ -2,23 +2,23 @@ import dotenv from 'dotenv';
 import type { Knex } from 'knex';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CHURCH_TIMEZONE } from '../utils/date.js';
+import { DEFAULT_CHURCH_TIMEZONE } from '../../utils/date.js';
 
 process.env.NODE_ENV = 'development';
 
 dotenv.config();
 
-const db = require('../db') as Knex;
+const db = require('../../db') as Knex;
 
 const SETTING_KEY = 'church_timezone';
 
-let getChurchTimeZone: typeof import('./churchTimeZone.js').getChurchTimeZone;
-let setChurchTimeZone: typeof import('./churchTimeZone.js').setChurchTimeZone;
-let initializeChurchTimeZoneCache: typeof import('./churchTimeZone.js').initializeChurchTimeZoneCache;
+let getChurchTimeZone: typeof import('../churchTimeZone.js').getChurchTimeZone;
+let setChurchTimeZone: typeof import('../churchTimeZone.js').setChurchTimeZone;
+let initializeChurchTimeZoneCache: typeof import('../churchTimeZone.js').initializeChurchTimeZoneCache;
 let originalSetting: { value: string | null; label: string } | null = null;
 
 beforeAll(async () => {
-  const service = await import('./churchTimeZone.js');
+  const service = await import('../churchTimeZone.js');
   getChurchTimeZone = service.getChurchTimeZone;
   setChurchTimeZone = service.setChurchTimeZone;
   initializeChurchTimeZoneCache = service.initializeChurchTimeZoneCache;

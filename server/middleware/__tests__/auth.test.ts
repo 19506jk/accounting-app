@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import auth from './auth';
+import auth from '../auth';
 
 function createResponse() {
   return {

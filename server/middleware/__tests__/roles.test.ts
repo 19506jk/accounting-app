@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
 
-import requireRole from './roles';
+import requireRole from '../roles';
 
 function createResponse() {
   return {

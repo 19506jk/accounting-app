@@ -2,14 +2,14 @@ import dotenv from 'dotenv';
 import type { Router } from 'express';
 import type { Knex } from 'knex';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { requestMountedRoute } from './routeTestHelpers.js';
+import { requestMountedRoute } from '../routeTestHelpers.js';
 
 process.env.NODE_ENV = 'development';
 
 dotenv.config();
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
 
-const db = require('../db') as Knex;
+const db = require('../../db') as Knex;
 
 const createdFundIds: number[] = [];
 const createdAccountIds: number[] = [];
@@ -21,8 +21,8 @@ beforeAll(async () => {
   await db.raw('select 1');
 
   const [accountsModule, fundsModule] = await Promise.all([
-    import('./accounts.js'),
-    import('./funds.js'),
+    import('../accounts.js'),
+    import('../funds.js'),
   ]);
 
   accountsRouter = accountsModule.default as unknown as Router;

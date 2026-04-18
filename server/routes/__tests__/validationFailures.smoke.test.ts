@@ -9,7 +9,7 @@ process.env.DB_PASS = process.env.DB_PASS || 'test_pass';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
 process.env.GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'google-client-id';
 
-vi.mock('../services/donationReceipts.js', () => ({
+vi.mock('../../services/donationReceipts.js', () => ({
   getReceiptAccounts: vi.fn(),
   getReceiptTemplate: vi.fn(),
   saveReceiptTemplate: vi.fn(),
@@ -47,17 +47,17 @@ beforeAll(async () => {
     taxRatesRouter,
     usersRouter,
   ] = await Promise.all([
-    import('./accounts.js'),
-    import('./bills.js'),
-    import('./contacts.js'),
-    import('./donationReceipts.js'),
-    import('./fiscalPeriods.js'),
-    import('./funds.js'),
-    import('./reconciliation.js'),
-    import('./reports.js'),
-    import('./settings.js'),
-    import('./taxRates.js'),
-    import('./users.js'),
+    import('../accounts.js'),
+    import('../bills.js'),
+    import('../contacts.js'),
+    import('../donationReceipts.js'),
+    import('../fiscalPeriods.js'),
+    import('../funds.js'),
+    import('../reconciliation.js'),
+    import('../reports.js'),
+    import('../settings.js'),
+    import('../taxRates.js'),
+    import('../users.js'),
   ]);
 
   routeCases.push(

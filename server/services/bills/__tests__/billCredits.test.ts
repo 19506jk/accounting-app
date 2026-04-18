@@ -5,12 +5,12 @@ process.env.NODE_ENV = 'development';
 
 dotenv.config();
 
-let applyBillCredits: typeof import('./billCredits.js').applyBillCredits;
-let unapplyBillCredits: typeof import('./billCredits.js').unapplyBillCredits;
-let getAvailableCreditsForBill: typeof import('./billCredits.js').getAvailableCreditsForBill;
+let applyBillCredits: typeof import('../billCredits.js').applyBillCredits;
+let unapplyBillCredits: typeof import('../billCredits.js').unapplyBillCredits;
+let getAvailableCreditsForBill: typeof import('../billCredits.js').getAvailableCreditsForBill;
 
 beforeAll(async () => {
-  const billCredits = await import('./billCredits.js');
+  const billCredits = await import('../billCredits.js');
   applyBillCredits = billCredits.applyBillCredits;
   unapplyBillCredits = billCredits.unapplyBillCredits;
   getAvailableCreditsForBill = billCredits.getAvailableCreditsForBill;

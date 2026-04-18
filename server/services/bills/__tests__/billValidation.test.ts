@@ -4,7 +4,7 @@ import {
   resolveTaxRateMap,
   validateBillData,
   validateLineItemAccountsWithExecutor,
-} from './billValidation';
+} from '../billValidation';
 
 describe('validateBillData', () => {
   it('accepts a complete bill payload', () => {

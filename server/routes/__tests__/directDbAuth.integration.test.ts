@@ -3,7 +3,7 @@ import type { Router } from 'express';
 import type { Knex } from 'knex';
 import jwt from 'jsonwebtoken';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { requestMountedRoute } from './routeTestHelpers.js';
+import { requestMountedRoute } from '../routeTestHelpers.js';
 
 process.env.NODE_ENV = 'development';
 
@@ -19,7 +19,7 @@ vi.mock('google-auth-library', () => ({
   })),
 }));
 
-const db = require('../db') as Knex;
+const db = require('../../db') as Knex;
 
 const createdUserIds: number[] = [];
 
@@ -30,7 +30,7 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 beforeAll(async () => {
   await db.raw('select 1');
 
-  const authModule = await import('./auth.js');
+  const authModule = await import('../auth.js');
   authRouter = authModule.default as unknown as Router;
 });
 

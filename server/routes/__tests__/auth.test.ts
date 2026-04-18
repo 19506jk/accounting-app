@@ -18,7 +18,7 @@ vi.mock('../middleware/auth.js', () => ((req: express.Request, _res: express.Res
 let authRouter: express.Router;
 
 beforeAll(async () => {
-  const mod = await import('./auth.js');
+  const mod = await import('../auth.js');
   authRouter = mod.default as unknown as express.Router;
 });
 

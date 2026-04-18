@@ -7,7 +7,7 @@ import {
   getOutstanding,
   isSettledOutstanding,
   toBillStatus,
-} from './billSettlement';
+} from '../billSettlement';
 
 describe('billSettlement helpers', () => {
   it('marks bill as paid when outstanding amount is within tolerance', () => {

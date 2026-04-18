@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { BillDetail } from '@shared/contracts';
 
-import type { ApplicationJoinedRow } from './billReadModel.js';
+import type { ApplicationJoinedRow } from '../billReadModel.js';
 
 process.env.NODE_ENV = 'development';
 
@@ -15,7 +15,7 @@ let getBillWithLineItems: (
 let normaliseApplications: (rows: ApplicationJoinedRow[]) => unknown;
 
 beforeAll(async () => {
-  const billReadModel = await import('./billReadModel.js');
+  const billReadModel = await import('../billReadModel.js');
   getBillWithLineItems = billReadModel.getBillWithLineItems;
   normaliseApplications = billReadModel.normaliseApplications;
 });

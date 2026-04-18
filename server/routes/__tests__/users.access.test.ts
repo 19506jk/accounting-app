@@ -10,7 +10,7 @@ process.env.DB_PASS = process.env.DB_PASS || 'test_pass';
 let usersRouter: express.Router;
 
 beforeAll(async () => {
-  const mod = await import('./users.js');
+  const mod = await import('../users.js');
   usersRouter = mod.default as unknown as express.Router;
 });
 

@@ -2,14 +2,14 @@ import dotenv from 'dotenv';
 import type { Router } from 'express';
 import type { Knex } from 'knex';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { requestMountedRoute } from './routeTestHelpers.js';
+import { requestMountedRoute } from '../routeTestHelpers.js';
 
 process.env.NODE_ENV = 'development';
 
 dotenv.config();
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
 
-const db = require('../db') as Knex;
+const db = require('../../db') as Knex;
 
 vi.mock('../services/donationReceiptPdf.js', () => ({
   renderDonationReceiptsPdfBase64: vi.fn().mockResolvedValue('JVBERi0='),
@@ -25,7 +25,7 @@ let donationReceiptsRouter: Router;
 beforeAll(async () => {
   await db.raw('select 1');
 
-  const donationReceiptsModule = await import('./donationReceipts.js');
+  const donationReceiptsModule = await import('../donationReceipts.js');
   donationReceiptsRouter = donationReceiptsModule.default as unknown as Router;
 });
 

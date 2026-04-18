@@ -9,7 +9,7 @@ import {
   normalizeDateOnly,
   parseDateOnlyStrict,
   toUtcIsoString,
-} from './date.js';
+} from '../date.js';
 
 describe('date utilities', () => {
   it('strictly validates date-only strings', () => {

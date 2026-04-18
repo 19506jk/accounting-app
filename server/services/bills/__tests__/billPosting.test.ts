@@ -4,7 +4,7 @@ import {
   calculateGrossTotalFromLineItems,
   createMultiLineJournalEntries,
   getUniqueTaxRateIds,
-} from './billPosting';
+} from '../billPosting';
 
 describe('billPosting pure helpers', () => {
   it('deduplicates truthy tax rate ids in line item order', () => {

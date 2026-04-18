@@ -4,7 +4,7 @@ import {
   acquireHardCloseLock,
   assertNotClosedPeriod,
   HARD_CLOSE_LOCK_KEY,
-} from './hardCloseGuard.js';
+} from '../hardCloseGuard.js';
 
 describe('hardCloseGuard', () => {
   it('acquires advisory transaction lock', async () => {

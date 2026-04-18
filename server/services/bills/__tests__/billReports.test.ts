@@ -15,7 +15,7 @@ const dbMock = vi.fn() as any;
 dbMock.raw = vi.fn((sql: string) => ({ sql }));
 
 beforeAll(async () => {
-  const billReports = await import('./billReports.js');
+  const billReports = await import('../billReports.js');
   getAgingReport = billReports.getAgingReport;
   getUnpaidSummary = billReports.getUnpaidSummary;
 });
