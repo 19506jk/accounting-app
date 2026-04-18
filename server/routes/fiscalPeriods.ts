@@ -10,6 +10,7 @@ import type {
   HardCloseInvestigateResponse,
   HardClosePreflightResult,
   HardCloseProFormaLine,
+  HardCloseUnreconciledAccount,
 } from '@shared/contracts';
 import { getChurchToday, normalizeDateOnly } from '../utils/date.js';
 import { getChurchTimeZone } from '../services/churchTimeZone.js';
@@ -198,17 +199,25 @@ async function getPreflight(executor: Executor, periodStart: string, periodEnd: 
     .where('t.date', '>=', periodStart)
     .where('t.date', '<=', periodEnd)
     .where('a.type', 'ASSET')
-    .distinct('a.id') as Array<{ id: number }>;
+    .distinct('a.id', 'a.code', 'a.name')
+    .orderBy('a.code', 'asc') as Array<{ id: number; code: string; name: string }>;
 
-  let allAssetAccountsReconciled = true;
+  const unreconciledAccounts: HardCloseUnreconciledAccount[] = [];
   for (const account of assetAccounts) {
     const reconciliation = await executor('reconciliations')
       .where({ account_id: account.id, is_closed: true })
-      .where('statement_date', '>=', periodEnd)
-      .first() as { id: number } | undefined;
-    if (!reconciliation) {
-      allAssetAccountsReconciled = false;
-      break;
+      .orderBy('statement_date', 'desc')
+      .select('statement_date')
+      .first() as { statement_date: string | Date } | undefined;
+    const latestClosedDate = reconciliation ? normalizeDateOnly(reconciliation.statement_date) : null;
+    if (!latestClosedDate || latestClosedDate < periodEnd) {
+      unreconciledAccounts.push({
+        account_id: account.id,
+        account_code: account.code,
+        account_name: account.name,
+        required_through_date: periodEnd,
+        latest_closed_statement_date: latestClosedDate,
+      });
     }
   }
 
@@ -219,7 +228,8 @@ async function getPreflight(executor: Executor, periodStart: string, periodEnd: 
   return {
     trial_balance_plugs: dec(total?.total_debit).equals(dec(total?.total_credit)),
     per_fund_balanced: fundTotals.every((row) => dec(row.total_debit).equals(dec(row.total_credit))),
-    all_asset_accounts_reconciled: allAssetAccountsReconciled,
+    all_asset_accounts_reconciled: unreconciledAccounts.length === 0,
+    unreconciled_accounts: unreconciledAccounts,
     no_unmapped_funds: noUnmappedFunds,
   };
 }
@@ -305,11 +315,16 @@ async function investigateHardClose(executor: Executor): Promise<HardCloseInvest
   };
 }
 
-function assertPreflightPasses(preflight: HardClosePreflightResult) {
+function assertPreflightPasses(preflight: HardClosePreflightResult, periodEnd: string) {
   const failures: string[] = [];
   if (!preflight.trial_balance_plugs) failures.push('Trial balance does not plug for the period.');
   if (!preflight.per_fund_balanced) failures.push('One or more funds are not balanced for the period.');
-  if (!preflight.all_asset_accounts_reconciled) failures.push('One or more asset accounts are not reconciled through period end.');
+  if (!preflight.all_asset_accounts_reconciled) {
+    const accountList = preflight.unreconciled_accounts
+      .map((account) => `${account.account_code} - ${account.account_name}`)
+      .join(', ');
+    failures.push(`Asset accounts not reconciled through ${periodEnd}: ${accountList}.`);
+  }
   if (!preflight.no_unmapped_funds) failures.push('One or more funds with income/expense activity have no net-asset account mapping.');
 
   if (failures.length > 0) {
@@ -345,7 +360,7 @@ router.post(
       const result = await db.transaction(async (trx) => {
         await acquireHardCloseLock(trx);
         const investigation = await investigateHardClose(trx);
-        assertPreflightPasses(investigation.preflight);
+        assertPreflightPasses(investigation.preflight, investigation.period_end);
         assertProFormaBalanced(investigation.pro_forma_lines);
 
         const primaryFundId = investigation.pro_forma_lines[0]?.fund_id ?? null;

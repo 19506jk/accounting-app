@@ -918,10 +918,19 @@ export interface HardCloseProFormaLine {
   credit: number;
 }
 
+export interface HardCloseUnreconciledAccount {
+  account_id: number;
+  account_code: string;
+  account_name: string;
+  required_through_date: string;
+  latest_closed_statement_date: string | null;
+}
+
 export interface HardClosePreflightResult {
   trial_balance_plugs: boolean;
   per_fund_balanced: boolean;
   all_asset_accounts_reconciled: boolean;
+  unreconciled_accounts: HardCloseUnreconciledAccount[];
   no_unmapped_funds: boolean;
 }
 

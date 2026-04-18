@@ -176,7 +176,19 @@ export default function HardCloseWizard({ open, onClose, onSuccess }: HardCloseW
             <div>
               <ChecklistItem passed={data.preflight.trial_balance_plugs}>Trial balance is in balance across the period</ChecklistItem>
               <ChecklistItem passed={data.preflight.per_fund_balanced}>All funds individually balance</ChecklistItem>
-              <ChecklistItem passed={data.preflight.all_asset_accounts_reconciled}>All asset accounts reconciled through period end</ChecklistItem>
+              <ChecklistItem passed={data.preflight.all_asset_accounts_reconciled}>All asset accounts reconciled through {data.period_end}</ChecklistItem>
+              {!data.preflight.all_asset_accounts_reconciled && data.preflight.unreconciled_accounts.length > 0 && (
+                <div style={{ marginTop: '0.35rem', marginBottom: '0.55rem', marginLeft: '1.95rem', fontSize: '0.82rem', color: '#991b1b' }}>
+                  {data.preflight.unreconciled_accounts.map((account) => (
+                    <div key={account.account_id} style={{ marginBottom: '0.35rem' }}>
+                      <div>{account.account_code} - {account.account_name}</div>
+                      <div style={{ color: '#7f1d1d' }}>
+                        Latest closed: {account.latest_closed_statement_date || 'none'} | Required through: {account.required_through_date}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <ChecklistItem passed={data.preflight.no_unmapped_funds}>All funds have a net-asset account mapping</ChecklistItem>
 
               {!data.preflight.no_unmapped_funds && (
