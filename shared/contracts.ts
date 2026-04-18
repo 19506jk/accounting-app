@@ -427,6 +427,51 @@ export interface CloseReconciliationResponse {
   summary: ReconciliationSummaryCounts;
 }
 
+export interface ReconciliationReportItem {
+  date: string;
+  reference_no: string | null;
+  payee: string | null;
+  description: string;
+  memo: string | null;
+  amount: number;
+  fund_name: string;
+}
+
+export interface ReconciliationFundActivity {
+  fund_name: string;
+  net_activity: number;
+}
+
+export interface ReconciliationReport {
+  account_name: string;
+  account_code: string;
+  account_type: 'ASSET' | 'LIABILITY';
+  is_closed: boolean;
+  status: ReconciliationStatus;
+  statement_period_start: string | null;
+  statement_period_end: string;
+  reconciliation_date: string;
+  reconciler_name: string | null;
+  opening_balance: number;
+  cleared_in: number;
+  cleared_out: number;
+  statement_ending_balance: number;
+  in_transit: number;
+  outstanding_out: number;
+  adjusted_bank_balance: number;
+  book_balance: number;
+  difference: number;
+  cleared_in_items: ReconciliationReportItem[];
+  cleared_out_items: ReconciliationReportItem[];
+  in_transit_items: ReconciliationReportItem[];
+  outstanding_out_items: ReconciliationReportItem[];
+  fund_activity: ReconciliationFundActivity[];
+}
+
+export interface ReconciliationReportResponse {
+  report: ReconciliationReport;
+}
+
 export type ContactType = 'DONOR' | 'PAYEE' | 'BOTH';
 export type ContactClass = 'INDIVIDUAL' | 'HOUSEHOLD';
 

@@ -11,6 +11,9 @@ import type {
   LedgerReportData,
   NormalBalanceSide,
   PLReportData,
+  ReconciliationReport,
+  ReconciliationReportItem,
+  ReconciliationStatus,
   ReportDiagnostic,
   TrialBalanceReportData,
 } from '@shared/contracts';
@@ -131,6 +134,32 @@ interface ContactRow {
   name: string;
   contact_class: 'INDIVIDUAL' | 'HOUSEHOLD';
   donor_id: string | null;
+}
+
+interface ReconciliationHeaderRow {
+  id: number;
+  account_id: number;
+  account_name: string;
+  account_code: string;
+  account_type: 'ASSET' | 'LIABILITY';
+  statement_date: string | Date;
+  statement_balance: Numeric;
+  opening_balance: Numeric;
+  is_closed: boolean;
+  created_at: string | Date;
+  reconciler_name: string | null;
+}
+
+interface ReconciliationItemRow {
+  is_cleared: boolean;
+  date: string | Date;
+  reference_no: string | null;
+  payee: string | null;
+  description: string;
+  memo: string | null;
+  fund_name: string;
+  debit: Numeric;
+  credit: Numeric;
 }
 
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
@@ -1076,6 +1105,146 @@ async function getDonorDetail({ from, to, fundId, contactId, accountIds }: Donor
   };
 }
 
+async function buildReconciliationReport(id: number | string): Promise<ReconciliationReport | null> {
+  const header = await db('reconciliations as r')
+    .join('accounts as a', 'a.id', 'r.account_id')
+    .leftJoin('users as u', 'u.id', 'r.created_by')
+    .where('r.id', id)
+    .select(
+      'r.id',
+      'r.account_id',
+      'a.name as account_name',
+      'a.code as account_code',
+      'a.type as account_type',
+      'r.statement_date',
+      'r.statement_balance',
+      'r.opening_balance',
+      'r.is_closed',
+      'r.created_at',
+      'u.name as reconciler_name'
+    )
+    .first() as ReconciliationHeaderRow | undefined;
+
+  if (!header) return null;
+
+  const items = await db('rec_items as ri')
+    .join('journal_entries as je', 'je.id', 'ri.journal_entry_id')
+    .join('transactions as t', 't.id', 'je.transaction_id')
+    .join('funds as f', 'f.id', 'je.fund_id')
+    .leftJoin('contacts as c', 'c.id', 'je.contact_id')
+    .where('ri.reconciliation_id', id)
+    .select(
+      'ri.is_cleared',
+      't.date',
+      't.reference_no',
+      'c.name as payee',
+      't.description',
+      'je.memo',
+      'f.name as fund_name',
+      'je.debit',
+      'je.credit'
+    )
+    .orderBy('t.date', 'asc')
+    .orderBy('je.id', 'asc') as ReconciliationItemRow[];
+
+  const previous = await db('reconciliations')
+    .where('account_id', header.account_id)
+    .where('is_closed', true)
+    .where('statement_date', '<', header.statement_date)
+    .orderBy('statement_date', 'desc')
+    .select('statement_date')
+    .first() as { statement_date: string | Date } | undefined;
+
+  const isAsset = header.account_type === 'ASSET';
+  const openingBalance = dec(header.opening_balance);
+  const statementEndingBalance = dec(header.statement_balance);
+
+  let clearedIn = dec(0);
+  let clearedOut = dec(0);
+  let inTransit = dec(0);
+  let outstandingOut = dec(0);
+
+  const clearedInItems: ReconciliationReportItem[] = [];
+  const clearedOutItems: ReconciliationReportItem[] = [];
+  const inTransitItems: ReconciliationReportItem[] = [];
+  const outstandingOutItems: ReconciliationReportItem[] = [];
+  const fundActivityByName = new Map<string, Decimal>();
+
+  for (const item of items) {
+    const debit = dec(item.debit);
+    const credit = dec(item.credit);
+    if (debit.isZero() && credit.isZero()) continue;
+    const amountIn = isAsset ? debit : credit;
+    const amountOut = isAsset ? credit : debit;
+    const isIn = amountIn.greaterThan(0);
+    const amount = isIn ? amountIn : amountOut;
+
+    const normalizedItem: ReconciliationReportItem = {
+      date: asDateString(item.date),
+      reference_no: item.reference_no,
+      payee: item.payee,
+      description: item.description,
+      memo: item.memo,
+      amount: parseFloat(amount.toFixed(2)),
+      fund_name: item.fund_name,
+    };
+
+    if (item.is_cleared) {
+      if (isIn) {
+        clearedIn = clearedIn.plus(amount);
+        clearedInItems.push(normalizedItem);
+      } else {
+        clearedOut = clearedOut.plus(amount);
+        clearedOutItems.push(normalizedItem);
+      }
+    } else if (isIn) {
+      inTransit = inTransit.plus(amount);
+      inTransitItems.push(normalizedItem);
+    } else {
+      outstandingOut = outstandingOut.plus(amount);
+      outstandingOutItems.push(normalizedItem);
+    }
+
+    const signedFundActivity = isAsset ? debit.minus(credit) : credit.minus(debit);
+    fundActivityByName.set(item.fund_name, (fundActivityByName.get(item.fund_name) || dec(0)).plus(signedFundActivity));
+  }
+
+  const bookBalance = openingBalance.plus(clearedIn).minus(clearedOut).plus(inTransit).minus(outstandingOut);
+  const adjustedBankBalance = statementEndingBalance.plus(inTransit).minus(outstandingOut);
+  const difference = adjustedBankBalance.minus(bookBalance);
+  const status: ReconciliationStatus = difference.isZero() ? 'BALANCED' : 'UNBALANCED';
+
+  const fundActivity = Array.from(fundActivityByName.entries())
+    .map(([fund_name, net]) => ({ fund_name, net_activity: parseFloat(net.toFixed(2)) }))
+    .sort((a, b) => a.fund_name.localeCompare(b.fund_name));
+
+  return {
+    account_name: header.account_name,
+    account_code: header.account_code,
+    account_type: header.account_type,
+    is_closed: header.is_closed,
+    status,
+    statement_period_start: previous ? asDateString(previous.statement_date) : null,
+    statement_period_end: asDateString(header.statement_date),
+    reconciliation_date: new Date(header.created_at).toISOString(),
+    reconciler_name: header.reconciler_name,
+    opening_balance: parseFloat(openingBalance.toFixed(2)),
+    cleared_in: parseFloat(clearedIn.toFixed(2)),
+    cleared_out: parseFloat(clearedOut.toFixed(2)),
+    statement_ending_balance: parseFloat(statementEndingBalance.toFixed(2)),
+    in_transit: parseFloat(inTransit.toFixed(2)),
+    outstanding_out: parseFloat(outstandingOut.toFixed(2)),
+    adjusted_bank_balance: parseFloat(adjustedBankBalance.toFixed(2)),
+    book_balance: parseFloat(bookBalance.toFixed(2)),
+    difference: parseFloat(difference.toFixed(2)),
+    cleared_in_items: clearedInItems,
+    cleared_out_items: clearedOutItems,
+    in_transit_items: inTransitItems,
+    outstanding_out_items: outstandingOutItems,
+    fund_activity: fundActivity,
+  };
+}
+
 export {
   getPL,
   getBalanceSheet,
@@ -1083,4 +1252,5 @@ export {
   getTrialBalance,
   getDonorSummary,
   getDonorDetail,
+  buildReconciliationReport,
 };

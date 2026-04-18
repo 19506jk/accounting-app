@@ -849,4 +849,281 @@ describe('direct DB reconciliation integration smoke checks', () => {
       status: 'BALANCED',
     }));
   });
+
+  it('returns report data for asset, liability, and empty reconciliations', async () => {
+    const fixture = await createFixture();
+
+    await createTransactionEntry({
+      date: '2026-02-01',
+      description: `Report Asset Cleared ${fixture.suffix}`,
+      referenceNo: `IR-RPT-A1-${fixture.suffix}`,
+      fundId: fixture.fundId,
+      createdBy: fixture.userId,
+      entries: [
+        {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          debit: '20.00',
+          credit: '0.00',
+          memo: 'Asset cleared in',
+        },
+        {
+          account_id: fixture.incomeAccountId,
+          fund_id: fixture.fundId,
+          debit: '0.00',
+          credit: '20.00',
+          memo: 'Asset cleared offset',
+        },
+      ],
+    });
+
+    await createTransactionEntry({
+      date: '2026-02-05',
+      description: `Report Asset Transit ${fixture.suffix}`,
+      referenceNo: `IR-RPT-A2-${fixture.suffix}`,
+      fundId: fixture.fundId,
+      createdBy: fixture.userId,
+      entries: [
+        {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          debit: '30.00',
+          credit: '0.00',
+          memo: 'Asset in transit',
+        },
+        {
+          account_id: fixture.incomeAccountId,
+          fund_id: fixture.fundId,
+          debit: '0.00',
+          credit: '30.00',
+          memo: 'Asset in transit offset',
+        },
+      ],
+    });
+
+    const assetCreated = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: '2026-02-10',
+        statement_balance: 20,
+        opening_balance: 0,
+      },
+    });
+    expect(assetCreated.status).toBe(201);
+    const assetReconciliationId = assetCreated.body.reconciliation.id as number;
+    createdReconciliationIds.push(assetReconciliationId);
+    expect(assetCreated.body.items_loaded).toBe(2);
+
+    const assetDetail = await requestRoute({
+      probePath: `/${assetReconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    const assetClearedItemId = assetDetail.body.reconciliation.items.find((item: { debit: number }) => item.debit === 20)?.id as number;
+    const assetCleared = await requestRoute({
+      probePath: `/${assetReconciliationId}/items/${assetClearedItemId}/clear`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+    expect(assetCleared.status).toBe(200);
+
+    const assetReport = await requestRoute({
+      probePath: `/${assetReconciliationId}/report`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(assetReport.status).toBe(200);
+    expect(assetReport.body.report).toEqual(expect.objectContaining({
+      account_type: 'ASSET',
+      is_closed: false,
+      status: 'BALANCED',
+      opening_balance: 0,
+      cleared_in: 20,
+      cleared_out: 0,
+      statement_ending_balance: 20,
+      in_transit: 30,
+      outstanding_out: 0,
+      adjusted_bank_balance: 50,
+      book_balance: 50,
+      difference: 0,
+    }));
+    expect(assetReport.body.report.cleared_in_items).toHaveLength(1);
+    expect(assetReport.body.report.in_transit_items).toHaveLength(1);
+    expect(assetReport.body.report.fund_activity).toEqual([
+      {
+        fund_name: expect.any(String),
+        net_activity: 50,
+      },
+    ]);
+
+    await createTransactionEntry({
+      date: '2026-03-01',
+      description: `Report Liability Cleared ${fixture.suffix}`,
+      referenceNo: `IR-RPT-L1-${fixture.suffix}`,
+      fundId: fixture.fundId,
+      createdBy: fixture.userId,
+      entries: [
+        {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          debit: '40.00',
+          credit: '0.00',
+          memo: 'Liability cleared offset',
+        },
+        {
+          account_id: fixture.liabilityAccountId,
+          fund_id: fixture.fundId,
+          debit: '0.00',
+          credit: '40.00',
+          memo: 'Liability cleared in',
+        },
+      ],
+    });
+
+    await createTransactionEntry({
+      date: '2026-03-03',
+      description: `Report Liability Transit ${fixture.suffix}`,
+      referenceNo: `IR-RPT-L2-${fixture.suffix}`,
+      fundId: fixture.fundId,
+      createdBy: fixture.userId,
+      entries: [
+        {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          debit: '10.00',
+          credit: '0.00',
+          memo: 'Liability in transit offset',
+        },
+        {
+          account_id: fixture.liabilityAccountId,
+          fund_id: fixture.fundId,
+          debit: '0.00',
+          credit: '10.00',
+          memo: 'Liability in transit',
+        },
+      ],
+    });
+
+    const liabilityCreated = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.liabilityAccountId,
+        statement_date: '2026-03-10',
+        statement_balance: 40,
+        opening_balance: 0,
+      },
+    });
+    expect(liabilityCreated.status).toBe(201);
+    const liabilityReconciliationId = liabilityCreated.body.reconciliation.id as number;
+    createdReconciliationIds.push(liabilityReconciliationId);
+    expect(liabilityCreated.body.items_loaded).toBe(2);
+
+    const liabilityDetail = await requestRoute({
+      probePath: `/${liabilityReconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    const liabilityClearedItemId = liabilityDetail.body.reconciliation.items.find((item: { credit: number }) => item.credit === 40)?.id as number;
+    const liabilityCleared = await requestRoute({
+      probePath: `/${liabilityReconciliationId}/items/${liabilityClearedItemId}/clear`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+    expect(liabilityCleared.status).toBe(200);
+
+    const liabilityReport = await requestRoute({
+      probePath: `/${liabilityReconciliationId}/report`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(liabilityReport.status).toBe(200);
+    expect(liabilityReport.body.report).toEqual(expect.objectContaining({
+      account_type: 'LIABILITY',
+      is_closed: false,
+      status: 'BALANCED',
+      opening_balance: 0,
+      cleared_in: 40,
+      cleared_out: 0,
+      statement_ending_balance: 40,
+      in_transit: 10,
+      outstanding_out: 0,
+      adjusted_bank_balance: 50,
+      book_balance: 50,
+      difference: 0,
+    }));
+    expect(liabilityReport.body.report.fund_activity).toEqual([
+      {
+        fund_name: expect.any(String),
+        net_activity: 50,
+      },
+    ]);
+
+    const deletedAsset = await requestRoute({
+      probePath: `/${assetReconciliationId}`,
+      method: 'DELETE',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+    expect(deletedAsset.status).toBe(200);
+    createdReconciliationIds.splice(createdReconciliationIds.indexOf(assetReconciliationId), 1);
+
+    const emptyCreated = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: '2000-01-01',
+        statement_balance: 0,
+        opening_balance: 0,
+      },
+    });
+    expect(emptyCreated.status).toBe(201);
+    expect(emptyCreated.body.items_loaded).toBe(0);
+    const emptyReconciliationId = emptyCreated.body.reconciliation.id as number;
+    createdReconciliationIds.push(emptyReconciliationId);
+
+    const emptyReport = await requestRoute({
+      probePath: `/${emptyReconciliationId}/report`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(emptyReport.status).toBe(200);
+    expect(emptyReport.body.report).toEqual(expect.objectContaining({
+      opening_balance: 0,
+      cleared_in: 0,
+      cleared_out: 0,
+      in_transit: 0,
+      outstanding_out: 0,
+      adjusted_bank_balance: 0,
+      book_balance: 0,
+      difference: 0,
+      status: 'BALANCED',
+    }));
+    expect(emptyReport.body.report.cleared_in_items).toEqual([]);
+    expect(emptyReport.body.report.cleared_out_items).toEqual([]);
+    expect(emptyReport.body.report.in_transit_items).toEqual([]);
+    expect(emptyReport.body.report.outstanding_out_items).toEqual([]);
+
+    const missingReport = await requestRoute({
+      probePath: '/999999999/report',
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(missingReport.status).toBe(404);
+    expect(missingReport.body).toEqual({ error: 'Reconciliation not found' });
+  });
 });

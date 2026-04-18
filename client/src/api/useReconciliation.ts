@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import client from './client'
 
 import type {
@@ -7,6 +8,8 @@ import type {
   CreateReconciliationResponse,
   ReconciliationDetail,
   ReconciliationItemToggleResponse,
+  ReconciliationReport,
+  ReconciliationReportResponse,
   ReconciliationSummary,
   UpdateReconciliationInput,
 } from '@shared/contracts'
@@ -17,6 +20,16 @@ interface UpdateReconciliationPayload extends UpdateReconciliationInput {
 
 interface ClearItemPayload {
   itemId: number
+}
+
+function reconciliationReportQueryOptions(id: number) {
+  return {
+    queryKey: ['reconciliation-report', id],
+    queryFn: async () => {
+      const { data } = await client.get<ReconciliationReportResponse>(`/reconciliations/${id}/report`)
+      return data.report
+    },
+  }
 }
 
 export function useReconciliations() {
@@ -118,4 +131,15 @@ export function useDeleteReconciliation() {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reconciliations'] }),
   })
+}
+
+export function useReconciliationReport(id: number | null | undefined) {
+  return useQuery<ReconciliationReport>({
+    ...reconciliationReportQueryOptions(id ?? 0),
+    enabled: !!id,
+  })
+}
+
+export async function getReconciliationReport(queryClient: QueryClient, id: number) {
+  return queryClient.fetchQuery<ReconciliationReport>(reconciliationReportQueryOptions(id))
 }

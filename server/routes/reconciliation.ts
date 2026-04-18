@@ -12,6 +12,7 @@ import type {
   ReconciliationDetail,
   ReconciliationItem,
   ReconciliationItemToggleResponse,
+  ReconciliationReportResponse,
   ReconciliationResponse,
   ReconciliationsResponse,
   ReconciliationStatus,
@@ -28,6 +29,7 @@ import type {
   ReconciliationSummaryRow,
 } from '../types/db';
 import { compareDateOnly, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
+import { buildReconciliationReport } from '../services/reports.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth.js');
@@ -224,6 +226,23 @@ router.get(
       };
 
       res.json({ reconciliation });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  '/:id/report',
+  async (
+    req: Request<{ id: string }>,
+    res: Response<ReconciliationReportResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const report = await buildReconciliationReport(req.params.id);
+      if (!report) return res.status(404).json({ error: 'Reconciliation not found' });
+      res.json({ report });
     } catch (err) {
       next(err);
     }

@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useReconciliations, useReconciliation,
   useCreateReconciliation,
-  useClearItem, useCloseReconciliation, useDeleteReconciliation,
+  useClearItem, useCloseReconciliation, useDeleteReconciliation, getReconciliationReport,
 } from '../api/useReconciliation';
 import { useAccounts }  from '../api/useAccounts';
 import { useToast }     from '../components/ui/Toast';
@@ -15,6 +16,7 @@ import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
 import { formatDateOnlyForDisplay } from '../utils/date';
 import { getErrorMessage } from '../utils/errors';
+import { exportReconciliationReport } from './reports/reportExports';
 import type React from 'react';
 import type { ReconciliationSummary } from '@shared/contracts';
 import type { TableColumn } from '../components/ui/types';
@@ -24,6 +26,8 @@ const fmt = (n: number | null | undefined) => '$' + Number(n || 0).toLocaleStrin
 interface WorkspaceProps {
   id: number;
   onBack: () => void;
+  onExport: (id: number) => Promise<void>;
+  isExporting: boolean;
 }
 
 interface ReconciliationForm {
@@ -34,7 +38,7 @@ interface ReconciliationForm {
 }
 
 // ── Reconciliation Workspace ─────────────────────────────────────────────────
-function Workspace({ id, onBack }: WorkspaceProps) {
+function Workspace({ id, onBack, onExport, isExporting }: WorkspaceProps) {
   const { addToast }  = useToast();
   const { data: recon, isLoading } = useReconciliation(id);
   const clearItem   = useClearItem(id);
@@ -89,6 +93,11 @@ function Workspace({ id, onBack }: WorkspaceProps) {
           </h1>
           <Badge label={recon.is_closed ? 'Closed' : recon.status}
             variant={recon.is_closed ? 'inactive' : isBalanced ? 'success' : 'error'} />
+          <div style={{ marginLeft: 'auto' }}>
+            <Button variant="secondary" size="sm" onClick={() => onExport(id)} isLoading={isExporting}>
+              Export Report
+            </Button>
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, auto)', gap: '1.5rem',
@@ -201,18 +210,41 @@ function Workspace({ id, onBack }: WorkspaceProps) {
 // ── Reconciliation List ──────────────────────────────────────────────────────
 export default function Reconciliation() {
   const { addToast } = useToast();
+  const queryClient = useQueryClient()
   const { data: reconciliations, isLoading } = useReconciliations();
   const { data: accounts } = useAccounts();
   const createRecon  = useCreateReconciliation();
   const deleteRecon  = useDeleteReconciliation();
 
   const [activeId, setActiveId]   = useState<number | null>(null);
+  const [exportingId, setExportingId] = useState<number | null>(null);
   const [showNew,  setShowNew]    = useState(false);
   const [form,     setForm]       = useState<ReconciliationForm>({
     account_id: '', statement_date: '', statement_balance: '', opening_balance: '0',
   });
 
-  if (activeId) return <Workspace id={activeId} onBack={() => setActiveId(null)} />;
+  async function handleExport(id: number) {
+    try {
+      setExportingId(id)
+      const report = await getReconciliationReport(queryClient, id)
+      exportReconciliationReport(report)
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to export report.'), 'error')
+    } finally {
+      setExportingId(null)
+    }
+  }
+
+  if (activeId) {
+    return (
+      <Workspace
+        id={activeId}
+        onBack={() => setActiveId(null)}
+        onExport={handleExport}
+        isExporting={exportingId === activeId}
+      />
+    )
+  }
 
   const assetAccounts = (accounts || [])
     .filter((a) => ['ASSET', 'LIABILITY'].includes(a.type))
@@ -262,6 +294,14 @@ export default function Reconciliation() {
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
           <Button variant="secondary" size="sm" onClick={() => setActiveId(r.id)}>
             {r.is_closed ? 'View' : 'Continue'}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => handleExport(r.id)}
+            isLoading={exportingId === r.id}
+          >
+            Export Report
           </Button>
           {!r.is_closed && (
             <Button variant="ghost" size="sm" style={{ color: '#dc2626' }}
