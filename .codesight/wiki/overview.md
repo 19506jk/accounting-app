@@ -8,7 +8,7 @@
 
 ## Scale
 
-74 API routes · 35 UI components · 29 library files · 11 middleware layers · 13 environment variables
+75 API routes · 35 UI components · 29 library files · 11 middleware layers · 13 environment variables
 
 ## Subsystems
 
@@ -21,7 +21,7 @@
 - **[FiscalPeriods](./fiscalperiods.md)** — 4 routes — touches: auth, db
 - **[Funds](./funds.md)** — 5 routes — touches: auth, db
 - **[Health](./health.md)** — 1 routes — touches: auth, cache
-- **[Reconciliation](./reconciliation.md)** — 7 routes — touches: auth, db
+- **[Reconciliation](./reconciliation.md)** — 8 routes — touches: auth, db
 - **[Reports](./reports.md)** — 6 routes — touches: auth
 - **[Settings](./settings.md)** — 2 routes — touches: auth, db
 - **[TaxRates](./taxrates.md)** — 3 routes — touches: auth, db
@@ -36,7 +36,7 @@
 
 Changes to these files have the widest blast radius across the codebase:
 
-- `server/db/index.js` — imported by **37** files
+- `server/db/index.js` — imported by **40** files
 - `client/src/components/ui/types.ts` — imported by **26** files
 - `client/src/components/ui/Button.tsx` — imported by **22** files
 - `client/src/utils/date.ts` — imported by **19** files

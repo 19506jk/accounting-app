@@ -2,7 +2,7 @@
 
 ## Most Imported Files (change these carefully)
 
-- `server/db/index.js` — imported by **37** files
+- `server/db/index.js` — imported by **40** files
 - `client/src/components/ui/types.ts` — imported by **26** files
 - `client/src/components/ui/Button.tsx` — imported by **22** files
 - `client/src/utils/date.ts` — imported by **19** files
@@ -25,7 +25,7 @@
 
 ## Import Map (who imports what)
 
-- `server/db/index.js` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBills.integration.test.ts`, `server/routes/__tests__/directDbContactDonations.integration.test.ts`, `server/routes/__tests__/directDbContactsSettings.integration.test.ts`, `server/routes/__tests__/directDbDonationReceipts.integration.test.ts` +32 more
+- `server/db/index.js` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBills.integration.test.ts`, `server/routes/__tests__/directDbContactDonations.integration.test.ts`, `server/routes/__tests__/directDbContactsSettings.integration.test.ts`, `server/routes/__tests__/directDbDonationReceipts.integration.test.ts` +35 more
 - `client/src/components/ui/types.ts` ← `client/src/api/useExpenseTemplates.ts`, `client/src/components/ExpenseBreakdown.tsx`, `client/src/components/ui/Combobox.tsx`, `client/src/components/ui/MultiSelectCombobox.tsx`, `client/src/components/ui/Select.tsx` +21 more
 - `client/src/components/ui/Button.tsx` ← `client/src/components/SaveTemplateModal.tsx`, `client/src/components/TemplateDropdown.tsx`, `client/src/components/ui/TransactionTable.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx` +17 more
 - `client/src/utils/date.ts` ← `client/src/api/useDashboard.ts`, `client/src/components/ui/DateRangePicker.tsx`, `client/src/components/ui/TransactionTable.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx` +14 more

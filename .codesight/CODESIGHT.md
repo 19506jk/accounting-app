@@ -3,9 +3,9 @@
 > **Stack:** express | none | react | typescript
 > **Monorepo:** church-accounting-client, church-accounting-server
 
-> 74 routes (74 inferred) | 0 models | 35 components | 29 lib files | 13 env vars | 11 middleware | 28% test coverage
-> **Token savings:** this file is ~5,700 tokens. Without it, AI exploration would cost ~71,000 tokens. **Saves ~65,300 tokens per conversation.**
-> **Last scanned:** 2026-04-18 01:49 — re-run after significant changes
+> 75 routes (75 inferred) | 0 models | 35 components | 29 lib files | 13 env vars | 11 middleware | 36% test coverage
+> **Token savings:** this file is ~5,800 tokens. Without it, AI exploration would cost ~71,600 tokens. **Saves ~65,700 tokens per conversation.**
+> **Last scanned:** 2026-04-18 15:21 — re-run after significant changes
 
 ---
 
@@ -48,14 +48,15 @@
 - `POST` `/api/fiscal-periods/close` [auth, db] `[inferred]`
 - `GET` `/api/fiscal-periods` [auth, db] `[inferred]` ✓
 - `DELETE` `/api/fiscal-periods/:id/reopen` params(id) [auth, db] `[inferred]`
+- `GET` `/api/reconciliations/:id/report` params(id) [auth, db] `[inferred]`
 - `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db] `[inferred]`
 - `POST` `/api/reconciliations/:id/close` params(id) [auth, db] `[inferred]`
-- `GET` `/api/reports/pl` [auth] `[inferred]`
-- `GET` `/api/reports/balance-sheet` [auth] `[inferred]`
-- `GET` `/api/reports/ledger` [auth] `[inferred]`
-- `GET` `/api/reports/trial-balance` [auth] `[inferred]`
-- `GET` `/api/reports/donors/summary` [auth] `[inferred]`
-- `GET` `/api/reports/donors/detail` [auth] `[inferred]`
+- `GET` `/api/reports/pl` [auth] `[inferred]` ✓
+- `GET` `/api/reports/balance-sheet` [auth] `[inferred]` ✓
+- `GET` `/api/reports/ledger` [auth] `[inferred]` ✓
+- `GET` `/api/reports/trial-balance` [auth] `[inferred]` ✓
+- `GET` `/api/reports/donors/summary` [auth] `[inferred]` ✓
+- `GET` `/api/reports/donors/detail` [auth] `[inferred]` ✓
 - `GET` `/api/settings` [auth, db] `[inferred]` ✓
 - `PUT` `/api/settings` [auth, db] `[inferred]` ✓
 - `GET` `/api/tax-rates` [auth, db] `[inferred]` ✓
@@ -91,7 +92,7 @@
 - **HardCloseWizard** — props: open, onClose, onSuccess — `client/src/pages/HardClose.tsx`
 - **ImportCsv** — `client/src/pages/ImportCsv.tsx`
 - **Login** — `client/src/pages/Login.tsx`
-- **Reconciliation** — props: id, onBack — `client/src/pages/Reconciliation.tsx`
+- **Reconciliation** — props: id, onBack, onExport, isExporting — `client/src/pages/Reconciliation.tsx`
 - **Reports** — `client/src/pages/Reports.tsx`
 - **Settings** — `client/src/pages/Settings.tsx`
 - **Transactions** — props: onClose, onSaved — `client/src/pages/Transactions.tsx`
@@ -158,7 +159,7 @@
   - function useUpdateReconciliation: () => void
   - function useClearItem: (reconciliationId) => void
   - function useCloseReconciliation: () => void
-  - _...1 more_
+  - _...3 more_
 - `client/src/api/useReports.ts`
   - function usePLReport: (filters, enabled) => void
   - function useBalanceSheetReport: (filters, enabled) => void
@@ -308,7 +309,7 @@
 
 ## Most Imported Files (change these carefully)
 
-- `server/db/index.js` — imported by **37** files
+- `server/db/index.js` — imported by **40** files
 - `client/src/components/ui/types.ts` — imported by **26** files
 - `client/src/components/ui/Button.tsx` — imported by **22** files
 - `client/src/utils/date.ts` — imported by **19** files
@@ -331,7 +332,7 @@
 
 ## Import Map (who imports what)
 
-- `server/db/index.js` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBills.integration.test.ts`, `server/routes/__tests__/directDbContactDonations.integration.test.ts`, `server/routes/__tests__/directDbContactsSettings.integration.test.ts`, `server/routes/__tests__/directDbDonationReceipts.integration.test.ts` +32 more
+- `server/db/index.js` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBills.integration.test.ts`, `server/routes/__tests__/directDbContactDonations.integration.test.ts`, `server/routes/__tests__/directDbContactsSettings.integration.test.ts`, `server/routes/__tests__/directDbDonationReceipts.integration.test.ts` +35 more
 - `client/src/components/ui/types.ts` ← `client/src/api/useExpenseTemplates.ts`, `client/src/components/ExpenseBreakdown.tsx`, `client/src/components/ui/Combobox.tsx`, `client/src/components/ui/MultiSelectCombobox.tsx`, `client/src/components/ui/Select.tsx` +21 more
 - `client/src/components/ui/Button.tsx` ← `client/src/components/SaveTemplateModal.tsx`, `client/src/components/TemplateDropdown.tsx`, `client/src/components/ui/TransactionTable.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx` +17 more
 - `client/src/utils/date.ts` ← `client/src/api/useDashboard.ts`, `client/src/components/ui/DateRangePicker.tsx`, `client/src/components/ui/TransactionTable.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx` +14 more
@@ -346,8 +347,8 @@
 
 # Test Coverage
 
-> **28%** of routes and models are covered by tests
-> 33 test files found
+> **36%** of routes and models are covered by tests
+> 37 test files found
 
 ## Covered Routes
 
@@ -365,6 +366,12 @@
 - POST:/api/funds
 - GET:/api/reconciliations
 - POST:/api/reconciliations
+- GET:/api/reports/pl
+- GET:/api/reports/balance-sheet
+- GET:/api/reports/ledger
+- GET:/api/reports/trial-balance
+- GET:/api/reports/donors/summary
+- GET:/api/reports/donors/detail
 - GET:/api/settings
 - PUT:/api/settings
 - GET:/api/tax-rates

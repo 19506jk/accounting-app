@@ -27,7 +27,7 @@
 - **HardCloseWizard** — props: open, onClose, onSuccess — `client/src/pages/HardClose.tsx`
 - **ImportCsv** — `client/src/pages/ImportCsv.tsx`
 - **Login** — `client/src/pages/Login.tsx`
-- **Reconciliation** — props: id, onBack — `client/src/pages/Reconciliation.tsx`
+- **Reconciliation** — props: id, onBack, onExport, isExporting — `client/src/pages/Reconciliation.tsx`
 - **Reports** — `client/src/pages/Reports.tsx`
 - **Settings** — `client/src/pages/Settings.tsx`
 - **Transactions** — props: onClose, onSaved — `client/src/pages/Transactions.tsx`

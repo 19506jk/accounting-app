@@ -48,7 +48,7 @@
   - function useUpdateReconciliation: () => void
   - function useClearItem: (reconciliationId) => void
   - function useCloseReconciliation: () => void
-  - _...1 more_
+  - _...3 more_
 - `client/src/api/useReports.ts`
   - function usePLReport: (filters, enabled) => void
   - function useBalanceSheetReport: (filters, enabled) => void

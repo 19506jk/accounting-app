@@ -37,14 +37,15 @@
 - `POST` `/api/fiscal-periods/close` [auth, db] `[inferred]`
 - `GET` `/api/fiscal-periods` [auth, db] `[inferred]` ✓
 - `DELETE` `/api/fiscal-periods/:id/reopen` params(id) [auth, db] `[inferred]`
+- `GET` `/api/reconciliations/:id/report` params(id) [auth, db] `[inferred]`
 - `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db] `[inferred]`
 - `POST` `/api/reconciliations/:id/close` params(id) [auth, db] `[inferred]`
-- `GET` `/api/reports/pl` [auth] `[inferred]`
-- `GET` `/api/reports/balance-sheet` [auth] `[inferred]`
-- `GET` `/api/reports/ledger` [auth] `[inferred]`
-- `GET` `/api/reports/trial-balance` [auth] `[inferred]`
-- `GET` `/api/reports/donors/summary` [auth] `[inferred]`
-- `GET` `/api/reports/donors/detail` [auth] `[inferred]`
+- `GET` `/api/reports/pl` [auth] `[inferred]` ✓
+- `GET` `/api/reports/balance-sheet` [auth] `[inferred]` ✓
+- `GET` `/api/reports/ledger` [auth] `[inferred]` ✓
+- `GET` `/api/reports/trial-balance` [auth] `[inferred]` ✓
+- `GET` `/api/reports/donors/summary` [auth] `[inferred]` ✓
+- `GET` `/api/reports/donors/detail` [auth] `[inferred]` ✓
 - `GET` `/api/settings` [auth, db] `[inferred]` ✓
 - `PUT` `/api/settings` [auth, db] `[inferred]` ✓
 - `GET` `/api/tax-rates` [auth, db] `[inferred]` ✓

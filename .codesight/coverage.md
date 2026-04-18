@@ -1,7 +1,7 @@
 # Test Coverage
 
-> **28%** of routes and models are covered by tests
-> 33 test files found
+> **36%** of routes and models are covered by tests
+> 37 test files found
 
 ## Covered Routes
 
@@ -19,6 +19,12 @@
 - POST:/api/funds
 - GET:/api/reconciliations
 - POST:/api/reconciliations
+- GET:/api/reports/pl
+- GET:/api/reports/balance-sheet
+- GET:/api/reports/ledger
+- GET:/api/reports/trial-balance
+- GET:/api/reports/donors/summary
+- GET:/api/reports/donors/detail
 - GET:/api/settings
 - PUT:/api/settings
 - GET:/api/tax-rates

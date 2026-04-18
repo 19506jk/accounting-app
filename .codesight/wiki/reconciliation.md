@@ -2,13 +2,15 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Reconciliation subsystem handles **7 routes** and touches: auth, db.
+The Reconciliation subsystem handles **8 routes** and touches: auth, db.
 
 ## Routes
 
 - `GET` `/api/reconciliations` [auth, db] `[inferred]`
   `server/routes/reconciliation.ts`
 - `GET` `/api/reconciliations/:id` params(id) [auth, db] `[inferred]`
+  `server/routes/reconciliation.ts`
+- `GET` `/api/reconciliations/:id/report` params(id) [auth, db] `[inferred]`
   `server/routes/reconciliation.ts`
 - `POST` `/api/reconciliations` [auth, db] `[inferred]`
   `server/routes/reconciliation.ts`
