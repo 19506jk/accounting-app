@@ -63,14 +63,17 @@ async function getClosedBooksThrough(executor: Knex | Knex.Transaction) {
   return row.value;
 }
 
-export async function getAvailableCreditsForBill(id: string | number): Promise<AvailableBillCredit[]> {
-  const target = await db('bills').where({ id }).first() as BillRow | undefined;
+export async function getAvailableCreditsForBill(
+  id: string | number,
+  executor: Knex | Knex.Transaction = db
+): Promise<AvailableBillCredit[]> {
+  const target = await executor('bills').where({ id }).first() as BillRow | undefined;
   if (!target) return [];
 
   const targetOutstanding = getOutstanding(target.amount, target.amount_paid);
   if (targetOutstanding.lte(0)) return [];
 
-  const credits = await db('bills as b')
+  const credits = await executor('bills as b')
     .where({
       contact_id: target.contact_id,
       fund_id: target.fund_id,
@@ -209,7 +212,8 @@ export async function unapplyBillCredits(
 export async function applyBillCredits(
   id: string,
   payload: ApplyBillCreditsInput,
-  userId: number
+  userId: number,
+  executor: Knex = db
 ): Promise<{ bill?: BillDetail | null; errors?: string[]; applications?: BillCreditApplication[]; transaction?: TransactionRow | null }> {
   if (!payload.applications || !Array.isArray(payload.applications) || payload.applications.length === 0) {
     return { errors: ['applications is required'] };
@@ -238,7 +242,7 @@ export async function applyBillCredits(
     duplicates.add(app.credit_bill_id);
   }
 
-  const result = await db.transaction(async (trx: Knex.Transaction) => {
+  const result = await executor.transaction(async (trx: Knex.Transaction) => {
     const target = await trx('bills')
       .where({ id })
       .first()
