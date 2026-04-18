@@ -13,8 +13,11 @@ The Auth subsystem handles **2 routes** and touches: auth, db.
 
 ## Middleware
 
+- **auth.test** (auth) — `server/middleware/__tests__/auth.test.ts`
+- **roles.test** (auth) — `server/middleware/__tests__/roles.test.ts`
 - **auth** (auth) — `server/middleware/auth.ts`
 - **roles** (auth) — `server/middleware/roles.ts`
+- **auth.test** (auth) — `server/routes/__tests__/auth.test.ts`
 - **auth** (auth) — `server/routes/auth.ts`
 - **authRoutes** (auth) — `server/index.ts`
 

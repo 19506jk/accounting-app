@@ -14,11 +14,16 @@ import type {
   TrialBalanceReportData,
 } from '@shared/contracts';
 
-const auth = require('../middleware/auth');
-import reports = require('../services/reports');
+const auth = require('../middleware/auth.js');
+import {
+  getPL,
+  getBalanceSheet,
+  getLedger,
+  getTrialBalance,
+  getDonorSummary,
+  getDonorDetail,
+} from '../services/reports.js';
 import { isValidDateOnly } from '../utils/date.js';
-
-const { getPL, getBalanceSheet, getLedger, getTrialBalance, getDonorSummary, getDonorDetail } = reports;
 
 const router = express.Router();
 router.use(auth);

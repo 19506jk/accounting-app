@@ -185,6 +185,6 @@ async function getBillMatchSuggestions(payload: GetBillMatchesInput): Promise<Ge
   return { suggestions };
 }
 
-export = {
+export {
   getBillMatchSuggestions,
 };

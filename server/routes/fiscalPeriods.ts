@@ -16,8 +16,8 @@ import { getChurchTimeZone } from '../services/churchTimeZone.js';
 import { acquireHardCloseLock } from '../utils/hardCloseGuard.js';
 
 const db = require('../db') as Knex;
-const auth = require('../middleware/auth');
-const requireRole = require('../middleware/roles');
+const auth = require('../middleware/auth.js');
+const requireRole = require('../middleware/roles.js');
 
 const router = express.Router();
 router.use(auth);

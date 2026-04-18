@@ -57,6 +57,11 @@ export function calculateGrossTotalFromLineItems(
   }, dec(0));
 }
 
+function formatBillMemo(billNumber: string | null | undefined, description: string | null | undefined) {
+  const billLabel = billNumber ? `Bill ${billNumber}` : 'Bill';
+  return description ? `${billLabel} - ${description}` : billLabel;
+}
+
 export async function createMultiLineJournalEntries(
   transactionId: number,
   lineItems: BillLineItemInput[],
@@ -114,7 +119,7 @@ export async function createMultiLineJournalEntries(
     const net = dec(line.amount);
     const rounding = dec(line.rounding_adjustment ?? 0);
     const taxRate = line.tax_rate_id ? taxRateMap[line.tax_rate_id] : null;
-    const lineMemo = `Bill ${billNumber || ''} - ${line.description || ''}`.trim();
+    const lineMemo = formatBillMemo(billNumber, line.description);
 
     if (taxRate) {
       const tax = net.times(dec(taxRate.rate)).toDecimalPlaces(2);
@@ -129,7 +134,7 @@ export async function createMultiLineJournalEntries(
       pushSignedEntry(
         taxRate.recoverable_account_id,
         tax,
-        `${taxRate.name} on Bill ${billNumber || ''} - ${line.description || ''}`.trim(),
+        `${taxRate.name} on ${lineMemo}`,
         line.tax_rate_id ?? null,
         true
       );
@@ -154,7 +159,7 @@ export async function createMultiLineJournalEntries(
   pushSignedEntry(
     apAccountId,
     apTotal.negated(),
-    `Bill ${billNumber || ''} - ${contactName}`,
+    formatBillMemo(billNumber, contactName),
     null,
     false,
     contactId

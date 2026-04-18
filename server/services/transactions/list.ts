@@ -230,6 +230,6 @@ async function listTransactions(query: TransactionsQuery): Promise<TransactionsL
   };
 }
 
-export = {
+export {
   listTransactions,
 };

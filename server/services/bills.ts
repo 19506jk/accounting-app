@@ -590,7 +590,7 @@ async function voidBill(id: string, userId: number): Promise<BillMutationResult>
   return { bill: billWithLineItems, transaction: null };
 }
 
-export = {
+export {
   createBill,
   updateBill,
   payBill,

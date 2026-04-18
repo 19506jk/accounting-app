@@ -30,8 +30,11 @@
   - function useDonationReceiptTemplate: (enabled) => void
   - function useSaveDonationReceiptTemplate: () => void
   - function usePreviewDonationReceipt: () => void
-  - function useGenerateDonationReceipts: () => void
-- `client/src/api/useExpenseTemplates.ts` — function useExpenseTemplates: () => void
+  - function useGenerateDonationReceiptPdf: () => void
+- `client/src/api/useExpenseTemplates.ts`
+  - function useExpenseTemplates: () => void
+  - interface ExpenseTemplateRow
+  - interface ExpenseTemplate
 - `client/src/api/useFiscalPeriods.ts` — function useFiscalPeriods: () => void, function useReopenFiscalPeriod: () => void
 - `client/src/api/useFunds.ts`
   - function useFunds: (params) => void
@@ -58,7 +61,10 @@
   - function useTaxRates: ({...}) => void
   - function useUpdateTaxRate: () => void
   - function useToggleTaxRate: () => void
-- `client/src/api/useTransactionTemplates.ts` — function useTransactionTemplates: () => void
+- `client/src/api/useTransactionTemplates.ts`
+  - function useTransactionTemplates: () => void
+  - interface TransactionTemplateRow
+  - interface TransactionTemplate
 - `client/src/api/useTransactions.ts`
   - function useTransactions: (params) => void
   - function useTransaction: (id) => void
@@ -81,11 +87,12 @@
   - function toDateOnly: (value?) => void
   - function getChurchToday: (timeZone?) => void
   - _...10 more_
+- `client/src/utils/errors.ts` — function getErrorMessage: (err, fallback) => string
 - `client/src/utils/parseStatementCsv.ts` — function parseStatementCsv: (file) => Promise<ParseStatementCsvResult>
 - `server/services/bills/billCredits.ts`
-  - function getAvailableCreditsForBill: (id) => Promise<AvailableBillCredit[]>
-  - function unapplyBillCredits: (id, userId) => Promise<
-  - function applyBillCredits: (id, payload, userId) => Promise<
+  - function getAvailableCreditsForBill: (id, executor) => Promise<AvailableBillCredit[]>
+  - function unapplyBillCredits: (id, userId, executor) => Promise<
+  - function applyBillCredits: (id, payload, userId, executor) => Promise<
 - `server/services/bills/billPosting.ts`
   - function getUniqueTaxRateIds: (lineItems) => void
   - function calculateGrossTotalFromLineItems: (lineItems, taxRateMap, TaxRateRow>) => void
@@ -96,7 +103,7 @@
   - function normaliseApplications: (rows) => BillCreditApplication[]
   - function getBillWithLineItems: (billId, executor) => Promise<BillDetail | null>
   - interface ApplicationJoinedRow
-- `server/services/bills/billReports.ts` — function getAgingReport: (asOfDate) => void, function getUnpaidSummary: () => Promise<BillSummaryResponse['summary']>
+- `server/services/bills/billReports.ts` — function getAgingReport: (asOfDate) => void, function getUnpaidSummary: (executor) => Promise<BillSummaryResponse['summary']>
 - `server/services/bills/billSettlement.ts`
   - function getOutstanding: (amount, amountPaid) => void
   - function isSettledOutstanding: (outstanding) => void
@@ -108,6 +115,7 @@
   - function validateBillData: (data, isUpdate) => string[]
   - function resolveTaxRateMap: (lineItems, executor) => Promise<Record<number, TaxRateRow>>
   - function validateLineItemAccounts: (lineItems) => Promise<string[]>
+  - function validateLineItemAccountsWithExecutor: (lineItems, executor?) => Promise<string[]>
 - `server/services/churchTimeZone.ts`
   - function getChurchTimeZone: () => void
   - function setChurchTimeZone: (value?) => void
@@ -117,7 +125,7 @@
   - function getReceiptTemplate: () => Promise<DonationReceiptTemplateResponse>
   - function saveReceiptTemplate: (markdownBody, userId) => Promise<DonationReceiptTemplateResponse>
   - function previewReceipt: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptPreviewResponse>
-  - function generateReceipts: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptGenerateResponse>
+  - function generateReceiptPdf: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptGeneratePdfResponse>
 - `server/services/donorDonations.ts`
   - function getDonationLines: ({...}, to, fundId, accountIds, contactId, includeAnonymous, }) => Promise<DonationLine[]>
   - interface DonationLineFilters

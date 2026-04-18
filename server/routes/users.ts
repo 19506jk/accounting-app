@@ -11,8 +11,8 @@ import type {
 import type { UserRow } from '../types/db';
 
 const db = require('../db');
-const auth = require('../middleware/auth');
-const requireRole = require('../middleware/roles');
+const auth = require('../middleware/auth.js');
+const requireRole = require('../middleware/roles.js');
 
 const router = express.Router();
 
@@ -52,7 +52,7 @@ router.post(
           created_at: db.fn.now(),
           updated_at: db.fn.now(),
         })
-        .returning('id', 'name', 'email', 'role', 'is_active', 'created_at');
+        .returning(['id', 'name', 'email', 'role', 'is_active', 'created_at']);
 
       res.status(201).json({ user: newUser as UserSummary });
     } catch (err) {
@@ -94,7 +94,7 @@ router.put(
       const [updated] = await db('users')
         .where({ id })
         .update({ role, updated_at: db.fn.now() })
-        .returning('id', 'name', 'email', 'role', 'is_active');
+        .returning(['id', 'name', 'email', 'role', 'is_active']);
 
       if (!updated) {
         return res.status(404).json({ error: 'User not found' });
@@ -126,7 +126,7 @@ router.put(
       const [updated] = await db('users')
         .where({ id })
         .update({ is_active, updated_at: db.fn.now() })
-        .returning('id', 'name', 'email', 'role', 'is_active');
+        .returning(['id', 'name', 'email', 'role', 'is_active']);
 
       if (!updated) {
         return res.status(404).json({ error: 'User not found' });

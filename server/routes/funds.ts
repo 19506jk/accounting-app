@@ -11,8 +11,8 @@ import type {
 import type { AccountRow, FundRow } from '../types/db';
 
 const db = require('../db');
-const auth = require('../middleware/auth');
-const requireRole = require('../middleware/roles');
+const auth = require('../middleware/auth.js');
+const requireRole = require('../middleware/roles.js');
 
 const router = express.Router();
 

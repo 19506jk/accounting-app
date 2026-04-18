@@ -1076,7 +1076,7 @@ async function getDonorDetail({ from, to, fundId, contactId, accountIds }: Donor
   };
 }
 
-export = {
+export {
   getPL,
   getBalanceSheet,
   getLedger,

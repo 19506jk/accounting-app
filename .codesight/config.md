@@ -19,5 +19,5 @@
 ## Config Files
 
 - `client/.env.example`
-- `client/vite.config.js`
+- `client/vite.config.ts`
 - `server/.env.example`

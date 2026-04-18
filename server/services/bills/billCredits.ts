@@ -63,14 +63,17 @@ async function getClosedBooksThrough(executor: Knex | Knex.Transaction) {
   return row.value;
 }
 
-export async function getAvailableCreditsForBill(id: string | number): Promise<AvailableBillCredit[]> {
-  const target = await db('bills').where({ id }).first() as BillRow | undefined;
+export async function getAvailableCreditsForBill(
+  id: string | number,
+  executor: Knex | Knex.Transaction = db
+): Promise<AvailableBillCredit[]> {
+  const target = await executor('bills').where({ id }).first() as BillRow | undefined;
   if (!target) return [];
 
   const targetOutstanding = getOutstanding(target.amount, target.amount_paid);
   if (targetOutstanding.lte(0)) return [];
 
-  const credits = await db('bills as b')
+  const credits = await executor('bills as b')
     .where({
       contact_id: target.contact_id,
       fund_id: target.fund_id,
@@ -109,9 +112,10 @@ export async function getAvailableCreditsForBill(id: string | number): Promise<A
 
 export async function unapplyBillCredits(
   id: string,
-  userId: number
+  userId: number,
+  executor: Knex = db
 ): Promise<{ bill?: BillDetail | null; errors?: string[]; unapplied_count?: number }> {
-  const result = await db.transaction(async (trx: Knex.Transaction) => {
+  const result = await executor.transaction(async (trx: Knex.Transaction) => {
     const targetBill = await trx('bills')
       .where({ id })
       .first()
@@ -146,15 +150,11 @@ export async function unapplyBillCredits(
       .forUpdate() as BillRow[];
     const creditMap = new Map(credits.map((credit) => [credit.id, credit]));
 
-    let targetOutstanding = getOutstanding(targetBill.amount, targetBill.amount_paid);
-    for (const app of applications) {
-      const appAmount = dec(app.amount);
-      targetOutstanding = targetOutstanding.plus(appAmount);
+    for (const creditId of creditIds) {
+      if (!creditMap.has(creditId)) {
+        return { errors: [`Credit bill ${creditId} not found`] };
+      }
     }
-
-    await trx('bills')
-      .where({ id: targetBill.id })
-      .update(buildBillSettlementPatch(targetBill, targetOutstanding, userId, trx));
 
     const updatesByCredit = new Map<number, Decimal>();
     for (const app of applications) {
@@ -162,11 +162,17 @@ export async function unapplyBillCredits(
       updatesByCredit.set(app.credit_bill_id, current.minus(dec(app.amount)));
     }
 
+    let targetOutstanding = getOutstanding(targetBill.amount, targetBill.amount_paid);
+    for (const app of applications) {
+      targetOutstanding = targetOutstanding.plus(dec(app.amount));
+    }
+
+    await trx('bills')
+      .where({ id: targetBill.id })
+      .update(buildBillSettlementPatch(targetBill, targetOutstanding, userId, trx));
+
     for (const [creditId, delta] of updatesByCredit.entries()) {
-      const credit = creditMap.get(creditId);
-      if (!credit) {
-        return { errors: [`Credit bill ${creditId} not found`] };
-      }
+      const credit = creditMap.get(creditId)!;
       const outstanding = getOutstanding(credit.amount, credit.amount_paid);
       const nextOutstanding = outstanding.plus(delta);
       await trx('bills')
@@ -209,7 +215,8 @@ export async function unapplyBillCredits(
 export async function applyBillCredits(
   id: string,
   payload: ApplyBillCreditsInput,
-  userId: number
+  userId: number,
+  executor: Knex = db
 ): Promise<{ bill?: BillDetail | null; errors?: string[]; applications?: BillCreditApplication[]; transaction?: TransactionRow | null }> {
   if (!payload.applications || !Array.isArray(payload.applications) || payload.applications.length === 0) {
     return { errors: ['applications is required'] };
@@ -238,7 +245,7 @@ export async function applyBillCredits(
     duplicates.add(app.credit_bill_id);
   }
 
-  const result = await db.transaction(async (trx: Knex.Transaction) => {
+  const result = await executor.transaction(async (trx: Knex.Transaction) => {
     const target = await trx('bills')
       .where({ id })
       .first()

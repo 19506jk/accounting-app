@@ -29,13 +29,9 @@ import type {
 } from '../types/db';
 
 const db = require('../db');
-const auth = require('../middleware/auth');
-const requireRole = require('../middleware/roles');
-import billService = require('../services/bills');
-import { getChurchToday, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
-import { getChurchTimeZone } from '../services/churchTimeZone.js';
-
-const {
+const auth = require('../middleware/auth.js');
+const requireRole = require('../middleware/roles.js');
+import {
   createBill,
   updateBill,
   payBill,
@@ -46,7 +42,9 @@ const {
   getAgingReport,
   getUnpaidSummary,
   getBillWithLineItems,
-} = billService;
+} from '../services/bills.js';
+import { getChurchToday, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
+import { getChurchTimeZone } from '../services/churchTimeZone.js';
 
 const router = express.Router();
 router.use(auth);

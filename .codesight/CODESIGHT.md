@@ -3,9 +3,9 @@
 > **Stack:** express | none | react | typescript
 > **Monorepo:** church-accounting-client, church-accounting-server
 
-> 74 routes (74 inferred) | 0 models | 27 components | 28 lib files | 13 env vars | 8 middleware
-> **Token savings:** this file is ~5,000 tokens. Without it, AI exploration would cost ~67,400 tokens. **Saves ~62,400 tokens per conversation.**
-> **Last scanned:** 2026-04-15 22:10 — re-run after significant changes
+> 74 routes (74 inferred) | 0 models | 35 components | 29 lib files | 13 env vars | 11 middleware | 28% test coverage
+> **Token savings:** this file is ~5,700 tokens. Without it, AI exploration would cost ~71,000 tokens. **Saves ~65,300 tokens per conversation.**
+> **Last scanned:** 2026-04-18 01:49 — re-run after significant changes
 
 ---
 
@@ -24,9 +24,9 @@
 ## Other Routes
 
 - `GET` `/api/health` [auth, cache] `[inferred]`
-- `GET` `*` [auth, cache] `[inferred]`
-- `POST` `/api/auth/google` [auth, db] `[inferred]`
-- `GET` `/api/auth/me` [auth, db] `[inferred]`
+- `GET` `*` [auth, cache] `[inferred]` ✓
+- `POST` `/api/auth/google` [auth, db] `[inferred]` ✓
+- `GET` `/api/auth/me` [auth, db] `[inferred]` ✓
 - `GET` `/api/bills/summary` [auth, db] `[inferred]`
 - `GET` `/api/bills/reports/aging` [auth, db] `[inferred]`
 - `GET` `/api/bills/:id/available-credits` params(id) [auth, db] `[inferred]`
@@ -43,10 +43,10 @@
 - `GET` `/api/donation-receipts/template` [auth] `[inferred]`
 - `PUT` `/api/donation-receipts/template` [auth] `[inferred]`
 - `POST` `/api/donation-receipts/preview` [auth] `[inferred]`
-- `POST` `/api/donation-receipts/generate` [auth] `[inferred]`
+- `POST` `/api/donation-receipts/generate-pdf` [auth] `[inferred]`
 - `POST` `/api/fiscal-periods/investigate` [auth, db] `[inferred]`
 - `POST` `/api/fiscal-periods/close` [auth, db] `[inferred]`
-- `GET` `/api/fiscal-periods` [auth, db] `[inferred]`
+- `GET` `/api/fiscal-periods` [auth, db] `[inferred]` ✓
 - `DELETE` `/api/fiscal-periods/:id/reopen` params(id) [auth, db] `[inferred]`
 - `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db] `[inferred]`
 - `POST` `/api/reconciliations/:id/close` params(id) [auth, db] `[inferred]`
@@ -56,13 +56,13 @@
 - `GET` `/api/reports/trial-balance` [auth] `[inferred]`
 - `GET` `/api/reports/donors/summary` [auth] `[inferred]`
 - `GET` `/api/reports/donors/detail` [auth] `[inferred]`
-- `GET` `/api/settings` [auth, db] `[inferred]`
-- `PUT` `/api/settings` [auth, db] `[inferred]`
-- `GET` `/api/tax-rates` [auth, db] `[inferred]`
+- `GET` `/api/settings` [auth, db] `[inferred]` ✓
+- `PUT` `/api/settings` [auth, db] `[inferred]` ✓
+- `GET` `/api/tax-rates` [auth, db] `[inferred]` ✓
 - `PUT` `/api/tax-rates/:id` params(id) [auth, db] `[inferred]`
 - `PATCH` `/api/tax-rates/:id/toggle` params(id) [auth, db] `[inferred]`
-- `POST` `/api/transactions/import/bill-matches` [auth, db, queue] `[inferred]`
-- `POST` `/api/transactions/import` [auth, db, queue] `[inferred]`
+- `POST` `/api/transactions/import/bill-matches` [auth, db] `[inferred]`
+- `POST` `/api/transactions/import` [auth, db] `[inferred]`
 - `PUT` `/api/users/:id/role` params(id) [auth, db] `[inferred]`
 - `PUT` `/api/users/:id/active` params(id) [auth, db] `[inferred]`
 
@@ -70,33 +70,41 @@
 
 # Components
 
-- **App** — `client/src/App.jsx`
-- **DonationReceiptsPdfDocument** — props: receipts — `client/src/components/DonationReceiptsPdfDocument.jsx`
-- **ExpenseBreakdown** — props: lines, lineTotals, expenseAccountOptions, taxRateOptions, onChange, onRemove, errors, readOnly, showGrossColumn, minWidth — `client/src/components/ExpenseBreakdown.jsx`
-- **FullScreenSpinner** — `client/src/components/FullScreenSpinner.jsx`
-- **Layout** — `client/src/components/Layout.jsx`
-- **ProtectedRoute** — `client/src/components/ProtectedRoute.jsx`
-- **RoleGuard** — props: roles, fallback — `client/src/components/RoleGuard.jsx`
-- **SaveTemplateModal** — props: isOpen, onClose, onSave, title, placeholder, Weekly Office Supplies' — `client/src/components/SaveTemplateModal.jsx`
-- **TemplateDropdown** — props: templates, isOpen, onToggle, onLoad, onDelete — `client/src/components/TemplateDropdown.jsx`
+- **App** — `client/src/App.tsx`
+- **ExpenseBreakdown** — props: lines, lineTotals, expenseAccountOptions, taxRateOptions, onChange, onRemove, errors, readOnly, showGrossColumn, minWidth — `client/src/components/ExpenseBreakdown.tsx`
+- **FullScreenSpinner** — `client/src/components/FullScreenSpinner.tsx`
+- **Layout** — `client/src/components/Layout.tsx`
+- **ProtectedRoute** — `client/src/components/ProtectedRoute.tsx`
+- **RoleGuard** — props: roles, fallback — `client/src/components/RoleGuard.tsx`
+- **SaveTemplateModal** — props: isOpen, onClose, onSave, title, placeholder — `client/src/components/SaveTemplateModal.tsx`
+- **TemplateDropdown** — props: templates, isOpen, onToggle, onLoad, onDelete — `client/src/components/TemplateDropdown.tsx`
 - **AuthProvider** — `client/src/context/AuthContext.tsx`
 - **DateProvider** — `client/src/context/DateContext.tsx`
-- **GOOGLE_CLIENT_ID** — `client/src/main.jsx`
-- **Bills** — `client/src/pages/Bills.jsx`
-- **ChartOfAccounts** — `client/src/pages/ChartOfAccounts.jsx`
-- **Contacts** — `client/src/pages/Contacts.jsx`
-- **Dashboard** — `client/src/pages/Dashboard.jsx`
-- **DepositEntry** — `client/src/pages/DepositEntry.jsx`
-- **DonationReceipts** — `client/src/pages/DonationReceipts.jsx`
-- **ExpenseEntry** — `client/src/pages/ExpenseEntry.jsx`
-- **HardCloseWizard** — props: open, onClose, onSuccess — `client/src/pages/HardClose.jsx`
-- **ImportCsv** — `client/src/pages/ImportCsv.jsx`
-- **Login** — `client/src/pages/Login.jsx`
-- **Reconciliation** — `client/src/pages/Reconciliation.jsx`
-- **Reports** — `client/src/pages/Reports.jsx`
-- **Settings** — `client/src/pages/Settings.jsx`
-- **Transactions** — `client/src/pages/Transactions.jsx`
-- **UserManagement** — `client/src/pages/UserManagement.jsx`
+- **GOOGLE_CLIENT_ID** — `client/src/main.tsx`
+- **Bills** — `client/src/pages/Bills.tsx`
+- **ChartOfAccounts** — `client/src/pages/ChartOfAccounts.tsx`
+- **Contacts** — `client/src/pages/Contacts.tsx`
+- **Dashboard** — props: label, value, isLoading, color, sub — `client/src/pages/Dashboard.tsx`
+- **DepositEntry** — `client/src/pages/DepositEntry.tsx`
+- **DonationReceipts** — `client/src/pages/DonationReceipts.tsx`
+- **ExpenseEntry** — `client/src/pages/ExpenseEntry.tsx`
+- **HardCloseWizard** — props: open, onClose, onSuccess — `client/src/pages/HardClose.tsx`
+- **ImportCsv** — `client/src/pages/ImportCsv.tsx`
+- **Login** — `client/src/pages/Login.tsx`
+- **Reconciliation** — props: id, onBack — `client/src/pages/Reconciliation.tsx`
+- **Reports** — `client/src/pages/Reports.tsx`
+- **Settings** — `client/src/pages/Settings.tsx`
+- **Transactions** — props: onClose, onSaved — `client/src/pages/Transactions.tsx`
+- **UserManagement** — `client/src/pages/UserManagement.tsx`
+- **BillForm** — props: bill, onClose, onSaved — `client/src/pages/bills/BillForm.tsx`
+- **BillsTable** — props: bills, isLoading, canEdit, onPay, onRowClick — `client/src/pages/bills/BillsTable.tsx`
+- **PaymentModal** — props: bill, isOpen, onClose, onPaid — `client/src/pages/bills/PaymentModal.tsx`
+- **ImportPreviewTable** — props: rows, selectedRows, suggestionsByRow, offsetOptions, donorOptions, payeeOptions, onSelectedRowsChange, onToggleRow, onOffsetChange, onReferenceChange — `client/src/pages/importCsv/ImportPreviewTable.tsx`
+- **ImportSetupPanel** — props: bankAccountId, fundId, bankAccountOptions, fundOptions, isParsing, parsedRowCount, parseError, parseWarnings, onFileChange, onBankAccountChange — `client/src/pages/importCsv/ImportSetupPanel.tsx`
+- **SplitTransactionModal** — props: isOpen, onClose, onSave, row, defaultFundId, offsetAccountOptions, fundOptions, donorOptions, payeeOptions, expenseAccountOptions — `client/src/pages/importCsv/SplitTransactionModal.tsx`
+- **DiagnosticsPanel** — props: diagnostics, onInvestigate — `client/src/pages/reports/ReportSections.tsx`
+- **PLReport** — props: data — `client/src/pages/reports/reportRenderers.tsx`
+- **DonationReceiptsPdfDocument** — props: receipts — `server/services/donationReceiptPdf.tsx`
 
 ---
 
@@ -132,8 +140,11 @@
   - function useDonationReceiptTemplate: (enabled) => void
   - function useSaveDonationReceiptTemplate: () => void
   - function usePreviewDonationReceipt: () => void
-  - function useGenerateDonationReceipts: () => void
-- `client/src/api/useExpenseTemplates.ts` — function useExpenseTemplates: () => void
+  - function useGenerateDonationReceiptPdf: () => void
+- `client/src/api/useExpenseTemplates.ts`
+  - function useExpenseTemplates: () => void
+  - interface ExpenseTemplateRow
+  - interface ExpenseTemplate
 - `client/src/api/useFiscalPeriods.ts` — function useFiscalPeriods: () => void, function useReopenFiscalPeriod: () => void
 - `client/src/api/useFunds.ts`
   - function useFunds: (params) => void
@@ -160,7 +171,10 @@
   - function useTaxRates: ({...}) => void
   - function useUpdateTaxRate: () => void
   - function useToggleTaxRate: () => void
-- `client/src/api/useTransactionTemplates.ts` — function useTransactionTemplates: () => void
+- `client/src/api/useTransactionTemplates.ts`
+  - function useTransactionTemplates: () => void
+  - interface TransactionTemplateRow
+  - interface TransactionTemplate
 - `client/src/api/useTransactions.ts`
   - function useTransactions: (params) => void
   - function useTransaction: (id) => void
@@ -183,11 +197,12 @@
   - function toDateOnly: (value?) => void
   - function getChurchToday: (timeZone?) => void
   - _...10 more_
+- `client/src/utils/errors.ts` — function getErrorMessage: (err, fallback) => string
 - `client/src/utils/parseStatementCsv.ts` — function parseStatementCsv: (file) => Promise<ParseStatementCsvResult>
 - `server/services/bills/billCredits.ts`
-  - function getAvailableCreditsForBill: (id) => Promise<AvailableBillCredit[]>
-  - function unapplyBillCredits: (id, userId) => Promise<
-  - function applyBillCredits: (id, payload, userId) => Promise<
+  - function getAvailableCreditsForBill: (id, executor) => Promise<AvailableBillCredit[]>
+  - function unapplyBillCredits: (id, userId, executor) => Promise<
+  - function applyBillCredits: (id, payload, userId, executor) => Promise<
 - `server/services/bills/billPosting.ts`
   - function getUniqueTaxRateIds: (lineItems) => void
   - function calculateGrossTotalFromLineItems: (lineItems, taxRateMap, TaxRateRow>) => void
@@ -198,7 +213,7 @@
   - function normaliseApplications: (rows) => BillCreditApplication[]
   - function getBillWithLineItems: (billId, executor) => Promise<BillDetail | null>
   - interface ApplicationJoinedRow
-- `server/services/bills/billReports.ts` — function getAgingReport: (asOfDate) => void, function getUnpaidSummary: () => Promise<BillSummaryResponse['summary']>
+- `server/services/bills/billReports.ts` — function getAgingReport: (asOfDate) => void, function getUnpaidSummary: (executor) => Promise<BillSummaryResponse['summary']>
 - `server/services/bills/billSettlement.ts`
   - function getOutstanding: (amount, amountPaid) => void
   - function isSettledOutstanding: (outstanding) => void
@@ -210,6 +225,7 @@
   - function validateBillData: (data, isUpdate) => string[]
   - function resolveTaxRateMap: (lineItems, executor) => Promise<Record<number, TaxRateRow>>
   - function validateLineItemAccounts: (lineItems) => Promise<string[]>
+  - function validateLineItemAccountsWithExecutor: (lineItems, executor?) => Promise<string[]>
 - `server/services/churchTimeZone.ts`
   - function getChurchTimeZone: () => void
   - function setChurchTimeZone: (value?) => void
@@ -219,7 +235,7 @@
   - function getReceiptTemplate: () => Promise<DonationReceiptTemplateResponse>
   - function saveReceiptTemplate: (markdownBody, userId) => Promise<DonationReceiptTemplateResponse>
   - function previewReceipt: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptPreviewResponse>
-  - function generateReceipts: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptGenerateResponse>
+  - function generateReceiptPdf: (fiscalYear, accountIds, markdownBody?) => Promise<DonationReceiptGeneratePdfResponse>
 - `server/services/donorDonations.ts`
   - function getDonationLines: ({...}, to, fundId, accountIds, contactId, includeAnonymous, }) => Promise<DonationLine[]>
   - interface DonationLineFilters
@@ -262,7 +278,7 @@
 ## Config Files
 
 - `client/.env.example`
-- `client/vite.config.js`
+- `client/vite.config.ts`
 - `server/.env.example`
 
 ---
@@ -275,8 +291,11 @@
 - 03_tax_rates — `server/db/seeds/03_tax_rates.js`
 
 ## auth
+- auth.test — `server/middleware/__tests__/auth.test.ts`
+- roles.test — `server/middleware/__tests__/roles.test.ts`
 - auth — `server/middleware/auth.ts`
 - roles — `server/middleware/roles.ts`
+- auth.test — `server/routes/__tests__/auth.test.ts`
 - auth — `server/routes/auth.ts`
 - authRoutes — `server/index.ts`
 
@@ -289,39 +308,70 @@
 
 ## Most Imported Files (change these carefully)
 
-- `server/db/index.js` — imported by **20** files
+- `server/db/index.js` — imported by **37** files
+- `client/src/components/ui/types.ts` — imported by **26** files
+- `client/src/components/ui/Button.tsx` — imported by **22** files
+- `client/src/utils/date.ts` — imported by **19** files
 - `client/src/api/client.ts` — imported by **17** files
-- `client/src/components/ui/Button.jsx` — imported by **16** files
-- `server/middleware/auth.ts` — imported by **13** files
+- `client/src/components/ui/Input.tsx` — imported by **15** files
+- `client/src/utils/errors.ts` — imported by **15** files
+- `server/utils/date.ts` — imported by **15** files
+- `server/middleware/auth.ts` — imported by **14** files
+- `client/src/components/ui/Toast.tsx` — imported by **13** files
+- `server/routes/routeTestHelpers.ts` — imported by **13** files
 - `client/src/context/AuthContext.tsx` — imported by **12** files
-- `client/src/components/ui/Input.jsx` — imported by **12** files
-- `client/src/utils/date.ts` — imported by **11** files
-- `client/src/components/ui/Toast.jsx` — imported by **11** files
-- `client/src/components/ui/Card.jsx` — imported by **11** files
-- `server/utils/date.ts` — imported by **11** files
-- `client/src/components/ui/Select.jsx` — imported by **10** files
-- `server/middleware/roles.ts` — imported by **10** files
-- `client/src/api/useAccounts.ts` — imported by **9** files
-- `client/src/components/ui/Combobox.jsx` — imported by **8** files
-- `client/src/components/ui/Modal.jsx` — imported by **8** files
-- `client/src/api/useFunds.ts` — imported by **7** files
-- `server/services/churchTimeZone.ts` — imported by **7** files
-- `server/types/db.ts` — imported by **7** files
-- `client/src/components/ui/Table.jsx` — imported by **6** files
-- `client/src/api/useContacts.ts` — imported by **6** files
+- `client/src/components/ui/Combobox.tsx` — imported by **12** files
+- `server/services/churchTimeZone.ts` — imported by **12** files
+- `client/src/components/ui/Select.tsx` — imported by **11** files
+- `client/src/components/ui/Card.tsx` — imported by **11** files
+- `server/middleware/roles.ts` — imported by **11** files
+- `client/src/api/useAccounts.ts` — imported by **10** files
+- `client/src/components/ui/Modal.tsx` — imported by **8** files
+- `client/src/api/useContacts.ts` — imported by **7** files
 
 ## Import Map (who imports what)
 
-- `server/db/index.js` ← `server/routes/accounts.ts`, `server/routes/auth.ts`, `server/routes/bills.ts`, `server/routes/contacts.ts`, `server/routes/fiscalPeriods.ts` +15 more
+- `server/db/index.js` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBills.integration.test.ts`, `server/routes/__tests__/directDbContactDonations.integration.test.ts`, `server/routes/__tests__/directDbContactsSettings.integration.test.ts`, `server/routes/__tests__/directDbDonationReceipts.integration.test.ts` +32 more
+- `client/src/components/ui/types.ts` ← `client/src/api/useExpenseTemplates.ts`, `client/src/components/ExpenseBreakdown.tsx`, `client/src/components/ui/Combobox.tsx`, `client/src/components/ui/MultiSelectCombobox.tsx`, `client/src/components/ui/Select.tsx` +21 more
+- `client/src/components/ui/Button.tsx` ← `client/src/components/SaveTemplateModal.tsx`, `client/src/components/TemplateDropdown.tsx`, `client/src/components/ui/TransactionTable.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx` +17 more
+- `client/src/utils/date.ts` ← `client/src/api/useDashboard.ts`, `client/src/components/ui/DateRangePicker.tsx`, `client/src/components/ui/TransactionTable.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx` +14 more
 - `client/src/api/client.ts` ← `client/src/api/useAccounts.ts`, `client/src/api/useBills.ts`, `client/src/api/useContacts.ts`, `client/src/api/useDashboard.ts`, `client/src/api/useDonationReceipts.ts` +12 more
-- `client/src/components/ui/Button.jsx` ← `client/src/components/SaveTemplateModal.jsx`, `client/src/components/TemplateDropdown.jsx`, `client/src/components/ui/TransactionTable.jsx`, `client/src/pages/Bills.jsx`, `client/src/pages/ChartOfAccounts.jsx` +11 more
-- `server/middleware/auth.ts` ← `server/routes/accounts.ts`, `server/routes/auth.ts`, `server/routes/bills.ts`, `server/routes/contacts.ts`, `server/routes/donationReceipts.ts` +8 more
-- `client/src/context/AuthContext.tsx` ← `client/src/App.jsx`, `client/src/api/useExpenseTemplates.ts`, `client/src/api/useTransactionTemplates.ts`, `client/src/components/Layout.jsx`, `client/src/components/ProtectedRoute.jsx` +7 more
-- `client/src/components/ui/Input.jsx` ← `client/src/components/ExpenseBreakdown.jsx`, `client/src/components/SaveTemplateModal.jsx`, `client/src/pages/Bills.jsx`, `client/src/pages/ChartOfAccounts.jsx`, `client/src/pages/Contacts.jsx` +7 more
-- `client/src/utils/date.ts` ← `client/src/api/useDashboard.ts`, `client/src/components/ui/DateRangePicker.jsx`, `client/src/components/ui/TransactionTable.jsx`, `client/src/pages/ChartOfAccounts.jsx`, `client/src/pages/Dashboard.jsx` +6 more
-- `client/src/components/ui/Toast.jsx` ← `client/src/main.jsx`, `client/src/pages/Bills.jsx`, `client/src/pages/ChartOfAccounts.jsx`, `client/src/pages/Contacts.jsx`, `client/src/pages/DepositEntry.jsx` +6 more
-- `client/src/components/ui/Card.jsx` ← `client/src/pages/Bills.jsx`, `client/src/pages/ChartOfAccounts.jsx`, `client/src/pages/Contacts.jsx`, `client/src/pages/Dashboard.jsx`, `client/src/pages/DonationReceipts.jsx` +6 more
-- `server/utils/date.ts` ← `server/routes/bills.ts`, `server/routes/fiscalPeriods.ts`, `server/routes/reconciliation.ts`, `server/routes/reports.ts`, `server/routes/settings.ts` +6 more
+- `client/src/components/ui/Input.tsx` ← `client/src/components/ExpenseBreakdown.tsx`, `client/src/components/SaveTemplateModal.tsx`, `client/src/pages/ChartOfAccounts.tsx`, `client/src/pages/Contacts.tsx`, `client/src/pages/DepositEntry.tsx` +10 more
+- `client/src/utils/errors.ts` ← `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx`, `client/src/pages/Contacts.tsx`, `client/src/pages/DepositEntry.tsx`, `client/src/pages/DonationReceipts.tsx` +10 more
+- `server/utils/date.ts` ← `server/routes/bills.ts`, `server/routes/fiscalPeriods.ts`, `server/routes/reconciliation.ts`, `server/routes/reports.ts`, `server/routes/settings.ts` +10 more
+- `server/middleware/auth.ts` ← `server/middleware/__tests__/auth.test.ts`, `server/routes/accounts.ts`, `server/routes/auth.ts`, `server/routes/bills.ts`, `server/routes/contacts.ts` +9 more
+- `client/src/components/ui/Toast.tsx` ← `client/src/main.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx`, `client/src/pages/Contacts.tsx`, `client/src/pages/DepositEntry.tsx` +8 more
+
+---
+
+# Test Coverage
+
+> **28%** of routes and models are covered by tests
+> 33 test files found
+
+## Covered Routes
+
+- GET:*
+- GET:/api/accounts
+- POST:/api/accounts
+- POST:/api/auth/google
+- GET:/api/auth/me
+- GET:/api/bills
+- POST:/api/bills
+- GET:/api/contacts
+- POST:/api/contacts
+- GET:/api/fiscal-periods
+- GET:/api/funds
+- POST:/api/funds
+- GET:/api/reconciliations
+- POST:/api/reconciliations
+- GET:/api/settings
+- PUT:/api/settings
+- GET:/api/tax-rates
+- GET:/api/transactions
+- POST:/api/transactions
+- POST:/api/users
+- GET:/api/users
 
 ---
 
