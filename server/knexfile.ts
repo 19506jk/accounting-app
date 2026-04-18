@@ -2,12 +2,15 @@ import 'dotenv/config';
 
 import type { Knex } from 'knex';
 
+const parsedDbPort = Number.parseInt(process.env.DB_PORT ?? '', 10);
+const dbPort = Number.isNaN(parsedDbPort) ? 5432 : parsedDbPort;
+
 const config: Record<string, Knex.Config> = {
   development: {
     client: 'postgresql',
     connection: {
       host: process.env.DB_HOST || '127.0.0.1',
-      port: process.env.DB_PORT || 5432,
+      port: dbPort,
       user: process.env.DB_USER_DEV,
       password: String(process.env.DB_PASSWORD_DEV), // Force string type
       database: process.env.DB_NAME_DEV
@@ -42,7 +45,7 @@ const config: Record<string, Knex.Config> = {
     client: 'postgresql',
     connection: {
       host: process.env.DB_HOST || '127.0.0.1',
-      port: process.env.DB_PORT || 5432,
+      port: dbPort,
       user: process.env.DB_USER_TEST,
       password: String(process.env.DB_PASSWORD_TEST), // Force string type
       database: process.env.DB_NAME_TEST
