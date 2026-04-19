@@ -143,6 +143,7 @@ export async function parseStatementCsv(file: File): Promise<ParseStatementCsvRe
     parsedRows.push({
       date: parsePostedDate(row[dateCol], rowNumber),
       description,
+      raw_description: descriptionPart1 || description,
       reference_no: reference || undefined,
       amount: withdrawalAmount > 0 ? withdrawalAmount : depositAmount,
       type: withdrawalAmount > 0 ? 'withdrawal' : 'deposit',

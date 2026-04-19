@@ -184,6 +184,7 @@ export interface TransactionSplit {
 export interface ImportTransactionRow {
   date: string;
   description: string;
+  raw_description?: string;
   reference_no?: string;
   amount: number;
   type: 'withdrawal' | 'deposit';
@@ -214,6 +215,101 @@ export interface ImportTransactionsResult {
   imported: number;
   skipped: number;
   skipped_rows: SkippedImportRow[];
+}
+
+export interface BankTransactionRow {
+  bank_posted_date: string;
+  bank_effective_date?: string | null;
+  raw_description: string;
+  amount: number;
+  bank_transaction_id?: string | null;
+}
+
+export interface BankImportInput {
+  account_id: number;
+  fund_id: number;
+  filename: string;
+  rows: BankTransactionRow[];
+}
+
+export interface BankImportResult {
+  upload_id: number;
+  inserted: number;
+  skipped: number;
+  needs_review: number;
+  warnings: string[];
+}
+
+export type BankTransactionStatus =
+  | 'imported'
+  | 'needs_review'
+  | 'matched_existing'
+  | 'created_new'
+  | 'locked'
+  | 'archived';
+
+export interface BankTransactionConflict {
+  id: number;
+  bank_posted_date: string;
+  raw_description: string;
+  amount: number;
+  status: BankTransactionStatus;
+}
+
+export interface BankTransaction {
+  id: number;
+  upload_id: number;
+  account_id: number;
+  fund_id: number;
+  row_index: number;
+  bank_transaction_id: string | null;
+  bank_posted_date: string;
+  bank_effective_date: string | null;
+  raw_description: string;
+  normalized_description: string;
+  amount: number;
+  status: BankTransactionStatus;
+  journal_entry_id: number | null;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+  review_decision: 'confirmed_new' | 'mark_as_duplicate' | null;
+  imported_at: string;
+  last_modified_at: string;
+  conflict?: BankTransactionConflict;
+}
+
+export interface BankUploadSummary {
+  id: number;
+  account_id: number;
+  account_name: string;
+  fund_id: number;
+  fund_name: string;
+  uploaded_by: number | null;
+  filename: string;
+  row_count: number;
+  imported_at: string;
+}
+
+export interface BankTransactionsQuery {
+  status?: BankTransactionStatus;
+  upload_id?: string | number;
+  account_id?: string | number;
+}
+
+export interface BankTransactionsListResponse {
+  items: BankTransaction[];
+}
+
+export interface BankUploadsListResponse {
+  uploads: BankUploadSummary[];
+}
+
+export interface BankTransactionResponse {
+  item: BankTransaction;
+}
+
+export interface BankReviewDecision {
+  decision: 'confirmed_new' | 'mark_as_duplicate';
 }
 
 export interface GetBillMatchesInput {

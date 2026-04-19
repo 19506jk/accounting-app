@@ -242,3 +242,41 @@ export interface BillCreditApplicationRow {
   unapplied_by: number | null;
   unapplied_at: Date | string | null;
 }
+
+export interface BankUploadRow {
+  id: number;
+  account_id: number;
+  fund_id: number;
+  uploaded_by: number | null;
+  filename: string;
+  row_count: number;
+  imported_at: Date | string;
+}
+
+export type BankTransactionStatusRow =
+  | 'imported'
+  | 'needs_review'
+  | 'matched_existing'
+  | 'created_new'
+  | 'locked'
+  | 'archived';
+
+export interface BankTransactionRow {
+  id: number;
+  upload_id: number;
+  row_index: number;
+  bank_transaction_id: string | null;
+  bank_posted_date: Date | string;
+  bank_effective_date: Date | string | null;
+  raw_description: string;
+  normalized_description: string;
+  amount: string | number;
+  fingerprint: string;
+  status: BankTransactionStatusRow;
+  journal_entry_id: number | null;
+  reviewed_by: number | null;
+  reviewed_at: Date | string | null;
+  review_decision: 'confirmed_new' | 'mark_as_duplicate' | null;
+  imported_at: Date | string;
+  last_modified_at: Date | string;
+}
