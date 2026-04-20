@@ -135,7 +135,7 @@ export default function BankFeed() {
       setImportResult(result)
       setPostImportNeedsReview(result.needs_review)
       addToast(
-        `Imported ${result.inserted} rows (${result.skipped} skipped, ${result.needs_review} needs review).`,
+        `Imported ${result.inserted - result.needs_review} rows, ${result.needs_review} flagged for review (${result.skipped} skipped).`,
         'success'
       )
     } catch (err) {
