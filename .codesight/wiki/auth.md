@@ -2,7 +2,7 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Auth subsystem handles **2 routes** and touches: auth, db.
+The Auth subsystem handles **3 routes** and touches: auth, db.
 
 ## Routes
 
@@ -10,6 +10,8 @@ The Auth subsystem handles **2 routes** and touches: auth, db.
   `server/routes/auth.ts`
 - `GET` `/api/auth/me` [auth, db] `[inferred]`
   `server/routes/auth.ts`
+- `POST` `/api/bank-transactions/:id/confirm` params(id) [auth, db, upload] `[inferred]`
+  `server/routes/bankTransactions.ts`
 
 ## Middleware
 
@@ -25,6 +27,7 @@ The Auth subsystem handles **2 routes** and touches: auth, db.
 
 Read these before implementing or modifying this subsystem:
 - `server/routes/auth.ts`
+- `server/routes/bankTransactions.ts`
 
 ---
 _Back to [overview.md](./overview.md)_

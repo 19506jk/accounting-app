@@ -1,7 +1,7 @@
 # Test Coverage
 
-> **36%** of routes and models are covered by tests
-> 37 test files found
+> **30%** of routes and models are covered by tests
+> 43 test files found
 
 ## Covered Routes
 
@@ -10,6 +10,7 @@
 - POST:/api/accounts
 - POST:/api/auth/google
 - GET:/api/auth/me
+- GET:/api/bank-transactions
 - GET:/api/bills
 - POST:/api/bills
 - GET:/api/contacts

@@ -28,6 +28,9 @@
 - **Settings** — `client/src/pages/Settings.tsx`
 - **Transactions** — props: onClose, onSaved — `client/src/pages/Transactions.tsx`
 - **UserManagement** — `client/src/pages/UserManagement.tsx`
+- **BankFeedImportTab** — props: isActive, bankAccountOptions, fundOptions, postImportNeedsReview, setPostImportNeedsReview — `client/src/pages/bankFeed/BankFeedImportTab.tsx`
+- **BankFeedMatchTab** — props: isActive — `client/src/pages/bankFeed/BankFeedMatchTab.tsx`
+- **BankFeedReviewTab** — props: isActive, onReviewed — `client/src/pages/bankFeed/BankFeedReviewTab.tsx`
 - **BillForm** — props: bill, onClose, onSaved — `client/src/pages/bills/BillForm.tsx`
 - **BillsTable** — props: bills, isLoading, canEdit, onPay, onRowClick — `client/src/pages/bills/BillsTable.tsx`
 - **PaymentModal** — props: bill, isOpen, onClose, onPaid — `client/src/pages/bills/PaymentModal.tsx`

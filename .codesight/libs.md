@@ -7,7 +7,7 @@
   - function useDeleteAccount: () => void
 - `client/src/api/useBankTransactions.ts`
   - function useBankTransactions: (params, options?) => void
-  - function useBankUploads: () => void
+  - function useBankUploads: (options?) => void
   - function useImportBankTransactions: () => void
   - function useReviewBankTransaction: () => void
   - function useScanCandidates: () => void

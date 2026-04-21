@@ -2,25 +2,27 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Reconciliation subsystem handles **8 routes** and touches: auth, db.
+The Reconciliation subsystem handles **9 routes** and touches: auth, db.
 
 ## Routes
 
-- `GET` `/api/reconciliations` [auth, db] `[inferred]`
+- `GET` `/api/reconciliations` [auth, db, upload] `[inferred]`
   `server/routes/reconciliation.ts`
-- `GET` `/api/reconciliations/:id` params(id) [auth, db] `[inferred]`
+- `GET` `/api/reconciliations/:id` params(id) [auth, db, upload] `[inferred]`
   `server/routes/reconciliation.ts`
-- `GET` `/api/reconciliations/:id/report` params(id) [auth, db] `[inferred]`
+- `GET` `/api/reconciliations/:id/report` params(id) [auth, db, upload] `[inferred]`
   `server/routes/reconciliation.ts`
-- `POST` `/api/reconciliations` [auth, db] `[inferred]`
+- `POST` `/api/reconciliations` [auth, db, upload] `[inferred]`
   `server/routes/reconciliation.ts`
-- `PUT` `/api/reconciliations/:id` params(id) [auth, db] `[inferred]`
+- `PUT` `/api/reconciliations/:id` params(id) [auth, db, upload] `[inferred]`
   `server/routes/reconciliation.ts`
-- `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db] `[inferred]`
+- `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db, upload] `[inferred]`
   `server/routes/reconciliation.ts`
-- `POST` `/api/reconciliations/:id/close` params(id) [auth, db] `[inferred]`
+- `POST` `/api/reconciliations/:id/close` params(id) [auth, db, upload] `[inferred]`
   `server/routes/reconciliation.ts`
-- `DELETE` `/api/reconciliations/:id` params(id) [auth, db] `[inferred]`
+- `POST` `/api/reconciliations/:id/reopen` params(id) [auth, db, upload] `[inferred]`
+  `server/routes/reconciliation.ts`
+- `DELETE` `/api/reconciliations/:id` params(id) [auth, db, upload] `[inferred]`
   `server/routes/reconciliation.ts`
 
 ## Source Files
