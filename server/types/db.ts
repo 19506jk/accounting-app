@@ -277,6 +277,9 @@ export interface BankTransactionRow {
   bank_posted_date: Date | string;
   bank_effective_date: Date | string | null;
   raw_description: string;
+  sender_name: string | null;
+  sender_email: string | null;
+  bank_description_2: string | null;
   normalized_description: string;
   amount: string | number;
   fingerprint: string;

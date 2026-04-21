@@ -223,6 +223,9 @@ export interface BankTransactionRow {
   raw_description: string;
   amount: number;
   bank_transaction_id?: string | null;
+  sender_name?: string | null;
+  sender_email?: string | null;
+  bank_description_2?: string | null;
 }
 
 export interface BankImportInput {
@@ -274,6 +277,9 @@ export interface BankTransaction {
   bank_posted_date: string;
   bank_effective_date: string | null;
   raw_description: string;
+  sender_name: string | null;
+  sender_email: string | null;
+  bank_description_2: string | null;
   normalized_description: string;
   amount: number;
   status: BankTransactionStatus;

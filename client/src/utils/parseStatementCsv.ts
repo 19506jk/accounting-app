@@ -4,6 +4,7 @@ import type { ImportTransactionRow } from '@shared/contracts'
 
 interface RowMetadata {
   description_1: string
+  description_2: string
   sender: string
   from: string
 }
@@ -149,7 +150,12 @@ export async function parseStatementCsv(file: File): Promise<ParseStatementCsvRe
       type: withdrawalAmount > 0 ? 'withdrawal' : 'deposit',
       offset_account_id: 0,
     })
-    metadata.push({ description_1: descriptionPart1, sender: senderValue, from: fromValue })
+    metadata.push({
+      description_1: descriptionPart1,
+      description_2: descriptionPart2,
+      sender: senderValue,
+      from: fromValue,
+    })
   }
 
   return {

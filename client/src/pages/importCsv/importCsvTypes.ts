@@ -6,6 +6,7 @@ export type TransactionRowType = ImportTransactionRow['type'];
 
 export interface StatementRowMetadata {
   description_1?: string;
+  description_2?: string;
   sender?: string;
   from?: string;
 }

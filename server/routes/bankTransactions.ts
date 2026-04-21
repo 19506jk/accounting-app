@@ -72,6 +72,9 @@ function toBankTransaction(row: JoinedBankTransactionRow): ApiBankTransactionWit
     bank_posted_date: normalizeDateOnly(row.bank_posted_date),
     bank_effective_date: row.bank_effective_date ? normalizeDateOnly(row.bank_effective_date) : null,
     raw_description: row.raw_description,
+    sender_name: row.sender_name ?? null,
+    sender_email: row.sender_email ?? null,
+    bank_description_2: row.bank_description_2 ?? null,
     normalized_description: row.normalized_description,
     amount: toNumber(row.amount),
     fingerprint: row.fingerprint,
@@ -216,6 +219,9 @@ router.post(
         const normalizedDescription = normalizeDescription(rawDescription);
         const fingerprint = buildFingerprint(normalizedDescription, amount, bankPostedDate);
         const bankTransactionId = row?.bank_transaction_id ? String(row.bank_transaction_id).trim() : null;
+        const senderName = row?.sender_name ? String(row.sender_name).trim() : null;
+        const senderEmail = row?.sender_email ? String(row.sender_email).trim() : null;
+        const bankDescription2 = row?.bank_description_2 ? String(row.bank_description_2).trim() : null;
 
         return {
           row_index: index,
@@ -223,6 +229,9 @@ router.post(
           bank_posted_date: bankPostedDate,
           bank_effective_date: bankEffectiveDate,
           raw_description: rawDescription,
+          sender_name: senderName || null,
+          sender_email: senderEmail || null,
+          bank_description_2: bankDescription2 || null,
           normalized_description: normalizedDescription,
           amount: Number(amount.toFixed(2)),
           fingerprint,
@@ -287,6 +296,9 @@ router.post(
             bank_posted_date: row.bank_posted_date,
             bank_effective_date: row.bank_effective_date,
             raw_description: row.raw_description,
+            sender_name: row.sender_name,
+            sender_email: row.sender_email,
+            bank_description_2: row.bank_description_2,
             normalized_description: row.normalized_description,
             amount: row.amount.toFixed(2),
             fingerprint: row.fingerprint,

@@ -1,15 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAccounts } from '../../api/useAccounts'
 import { useCreateFromBankRow } from '../../api/useBankTransactions'
 import { useContacts } from '../../api/useContacts'
 import { useFunds } from '../../api/useFunds'
+import { useSettings } from '../../api/useSettings'
 import Button from '../ui/Button'
 import Combobox from '../ui/Combobox'
 import Input from '../ui/Input'
 import Modal from '../ui/Modal'
 import SplitTransactionModal from '../../pages/importCsv/SplitTransactionModal'
 import { getErrorMessage } from '../../utils/errors'
+import {
+  buildDonorIndexes,
+  isAutodepositDescription,
+  isEtransferDescription,
+  matchDonorFromSender,
+} from '../../utils/etransferEnrich'
 import type { BankTransaction, CreateFromBankRowInput } from '@shared/contracts'
 import type { ParsedImportRow, SplitSavePayload } from '../../pages/importCsv/importCsvTypes'
 import type { SelectOption } from '../ui/types'
@@ -28,6 +35,7 @@ export default function CreateFromBankRowModal({
   const createMutation = useCreateFromBankRow()
   const { data: accounts = [] } = useAccounts()
   const { data: funds = [] } = useFunds()
+  const { data: settings } = useSettings()
   const { data: donorContacts = [] } = useContacts({ type: 'DONOR' })
   const { data: payeeContacts = [] } = useContacts({ type: 'PAYEE' })
 
@@ -35,7 +43,7 @@ export default function CreateFromBankRowModal({
   const [splitModalOpen, setSplitModalOpen] = useState(false)
   const [row, setRow] = useState<ParsedImportRow>({
     date: bankTransaction.bank_posted_date,
-    description: bankTransaction.raw_description,
+    description: [bankTransaction.raw_description, bankTransaction.bank_description_2].filter(Boolean).join(' — '),
     reference_no: bankTransaction.bank_transaction_id || undefined,
     amount: Math.abs(bankTransaction.amount),
     type: bankTransaction.amount >= 0 ? 'deposit' : 'withdrawal',
@@ -47,7 +55,51 @@ export default function CreateFromBankRowModal({
 
   const activeAccounts = useMemo(() => accounts.filter((a) => a.is_active), [accounts])
   const activeFunds = useMemo(() => funds.filter((f) => f.is_active), [funds])
+  const etransferOffsetId = useMemo(() => {
+    const raw = settings?.etransfer_deposit_offset_account_id
+    return raw ? Number(raw) : 0
+  }, [settings])
+  const donorIndexes = useMemo(
+    () => buildDonorIndexes(donorContacts.filter((c) => c.is_active)),
+    [donorContacts]
+  )
   const defaultFundId = bankTransaction.fund_id
+  const offsetEnriched = useRef(false)
+  const donorEnriched = useRef(false)
+
+  useEffect(() => {
+    if (offsetEnriched.current || !settings) return
+    offsetEnriched.current = true
+
+    const isDeposit = bankTransaction.amount >= 0
+    if (!isDeposit) return
+    if (!isEtransferDescription(bankTransaction.raw_description)) return
+    if (!etransferOffsetId) return
+
+    setRow((prev) => (
+      prev.offset_account_id ? prev : { ...prev, offset_account_id: etransferOffsetId }
+    ))
+  }, [settings, bankTransaction, etransferOffsetId])
+
+  useEffect(() => {
+    if (donorEnriched.current || donorContacts.length === 0) return
+    donorEnriched.current = true
+
+    const isDeposit = bankTransaction.amount >= 0
+    if (!isDeposit) return
+    if (!isAutodepositDescription(bankTransaction.raw_description)) return
+
+    const matchedId = matchDonorFromSender(
+      bankTransaction.sender_email,
+      bankTransaction.sender_name,
+      donorIndexes
+    )
+    if (!matchedId) return
+
+    setRow((prev) => (
+      prev.contact_id ? prev : { ...prev, contact_id: matchedId }
+    ))
+  }, [donorContacts, bankTransaction, donorIndexes])
 
   const offsetAccountOptions = useMemo<SelectOption[]>(
     () => [

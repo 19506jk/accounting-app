@@ -154,13 +154,19 @@ export default function BankFeed() {
       const parsed = await parseStatementCsv(file)
       setFilename(file.name)
       setParseWarnings(parsed.warnings)
-      setRows(parsed.rows.map((row) => ({
-        bank_posted_date: row.date,
-        bank_effective_date: null,
-        raw_description: row.raw_description || row.description,
-        amount: row.type === 'withdrawal' ? -Math.abs(row.amount) : Math.abs(row.amount),
-        bank_transaction_id: row.reference_no || null,
-      })))
+      setRows(parsed.rows.map((row, i) => {
+        const meta = parsed.metadata[i]
+        return {
+          bank_posted_date: row.date,
+          bank_effective_date: null,
+          raw_description: row.raw_description || row.description,
+          amount: row.type === 'withdrawal' ? -Math.abs(row.amount) : Math.abs(row.amount),
+          bank_transaction_id: row.reference_no || null,
+          sender_name: meta?.sender || null,
+          sender_email: meta?.from || null,
+          bank_description_2: meta?.description_2 || null,
+        }
+      }))
     } catch (err) {
       setRows([])
       setParseWarnings([])
