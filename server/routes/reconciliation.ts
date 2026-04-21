@@ -28,7 +28,7 @@ import type {
   ReconciliationRow,
   ReconciliationSummaryRow,
 } from '../types/db';
-import { compareDateOnly, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
+import { addDaysDateOnly, compareDateOnly, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
 import { buildReconciliationReport } from '../services/reports.js';
 import { reconciliationReopenPreflight } from '../services/bankTransactions/preflight.js';
 
@@ -482,6 +482,52 @@ router.post(
           error: `Cannot close — reconciliation is not balanced. Difference: $${difference.toFixed(2)}`,
           difference: parseFloat(difference.toFixed(2)),
         } as ApiErrorResponse & { difference: number });
+      }
+
+      const previousClosed = await db('reconciliations')
+        .where({ account_id: recon.account_id, is_closed: true })
+        .where('statement_date', '<', normalizeDateOnly(recon.statement_date))
+        .orderBy('statement_date', 'desc')
+        .first() as ReconciliationRow | undefined;
+      const periodStart = previousClosed
+        ? addDaysDateOnly(normalizeDateOnly(previousClosed.statement_date), 1)
+        : '0001-01-01';
+
+      const unresolved = await db('bank_transactions')
+        .join('bank_uploads', 'bank_uploads.id', 'bank_transactions.upload_id')
+        .where('bank_uploads.account_id', recon.account_id)
+        .where('bank_transactions.bank_posted_date', '>=', periodStart)
+        .where('bank_transactions.bank_posted_date', '<=', normalizeDateOnly(recon.statement_date))
+        .where('bank_transactions.lifecycle_status', 'open')
+        .whereNot(function (this: Knex.QueryBuilder) {
+          this.orWhere({
+            match_status: 'confirmed',
+            creation_status: 'none',
+            review_status: 'reviewed',
+          });
+          this.orWhere({
+            creation_status: 'created',
+            review_status: 'reviewed',
+          });
+          this.orWhere({ disposition: 'ignored' });
+        })
+        .select(
+          'bank_transactions.id',
+          'bank_transactions.bank_posted_date',
+          'bank_transactions.raw_description',
+          'bank_transactions.amount',
+          'bank_transactions.disposition',
+          'bank_transactions.match_status',
+          'bank_transactions.creation_status',
+          'bank_transactions.review_status'
+        ) as Array<Record<string, unknown>>;
+
+      if (unresolved.length > 0) {
+        return res.status(409).json({
+          error: 'Reconciliation period has unresolved bank transactions',
+          unresolved_count: unresolved.length,
+          unresolved,
+        } as ApiErrorResponse & { unresolved_count: number; unresolved: Record<string, unknown>[] });
       }
 
       await db.transaction(async (trx: Knex.Transaction) => {

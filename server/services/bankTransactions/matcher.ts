@@ -101,6 +101,7 @@ export async function writeBankTransactionEvent({
   actorType,
   actorId,
   payload,
+  reasonNote,
 }: {
   trx: Knex.Transaction;
   bankTransactionId: number | null;
@@ -108,6 +109,7 @@ export async function writeBankTransactionEvent({
   actorType: EventActor;
   actorId: number | null;
   payload?: Record<string, unknown>;
+  reasonNote?: string | null;
 }) {
   await trx('bank_transaction_events').insert({
     bank_transaction_id: bankTransactionId,
@@ -115,6 +117,7 @@ export async function writeBankTransactionEvent({
     actor_type: actorType,
     actor_id: actorId,
     payload: payload ? eventPayload(bankTransactionId, payload) : null,
+    reason_note: reasonNote ?? null,
     created_at: trx.fn.now(),
   });
 }
@@ -295,9 +298,18 @@ export async function runMatcher(
       .where({ id: bankTransactionId })
       .update({
         suggested_match_id: null,
-        match_status: 'none',
+        match_status: 'rejected',
         last_modified_at: trx.fn.now(),
       });
+
+    await writeBankTransactionEvent({
+      trx,
+      bankTransactionId,
+      eventType: 'match_exhausted',
+      actorType: userId ? 'user' : 'system',
+      actorId: userId,
+      payload: { reason: 'no_candidates' },
+    });
 
     return {
       bank_transaction_id: bankTransactionId,

@@ -267,6 +267,7 @@ export type BankCreationStatusRow = 'none' | 'suggested_create' | 'created';
 export type BankReviewStatusRow = 'pending' | 'reviewed';
 export type BankMatchSourceRow = 'system' | 'human';
 export type BankCreationSourceRow = 'human';
+export type BankDispositionRow = 'none' | 'hold' | 'ignored';
 
 export interface BankTransactionRow {
   id: number;
@@ -294,6 +295,7 @@ export interface BankTransactionRow {
   creation_source: BankCreationSourceRow | null;
   suggested_match_id: number | null;
   matched_journal_entry_id: number | null;
+  disposition: BankDispositionRow;
 }
 
 export interface ReconciliationReservationRow {
@@ -312,6 +314,7 @@ export interface BankTransactionEventRow {
   actor_type: 'user' | 'system' | 'admin';
   actor_id: number | null;
   payload: string | null;
+  reason_note: string | null;
   created_at: Date | string;
 }
 

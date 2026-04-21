@@ -3,6 +3,8 @@ import client from './client'
 
 import type {
   BankConfirmInput,
+  BankHoldInput,
+  BankIgnoreInput,
   BankImportInput,
   BankImportResult,
   BankMatchResult,
@@ -12,6 +14,7 @@ import type {
   BankTransaction,
   BankTransactionsListResponse,
   BankTransactionsQuery,
+  CreateFromBankRowInput,
   BankUploadsListResponse,
   BankUploadSummary,
 } from '@shared/contracts'
@@ -131,6 +134,97 @@ export function useReleaseReservation() {
   return useMutation({
     mutationFn: async (id: number) => {
       const { data } = await client.post<{ item: BankTransaction }>(`/bank-transactions/${id}/release`)
+      return data.item
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+    },
+  })
+}
+
+export function useHoldBankTransaction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: number; payload: BankHoldInput }) => {
+      const { data } = await client.post<{ item: BankTransaction }>(`/bank-transactions/${id}/hold`, payload)
+      return data.item
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+    },
+  })
+}
+
+export function useReleaseHold() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { data } = await client.post<{ item: BankTransaction }>(`/bank-transactions/${id}/release-hold`)
+      return data.item
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+    },
+  })
+}
+
+export function useIgnoreBankTransaction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: number; payload: BankIgnoreInput }) => {
+      const { data } = await client.post<{ item: BankTransaction }>(`/bank-transactions/${id}/ignore`, payload)
+      return data.item
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+    },
+  })
+}
+
+export function useUnignoreBankTransaction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { data } = await client.post<{ item: BankTransaction }>(`/bank-transactions/${id}/unignore`)
+      return data.item
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+    },
+  })
+}
+
+export function useCreateFromBankRow() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: number; payload: CreateFromBankRowInput }) => {
+      const { data } = await client.post<{ item: BankTransaction }>(`/bank-transactions/${id}/create`, payload)
+      return data.item
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+    },
+  })
+}
+
+export function useApproveMatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { data } = await client.post<{ item: BankTransaction }>(`/bank-transactions/${id}/approve-match`)
+      return data.item
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+    },
+  })
+}
+
+export function useOverrideMatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { data } = await client.post<{ item: BankTransaction }>(`/bank-transactions/${id}/override-match`)
       return data.item
     },
     onSuccess: () => {

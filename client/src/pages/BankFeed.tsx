@@ -2,19 +2,28 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { useAccounts } from '../api/useAccounts'
 import {
+  useApproveMatch,
   useConfirmMatch,
   useBankTransactions,
   useBankUploads,
+  useHoldBankTransaction,
+  useIgnoreBankTransaction,
   useImportBankTransactions,
+  useOverrideMatch,
   useRejectCandidate,
+  useReleaseHold,
   useReleaseReservation,
   useReserve,
   useReviewBankTransaction,
   useScanCandidates,
+  useUnignoreBankTransaction,
 } from '../api/useBankTransactions'
 import { useFunds } from '../api/useFunds'
+import CreateFromBankRowModal from '../components/bank/CreateFromBankRowModal'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
+import Input from '../components/ui/Input'
+import Modal from '../components/ui/Modal'
 import { useToast } from '../components/ui/Toast'
 import { getErrorMessage } from '../utils/errors'
 import { parseStatementCsv } from '../utils/parseStatementCsv'
@@ -24,6 +33,17 @@ import type React from 'react'
 import type { SelectOption } from '../components/ui/types'
 
 type TabKey = 'import' | 'review' | 'match'
+
+interface AutoConfirmedResult {
+  bankTransactionId: number
+  bankPostedDate: string
+  amount: number
+  rawDescription: string
+  candidate: MatchCandidate
+  confirmedAt: number
+}
+
+type ReasonAction = 'hold' | 'ignore'
 
 function formatCurrency(value: number) {
   return value.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })
@@ -41,9 +61,8 @@ export default function BankFeed() {
   )
   const { data: matchItems = [], isLoading: isLoadingMatchItems } = useBankTransactions(
     {
-      status: 'imported',
+      status: ['imported', 'matched_existing', 'created_new'],
       lifecycle_status: 'open',
-      match_status: ['none', 'suggested'],
     },
     { enabled: activeTab === 'match' }
   )
@@ -54,12 +73,28 @@ export default function BankFeed() {
   const confirmMutation = useConfirmMatch()
   const rejectMutation = useRejectCandidate()
   const releaseMutation = useReleaseReservation()
+  const holdMutation = useHoldBankTransaction()
+  const releaseHoldMutation = useReleaseHold()
+  const ignoreMutation = useIgnoreBankTransaction()
+  const unignoreMutation = useUnignoreBankTransaction()
+  const approveMutation = useApproveMatch()
+  const overrideMutation = useOverrideMatch()
   const [reviewingId, setReviewingId] = useState<number | null>(null)
   const [scanningId, setScanningId] = useState<number | null>(null)
   const [reservingKey, setReservingKey] = useState<string | null>(null)
   const [rejectingKey, setRejectingKey] = useState<string | null>(null)
   const [releasingId, setReleasingId] = useState<number | null>(null)
+  const [holdingId, setHoldingId] = useState<number | null>(null)
+  const [releaseHoldingId, setReleaseHoldingId] = useState<number | null>(null)
+  const [ignoringId, setIgnoringId] = useState<number | null>(null)
+  const [unignoringId, setUnignoringId] = useState<number | null>(null)
+  const [approvingId, setApprovingId] = useState<number | null>(null)
+  const [overridingId, setOverridingId] = useState<number | null>(null)
   const [scanResults, setScanResults] = useState<Record<number, MatchCandidate[]>>({})
+  const [autoConfirmedResults, setAutoConfirmedResults] = useState<Record<number, AutoConfirmedResult>>({})
+  const [createModalTarget, setCreateModalTarget] = useState<number | null>(null)
+  const [reasonTarget, setReasonTarget] = useState<{ id: number; action: ReasonAction } | null>(null)
+  const [reasonNote, setReasonNote] = useState('')
 
   const [bankAccountId, setBankAccountId] = useState('')
   const [fundId, setFundId] = useState('')
@@ -181,13 +216,40 @@ export default function BankFeed() {
 
   async function handleScan(id: number) {
     setScanningId(id)
+    const queueSnapshot = matchItems.find((item) => item.id === id) || null
     try {
       const result = await scanMutation.mutateAsync(id)
-      setScanResults((prev) => ({ ...prev, [id]: result.candidates }))
-      if (result.auto_confirmed) {
-        addToast('Auto-match confirmed by system rules.', 'success')
+      const autoConfirmed = result.auto_confirmed
+      if (autoConfirmed) {
+        setScanResults((prev) => {
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
+        setAutoConfirmedResults((prev) => {
+          const existing = prev[id]
+          const bankPostedDate = queueSnapshot?.bank_posted_date || existing?.bankPostedDate || ''
+          const amount = queueSnapshot?.amount ?? existing?.amount ?? 0
+          const rawDescription = queueSnapshot?.raw_description || existing?.rawDescription || ''
+          return {
+            ...prev,
+            [id]: {
+              bankTransactionId: id,
+              bankPostedDate,
+              amount,
+              rawDescription,
+              candidate: autoConfirmed,
+              confirmedAt: Date.now(),
+            },
+          }
+        })
       } else {
-        addToast(`Found ${result.candidates.length} candidate(s).`, 'success')
+        if (result.candidates.length === 0) {
+          addToast('No matches found. Moved to Create Queue.', 'success')
+        } else {
+          setScanResults((prev) => ({ ...prev, [id]: result.candidates }))
+          addToast(`Found ${result.candidates.length} candidate(s).`, 'success')
+        }
       }
     } catch (err) {
       addToast(getErrorMessage(err, 'Failed to scan candidates.'), 'error')
@@ -250,7 +312,142 @@ export default function BankFeed() {
     }
   }
 
+  function dismissAutoConfirmedCard(bankTransactionId: number) {
+    setAutoConfirmedResults((prev) => {
+      const next = { ...prev }
+      delete next[bankTransactionId]
+      return next
+    })
+  }
+
   const latestUpload = importResult ? uploads.find((upload) => upload.id === importResult.upload_id) : null
+  const autoConfirmedCards = useMemo(
+    () => Object.values(autoConfirmedResults).sort((a, b) => b.confirmedAt - a.confirmedAt),
+    [autoConfirmedResults]
+  )
+  const selectedCreateItem = useMemo(
+    () => matchItems.find((item) => item.id === createModalTarget) || null,
+    [createModalTarget, matchItems]
+  )
+  const matchQueueItems = useMemo(
+    () => matchItems.filter((item) => (
+      item.disposition === 'none'
+      && item.creation_status === 'none'
+      && (item.match_status === 'none' || item.match_status === 'suggested')
+    )),
+    [matchItems]
+  )
+  const pendingReviewItems = useMemo(
+    () => matchItems.filter((item) => (
+      item.match_status === 'confirmed'
+      && item.match_source === 'system'
+      && item.review_status === 'pending'
+      && item.disposition === 'none'
+    )),
+    [matchItems]
+  )
+  const createItems = useMemo(
+    () => matchItems.filter((item) => (
+      item.disposition === 'none'
+      && item.creation_status === 'none'
+      && item.match_status === 'rejected'
+    )),
+    [matchItems]
+  )
+  const heldItems = useMemo(() => matchItems.filter((item) => item.disposition === 'hold'), [matchItems])
+  const ignoredItems = useMemo(() => matchItems.filter((item) => item.disposition === 'ignored'), [matchItems])
+
+  function openReasonDialog(id: number, action: ReasonAction) {
+    setReasonTarget({ id, action })
+    setReasonNote('')
+  }
+
+  function closeReasonDialog() {
+    if (holdMutation.isPending || ignoreMutation.isPending) return
+    setReasonTarget(null)
+    setReasonNote('')
+  }
+
+  async function submitReasonDialog() {
+    if (!reasonTarget) return
+    const trimmedReason = reasonNote.trim()
+    const payload = { reason_note: trimmedReason ? trimmedReason : undefined }
+
+    if (reasonTarget.action === 'hold') {
+      setHoldingId(reasonTarget.id)
+      try {
+        await holdMutation.mutateAsync({ id: reasonTarget.id, payload })
+        addToast('Row moved to hold.', 'success')
+        setReasonTarget(null)
+        setReasonNote('')
+      } catch (err) {
+        addToast(getErrorMessage(err, 'Failed to hold row.'), 'error')
+      } finally {
+        setHoldingId(null)
+      }
+      return
+    }
+
+    setIgnoringId(reasonTarget.id)
+    try {
+      await ignoreMutation.mutateAsync({ id: reasonTarget.id, payload })
+      addToast('Row ignored.', 'success')
+      setReasonTarget(null)
+      setReasonNote('')
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to ignore row.'), 'error')
+    } finally {
+      setIgnoringId(null)
+    }
+  }
+
+  async function handleReleaseHold(id: number) {
+    setReleaseHoldingId(id)
+    try {
+      await releaseHoldMutation.mutateAsync(id)
+      addToast('Hold released and row reset.', 'success')
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to release hold.'), 'error')
+    } finally {
+      setReleaseHoldingId(null)
+    }
+  }
+
+  async function handleUnignore(id: number) {
+    setUnignoringId(id)
+    try {
+      await unignoreMutation.mutateAsync(id)
+      addToast('Ignored row restored.', 'success')
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to restore ignored row.'), 'error')
+    } finally {
+      setUnignoringId(null)
+    }
+  }
+
+  async function handleApproveMatch(id: number) {
+    setApprovingId(id)
+    try {
+      await approveMutation.mutateAsync(id)
+      addToast('System match approved.', 'success')
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to approve match.'), 'error')
+    } finally {
+      setApprovingId(null)
+    }
+  }
+
+  async function handleOverrideMatch(id: number) {
+    setOverridingId(id)
+    try {
+      await overrideMutation.mutateAsync(id)
+      addToast('System match overridden and reset.', 'success')
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to override match.'), 'error')
+    } finally {
+      setOverridingId(null)
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -413,16 +610,127 @@ export default function BankFeed() {
       {activeTab === 'match' && (
         <Card>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            {autoConfirmedCards.map((result) => (
+              <div
+                key={result.bankTransactionId}
+                style={{
+                  border: '1px solid #86efac',
+                  borderRadius: '8px',
+                  padding: '0.8rem',
+                  background: '#f0fdf4',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.85rem', color: '#166534', fontWeight: 600 }}>
+                    Auto-confirmed match
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => dismissAutoConfirmedCard(result.bankTransactionId)}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+                <div style={{ marginTop: '0.45rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.7rem' }}>
+                  <div style={{ border: '1px solid #bbf7d0', borderRadius: '6px', padding: '0.55rem', background: '#f7fee7' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#166534', marginBottom: '0.3rem' }}>Bank transaction</div>
+                    <div style={{ fontSize: '0.82rem', color: '#14532d' }}>{result.bankPostedDate} • {formatCurrency(result.amount)}</div>
+                    <div style={{ fontSize: '0.8rem', color: '#166534' }}>{result.rawDescription || 'No description'}</div>
+                  </div>
+                  <div style={{ border: '1px solid #bbf7d0', borderRadius: '6px', padding: '0.55rem', background: '#f7fee7' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#166534', marginBottom: '0.3rem' }}>Journal entry</div>
+                    <div style={{ fontSize: '0.82rem', color: '#14532d' }}>
+                      JE #{result.candidate.journal_entry_id} • {result.candidate.date}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: '#166534' }}>{result.candidate.description}</div>
+                    <div style={{ fontSize: '0.76rem', color: '#166534' }}>
+                      Ref {result.candidate.score_ref} · Date {result.candidate.score_date} · Desc {result.candidate.score_desc} · Total {result.candidate.score_total}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
             <div style={{ fontWeight: 600, color: '#0f172a' }}>
-              Match Queue ({matchItems.length})
+              Pending Review ({pendingReviewItems.length})
+            </div>
+            {pendingReviewItems.map((item) => (
+              <div key={`pending-${item.id}`} style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: '8px', padding: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: '#854d0e', fontWeight: 600 }}>
+                      {item.bank_posted_date} • {formatCurrency(item.amount)}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: '#92400e' }}>{item.raw_description}</div>
+                    {item.matched_journal_entry_id && (
+                      <div style={{ fontSize: '0.78rem', color: '#a16207' }}>
+                        Matched JE #{item.matched_journal_entry_id}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <Button
+                      variant="secondary"
+                      onClick={() => handleOverrideMatch(item.id)}
+                      isLoading={overridingId === item.id}
+                    >
+                      Override
+                    </Button>
+                    <Button
+                      onClick={() => handleApproveMatch(item.id)}
+                      isLoading={approvingId === item.id}
+                    >
+                      Approve
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <div style={{ fontWeight: 600, color: '#0f172a' }}>
+              Create Queue ({createItems.length})
+            </div>
+            {createItems.map((item) => (
+              <div key={`create-${item.id}`} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 600 }}>
+                      {item.bank_posted_date} • {formatCurrency(item.amount)}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: '#475569' }}>{item.raw_description}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <Button
+                      variant="secondary"
+                      onClick={() => openReasonDialog(item.id, 'hold')}
+                      isLoading={holdingId === item.id}
+                    >
+                      Hold
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => openReasonDialog(item.id, 'ignore')}
+                      isLoading={ignoringId === item.id}
+                    >
+                      Ignore
+                    </Button>
+                    <Button onClick={() => setCreateModalTarget(item.id)}>
+                      Create New JE
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <div style={{ fontWeight: 600, color: '#0f172a' }}>
+              Match Queue ({matchQueueItems.length})
             </div>
             {isLoadingMatchItems && (
               <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Loading match queue...</div>
             )}
-            {!isLoadingMatchItems && matchItems.length === 0 && (
+            {!isLoadingMatchItems && matchQueueItems.length === 0 && (
               <div style={{ fontSize: '0.85rem', color: '#64748b' }}>No open items to match.</div>
             )}
-            {matchItems.map((item) => {
+            {matchQueueItems.map((item) => {
               const candidates = scanResults[item.id] || []
 
               return (
@@ -495,8 +803,92 @@ export default function BankFeed() {
                 </div>
               )
             })}
+
+            <div style={{ fontWeight: 600, color: '#0f172a' }}>
+              Held ({heldItems.length})
+            </div>
+            {heldItems.map((item) => (
+              <div key={`hold-${item.id}`} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 600 }}>
+                      {item.bank_posted_date} • {formatCurrency(item.amount)}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: '#475569' }}>{item.raw_description}</div>
+                  </div>
+                  <Button
+                    onClick={() => handleReleaseHold(item.id)}
+                    isLoading={releaseHoldingId === item.id}
+                  >
+                    Release
+                  </Button>
+                </div>
+              </div>
+            ))}
+
+            <div style={{ fontWeight: 600, color: '#0f172a' }}>
+              Ignored ({ignoredItems.length})
+            </div>
+            {ignoredItems.map((item) => (
+              <div key={`ignore-${item.id}`} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 600 }}>
+                      {item.bank_posted_date} • {formatCurrency(item.amount)}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: '#475569' }}>{item.raw_description}</div>
+                  </div>
+                  <Button
+                    onClick={() => handleUnignore(item.id)}
+                    isLoading={unignoringId === item.id}
+                  >
+                    Restore
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
         </Card>
+      )}
+      {selectedCreateItem && (
+        <CreateFromBankRowModal
+          bankTransaction={selectedCreateItem}
+          onClose={() => setCreateModalTarget(null)}
+          onSuccess={() => addToast('Created new journal entry.', 'success')}
+        />
+      )}
+      {reasonTarget && (
+        <Modal
+          isOpen
+          onClose={closeReasonDialog}
+          title={reasonTarget.action === 'hold' ? 'Move To Hold' : 'Ignore Row'}
+          width='520px'
+        >
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <Input
+              label='Reason (optional)'
+              value={reasonNote}
+              onChange={(event) => setReasonNote(event.target.value)}
+              placeholder='Add context for the event log'
+              maxLength={500}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <Button
+                variant="secondary"
+                onClick={closeReasonDialog}
+                disabled={holdMutation.isPending || ignoreMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={submitReasonDialog}
+                isLoading={holdMutation.isPending || ignoreMutation.isPending}
+              >
+                {reasonTarget.action === 'hold' ? 'Move To Hold' : 'Ignore'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )

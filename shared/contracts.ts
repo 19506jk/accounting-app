@@ -254,6 +254,7 @@ export type BankCreationStatus = 'none' | 'suggested_create' | 'created';
 export type BankReviewStatus = 'pending' | 'reviewed';
 export type BankMatchSource = 'system' | 'human';
 export type BankCreationSource = 'human';
+export type BankDisposition = 'none' | 'hold' | 'ignored';
 
 export interface BankTransactionConflict {
   id: number;
@@ -290,6 +291,7 @@ export interface BankTransaction {
   creation_source: BankCreationSource | null;
   suggested_match_id: number | null;
   matched_journal_entry_id: number | null;
+  disposition: BankDisposition;
   conflict?: BankTransactionConflict;
 }
 
@@ -312,6 +314,7 @@ export interface BankTransactionsQuery {
   lifecycle_status?: BankLifecycleStatus | BankLifecycleStatus[];
   match_status?: BankMatchStatus | BankMatchStatus[];
   review_status?: BankReviewStatus | BankReviewStatus[];
+  disposition?: BankDisposition | BankDisposition[];
 }
 
 export interface BankTransactionsListResponse {
@@ -361,6 +364,26 @@ export interface BankConfirmInput {
 
 export interface BankRejectInput {
   journal_entry_id: number;
+}
+
+export interface BankHoldInput {
+  reason_note?: string;
+}
+
+export interface BankIgnoreInput {
+  reason_note?: string;
+}
+
+export interface CreateFromBankRowInput {
+  date: string;
+  description: string;
+  reference_no?: string;
+  amount: number;
+  type: 'withdrawal' | 'deposit';
+  offset_account_id?: number;
+  payee_id?: number;
+  contact_id?: number;
+  splits?: TransactionSplit[];
 }
 
 export interface GetBillMatchesInput {

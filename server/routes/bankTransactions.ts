@@ -5,9 +5,12 @@ import express = require('express');
 import type {
   ApiErrorResponse,
   BankConfirmInput,
+  BankHoldInput,
+  BankIgnoreInput,
   BankImportInput,
   BankImportResult,
   BankMatchResult,
+  CreateFromBankRowInput,
   BankRejectInput,
   BankReserveInput,
   BankReviewDecision,
@@ -35,6 +38,8 @@ import {
   acquireReservation,
   releaseReservation,
 } from '../services/bankTransactions/reservations.js';
+import { createFromBankRow } from '../services/bankTransactions/create.js';
+import { resetRowState } from '../services/bankTransactions/resolution.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth.js');
@@ -85,6 +90,7 @@ function toBankTransaction(row: JoinedBankTransactionRow): ApiBankTransactionWit
     creation_source: row.creation_source,
     suggested_match_id: row.suggested_match_id,
     matched_journal_entry_id: row.matched_journal_entry_id,
+    disposition: row.disposition,
   };
 }
 
@@ -142,6 +148,13 @@ function parseCsvValues(value: unknown) {
   if (value === undefined || value === null || value === '') return [];
   if (Array.isArray(value)) return value.flatMap((entry) => String(entry).split(',')).map((v) => v.trim()).filter(Boolean);
   return String(value).split(',').map((v) => v.trim()).filter(Boolean);
+}
+
+function parseReasonNote(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  return trimmed;
 }
 
 async function getJoinedTransaction(
@@ -337,6 +350,10 @@ router.get(
       const reviewStatuses = parseCsvValues(req.query.review_status);
       if (reviewStatuses.length === 1) query.where('bt.review_status', reviewStatuses[0]);
       if (reviewStatuses.length > 1) query.whereIn('bt.review_status', reviewStatuses);
+
+      const dispositions = parseCsvValues(req.query.disposition);
+      if (dispositions.length === 1) query.where('bt.disposition', dispositions[0]);
+      if (dispositions.length > 1) query.whereIn('bt.disposition', dispositions);
 
       const rows = await query
         .orderBy('bt.imported_at', 'desc')
@@ -793,6 +810,401 @@ router.delete(
         return updated;
       });
 
+      return res.json({ item: stripFingerprint(toBankTransaction(item)) });
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      if (statusCode) {
+        return res.status(statusCode).json({ error: (err as Error).message });
+      }
+      return next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/hold',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }, BankTransactionResponse | ApiErrorResponse, BankHoldInput>,
+    res: Response<BankTransactionResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const bankTransactionId = parseIntegerId(req.params.id, 'id');
+      const reasonNote = parseReasonNote(req.body?.reason_note);
+
+      const item = await db.transaction(async (trx: Knex.Transaction) => {
+        const existing = await getJoinedTransaction(trx, bankTransactionId);
+        if (!existing) return null;
+
+        if (
+          existing.lifecycle_status !== 'open'
+          || existing.disposition !== 'none'
+          || existing.creation_status === 'created'
+          || existing.match_status === 'confirmed'
+        ) {
+          const err = new Error('Bank transaction cannot be held in its current state') as Error & { statusCode?: number };
+          err.statusCode = 409;
+          throw err;
+        }
+
+        await trx('bank_transactions')
+          .where({ id: bankTransactionId })
+          .update({
+            disposition: 'hold',
+            last_modified_at: trx.fn.now(),
+          });
+
+        await writeBankTransactionEvent({
+          trx,
+          bankTransactionId,
+          eventType: 'hold_set',
+          actorType: 'user',
+          actorId: req.user?.id ?? null,
+          reasonNote,
+        });
+
+        return getJoinedTransaction(trx, bankTransactionId);
+      });
+
+      if (!item) {
+        return res.status(404).json({ error: 'Bank transaction not found' });
+      }
+      return res.json({ item: stripFingerprint(toBankTransaction(item)) });
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      if (statusCode) {
+        return res.status(statusCode).json({ error: (err as Error).message });
+      }
+      return next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/release-hold',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }>,
+    res: Response<BankTransactionResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const bankTransactionId = parseIntegerId(req.params.id, 'id');
+
+      const item = await db.transaction(async (trx: Knex.Transaction) => {
+        const existing = await getJoinedTransaction(trx, bankTransactionId);
+        if (!existing) return null;
+        if (existing.disposition !== 'hold') {
+          const err = new Error('Bank transaction is not on hold') as Error & { statusCode?: number };
+          err.statusCode = 409;
+          throw err;
+        }
+
+        await resetRowState(bankTransactionId, trx);
+        await writeBankTransactionEvent({
+          trx,
+          bankTransactionId,
+          eventType: 'hold_released',
+          actorType: 'user',
+          actorId: req.user?.id ?? null,
+        });
+
+        await runMatcher(bankTransactionId, req.user?.id ?? null, trx);
+        return getJoinedTransaction(trx, bankTransactionId);
+      });
+
+      if (!item) {
+        return res.status(404).json({ error: 'Bank transaction not found' });
+      }
+      return res.json({ item: stripFingerprint(toBankTransaction(item)) });
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      if (statusCode) {
+        return res.status(statusCode).json({ error: (err as Error).message });
+      }
+      return next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/ignore',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }, BankTransactionResponse | ApiErrorResponse, BankIgnoreInput>,
+    res: Response<BankTransactionResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const bankTransactionId = parseIntegerId(req.params.id, 'id');
+      const reasonNote = parseReasonNote(req.body?.reason_note);
+
+      const item = await db.transaction(async (trx: Knex.Transaction) => {
+        const existing = await getJoinedTransaction(trx, bankTransactionId);
+        if (!existing) return null;
+
+        if (
+          existing.lifecycle_status !== 'open'
+          || existing.disposition !== 'none'
+          || existing.creation_status === 'created'
+          || existing.match_status === 'confirmed'
+        ) {
+          const err = new Error('Bank transaction cannot be ignored in its current state') as Error & { statusCode?: number };
+          err.statusCode = 409;
+          throw err;
+        }
+
+        const reservation = await trx('reconciliation_reservations')
+          .where({ bank_transaction_id: bankTransactionId })
+          .where('expires_at', '>', trx.fn.now())
+          .first() as ReconciliationReservationRow | undefined;
+        if (reservation) {
+          await releaseReservation(reservation.journal_entry_id, bankTransactionId, trx);
+        }
+
+        await trx('bank_transactions')
+          .where({ id: bankTransactionId })
+          .update({
+            disposition: 'ignored',
+            last_modified_at: trx.fn.now(),
+          });
+
+        await writeBankTransactionEvent({
+          trx,
+          bankTransactionId,
+          eventType: 'row_ignored',
+          actorType: 'user',
+          actorId: req.user?.id ?? null,
+          reasonNote,
+        });
+
+        return getJoinedTransaction(trx, bankTransactionId);
+      });
+
+      if (!item) {
+        return res.status(404).json({ error: 'Bank transaction not found' });
+      }
+      return res.json({ item: stripFingerprint(toBankTransaction(item)) });
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      if (statusCode) {
+        return res.status(statusCode).json({ error: (err as Error).message });
+      }
+      return next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/unignore',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }>,
+    res: Response<BankTransactionResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const bankTransactionId = parseIntegerId(req.params.id, 'id');
+      const item = await db.transaction(async (trx: Knex.Transaction) => {
+        const existing = await getJoinedTransaction(trx, bankTransactionId);
+        if (!existing) return null;
+        if (existing.disposition !== 'ignored') {
+          const err = new Error('Bank transaction is not ignored') as Error & { statusCode?: number };
+          err.statusCode = 409;
+          throw err;
+        }
+
+        await resetRowState(bankTransactionId, trx);
+        await writeBankTransactionEvent({
+          trx,
+          bankTransactionId,
+          eventType: 'row_ignore_reversed',
+          actorType: 'user',
+          actorId: req.user?.id ?? null,
+        });
+        return getJoinedTransaction(trx, bankTransactionId);
+      });
+
+      if (!item) {
+        return res.status(404).json({ error: 'Bank transaction not found' });
+      }
+      return res.json({ item: stripFingerprint(toBankTransaction(item)) });
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      if (statusCode) {
+        return res.status(statusCode).json({ error: (err as Error).message });
+      }
+      return next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/create',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }, BankTransactionResponse | ApiErrorResponse, CreateFromBankRowInput & { bill_id?: number }>,
+    res: Response<BankTransactionResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const bankTransactionId = parseIntegerId(req.params.id, 'id');
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'bill_id')) {
+        return res.status(400).json({ error: 'bill_id is not supported in this endpoint' });
+      }
+
+      const item = await db.transaction(async (trx: Knex.Transaction) => {
+        const existing = await getJoinedTransaction(trx, bankTransactionId);
+        if (!existing) return null;
+        if (
+          existing.lifecycle_status !== 'open'
+          || existing.match_status === 'confirmed'
+          || existing.disposition === 'ignored'
+          || existing.creation_status !== 'none'
+        ) {
+          const err = new Error('Bank transaction cannot create a new journal entry in its current state') as Error & { statusCode?: number };
+          err.statusCode = 409;
+          throw err;
+        }
+
+        const created = await createFromBankRow(
+          {
+            ...req.body,
+            bank_account_id: existing.account_id,
+            fund_id: existing.fund_id,
+          },
+          req.user!.id,
+          trx
+        );
+
+        await trx('bank_transactions')
+          .where({ id: bankTransactionId })
+          .update({
+            creation_status: 'created',
+            creation_source: 'human',
+            review_status: 'reviewed',
+            status: 'created_new',
+            journal_entry_id: created.bank_je_id,
+            last_modified_at: trx.fn.now(),
+          });
+
+        await writeBankTransactionEvent({
+          trx,
+          bankTransactionId,
+          eventType: 'create_new_confirmed',
+          actorType: 'user',
+          actorId: req.user?.id ?? null,
+          payload: {
+            journal_entry_id: created.bank_je_id,
+            transaction_id: created.transaction_id,
+          },
+        });
+        return getJoinedTransaction(trx, bankTransactionId);
+      });
+
+      if (!item) {
+        return res.status(404).json({ error: 'Bank transaction not found' });
+      }
+      return res.json({ item: stripFingerprint(toBankTransaction(item)) });
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode || (err as { status?: number }).status;
+      if (statusCode) {
+        return res.status(statusCode).json({ error: (err as Error).message });
+      }
+      return next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/approve-match',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }>,
+    res: Response<BankTransactionResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const bankTransactionId = parseIntegerId(req.params.id, 'id');
+      const item = await db.transaction(async (trx: Knex.Transaction) => {
+        const existing = await getJoinedTransaction(trx, bankTransactionId);
+        if (!existing) return null;
+        if (
+          existing.match_status !== 'confirmed'
+          || existing.match_source !== 'system'
+          || existing.review_status !== 'pending'
+        ) {
+          const err = new Error('Bank transaction is not eligible for match approval') as Error & { statusCode?: number };
+          err.statusCode = 409;
+          throw err;
+        }
+
+        await trx('bank_transactions')
+          .where({ id: bankTransactionId })
+          .update({
+            review_status: 'reviewed',
+            last_modified_at: trx.fn.now(),
+          });
+
+        await writeBankTransactionEvent({
+          trx,
+          bankTransactionId,
+          eventType: 'match_reviewed',
+          actorType: 'user',
+          actorId: req.user?.id ?? null,
+        });
+
+        return getJoinedTransaction(trx, bankTransactionId);
+      });
+
+      if (!item) {
+        return res.status(404).json({ error: 'Bank transaction not found' });
+      }
+      return res.json({ item: stripFingerprint(toBankTransaction(item)) });
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      if (statusCode) {
+        return res.status(statusCode).json({ error: (err as Error).message });
+      }
+      return next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/override-match',
+  requireRole('admin', 'editor'),
+  async (
+    req: Request<{ id: string }>,
+    res: Response<BankTransactionResponse | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const bankTransactionId = parseIntegerId(req.params.id, 'id');
+      const item = await db.transaction(async (trx: Knex.Transaction) => {
+        const existing = await getJoinedTransaction(trx, bankTransactionId);
+        if (!existing) return null;
+        if (existing.match_status !== 'confirmed' || existing.match_source !== 'system') {
+          const err = new Error('Bank transaction is not eligible for override') as Error & { statusCode?: number };
+          err.statusCode = 409;
+          throw err;
+        }
+
+        await resetRowState(bankTransactionId, trx);
+        await writeBankTransactionEvent({
+          trx,
+          bankTransactionId,
+          eventType: 'match_cleared',
+          actorType: 'user',
+          actorId: req.user?.id ?? null,
+        });
+        return getJoinedTransaction(trx, bankTransactionId);
+      });
+
+      if (!item) {
+        return res.status(404).json({ error: 'Bank transaction not found' });
+      }
       return res.json({ item: stripFingerprint(toBankTransaction(item)) });
     } catch (err) {
       const statusCode = (err as { statusCode?: number }).statusCode;
