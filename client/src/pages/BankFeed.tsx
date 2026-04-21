@@ -6,6 +6,7 @@ import {
   useConfirmMatch,
   useBankTransactions,
   useBankUploads,
+  useCreateFromBankRow,
   useHoldBankTransaction,
   useIgnoreBankTransaction,
   useImportBankTransactions,
@@ -19,6 +20,7 @@ import {
   useUnignoreBankTransaction,
 } from '../api/useBankTransactions'
 import { useFunds } from '../api/useFunds'
+import { useGetBillMatches } from '../api/useTransactions'
 import CreateFromBankRowModal from '../components/bank/CreateFromBankRowModal'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
@@ -28,7 +30,7 @@ import { useToast } from '../components/ui/Toast'
 import { getErrorMessage } from '../utils/errors'
 import { parseStatementCsv } from '../utils/parseStatementCsv'
 import ImportSetupPanel from './importCsv/ImportSetupPanel'
-import type { BankImportInput, BankTransactionRow, MatchCandidate } from '@shared/contracts'
+import type { BankImportInput, BankTransaction, BankTransactionRow, BillMatchSuggestion, MatchCandidate } from '@shared/contracts'
 import type React from 'react'
 import type { SelectOption } from '../components/ui/types'
 
@@ -49,6 +51,16 @@ function formatCurrency(value: number) {
   return value.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })
 }
 
+function groupBillSuggestions(suggestions: BillMatchSuggestion[] = []) {
+  const grouped: Record<number, BillMatchSuggestion[]> = {}
+  suggestions.forEach((suggestion) => {
+    const existing = grouped[suggestion.row_index] || []
+    existing.push(suggestion)
+    grouped[suggestion.row_index] = existing
+  })
+  return grouped
+}
+
 export default function BankFeed() {
   const { addToast } = useToast()
   const { data: accounts = [] } = useAccounts()
@@ -67,6 +79,8 @@ export default function BankFeed() {
     { enabled: activeTab === 'match' }
   )
   const importMutation = useImportBankTransactions()
+  const createFromBankMutation = useCreateFromBankRow()
+  const getBillMatches = useGetBillMatches()
   const reviewMutation = useReviewBankTransaction()
   const scanMutation = useScanCandidates()
   const reserveMutation = useReserve()
@@ -90,7 +104,9 @@ export default function BankFeed() {
   const [unignoringId, setUnignoringId] = useState<number | null>(null)
   const [approvingId, setApprovingId] = useState<number | null>(null)
   const [overridingId, setOverridingId] = useState<number | null>(null)
+  const [payingBillKey, setPayingBillKey] = useState<string | null>(null)
   const [scanResults, setScanResults] = useState<Record<number, MatchCandidate[]>>({})
+  const [billSuggestionsByRow, setBillSuggestionsByRow] = useState<Record<number, BillMatchSuggestion[]>>({})
   const [autoConfirmedResults, setAutoConfirmedResults] = useState<Record<number, AutoConfirmedResult>>({})
   const [createModalTarget, setCreateModalTarget] = useState<number | null>(null)
   const [reasonTarget, setReasonTarget] = useState<{ id: number; action: ReasonAction } | null>(null)
@@ -360,8 +376,49 @@ export default function BankFeed() {
     )),
     [matchItems]
   )
+  const createBillMatchRows = useMemo(
+    () => createItems
+      .filter((item) => item.amount < 0)
+      .map((item) => ({
+        row_index: item.id,
+        date: item.bank_posted_date,
+        amount: Math.abs(item.amount),
+        type: 'withdrawal' as const,
+        account_id: item.account_id,
+      })),
+    [createItems]
+  )
+  const createBillMatchKey = useMemo(
+    () => createBillMatchRows.map((row) => `${row.row_index}:${row.date}:${row.amount}:${row.account_id}`).join('|'),
+    [createBillMatchRows]
+  )
   const heldItems = useMemo(() => matchItems.filter((item) => item.disposition === 'hold'), [matchItems])
   const ignoredItems = useMemo(() => matchItems.filter((item) => item.disposition === 'ignored'), [matchItems])
+
+  useEffect(() => {
+    if (activeTab !== 'match') return
+    if (createBillMatchRows.length === 0) {
+      setBillSuggestionsByRow({})
+      return
+    }
+
+    let cancelled = false
+    getBillMatches.mutateAsync({
+      bank_account_id: createBillMatchRows[0]!.account_id,
+      rows: createBillMatchRows.map(({ account_id: _accountId, ...row }) => row),
+    }).then((result) => {
+      if (!cancelled) setBillSuggestionsByRow(groupBillSuggestions(result.suggestions || []))
+    }).catch((err) => {
+      if (!cancelled) {
+        setBillSuggestionsByRow({})
+        addToast(getErrorMessage(err, 'Failed to load bill suggestions.'), 'error')
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, createBillMatchKey, getBillMatches.mutateAsync])
 
   function openReasonDialog(id: number, action: ReasonAction) {
     setReasonTarget({ id, action })
@@ -452,6 +509,31 @@ export default function BankFeed() {
       addToast(getErrorMessage(err, 'Failed to override match.'), 'error')
     } finally {
       setOverridingId(null)
+    }
+  }
+
+  async function handlePayBill(item: BankTransaction, suggestion: BillMatchSuggestion) {
+    const key = `${item.id}:${suggestion.bill_id}`
+    setPayingBillKey(key)
+    try {
+      await createFromBankMutation.mutateAsync({
+        id: item.id,
+        payload: {
+          date: item.bank_posted_date,
+          description: item.bank_description_2
+            ? `${item.raw_description} — ${item.bank_description_2}`
+            : item.raw_description,
+          reference_no: item.bank_transaction_id || undefined,
+          amount: Math.abs(item.amount),
+          type: 'withdrawal',
+          bill_id: suggestion.bill_id,
+        },
+      })
+      addToast('Bill payment created from bank row.', 'success')
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to pay bill from bank row.'), 'error')
+    } finally {
+      setPayingBillKey(null)
     }
   }
 
@@ -695,37 +777,59 @@ export default function BankFeed() {
             <div style={{ fontWeight: 600, color: '#0f172a' }}>
               Create Queue ({createItems.length})
             </div>
-            {createItems.map((item) => (
-              <div key={`create-${item.id}`} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.8rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 600 }}>
-                      {item.bank_posted_date} • {formatCurrency(item.amount)}
+            {createItems.map((item) => {
+              const suggestions = billSuggestionsByRow[item.id] || []
+
+              return (
+                <div key={`create-${item.id}`} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.8rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 600 }}>
+                        {item.bank_posted_date} • {formatCurrency(item.amount)}
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: '#475569' }}>{item.raw_description}</div>
+                      {suggestions.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.55rem' }}>
+                          {suggestions.map((suggestion) => {
+                            const key = `${item.id}:${suggestion.bill_id}`
+                            return (
+                              <Button
+                                key={key}
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handlePayBill(item, suggestion)}
+                                isLoading={payingBillKey === key}
+                              >
+                                Pay {suggestion.confidence === 'exact' ? 'Exact' : 'Possible'} Bill {suggestion.bill_number || `#${suggestion.bill_id}`} - {suggestion.vendor_name || 'Unknown vendor'} {formatCurrency(suggestion.balance_due)}
+                              </Button>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ fontSize: '0.82rem', color: '#475569' }}>{item.raw_description}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <Button
-                      variant="secondary"
-                      onClick={() => openReasonDialog(item.id, 'hold')}
-                      isLoading={holdingId === item.id}
-                    >
-                      Hold
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => openReasonDialog(item.id, 'ignore')}
-                      isLoading={ignoringId === item.id}
-                    >
-                      Ignore
-                    </Button>
-                    <Button onClick={() => setCreateModalTarget(item.id)}>
-                      Create New JE
-                    </Button>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <Button
+                        variant="secondary"
+                        onClick={() => openReasonDialog(item.id, 'hold')}
+                        isLoading={holdingId === item.id}
+                      >
+                        Hold
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => openReasonDialog(item.id, 'ignore')}
+                        isLoading={ignoringId === item.id}
+                      >
+                        Ignore
+                      </Button>
+                      <Button onClick={() => setCreateModalTarget(item.id)}>
+                        Create New JE
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             <div style={{ fontWeight: 600, color: '#0f172a' }}>
               Match Queue ({matchQueueItems.length})

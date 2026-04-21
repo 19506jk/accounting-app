@@ -13,9 +13,13 @@ const db = require('../../db') as Knex;
 const createdUploadIds: number[] = [];
 const createdFundIds: number[] = [];
 const createdAccountIds: number[] = [];
+const createdContactIds: number[] = [];
+const createdBillIds: number[] = [];
+const createdTaxRateIds: number[] = [];
 const createdUserIds: number[] = [];
 const createdTransactionIds: number[] = [];
 const createdBankTransactionIds: number[] = [];
+const accountActiveRestores: Array<{ id: number; is_active: boolean }> = [];
 
 let bankTransactionsRouter: Router;
 
@@ -39,9 +43,30 @@ afterEach(async () => {
     createdUploadIds.length = 0;
   }
 
+  if (createdBillIds.length > 0) {
+    await db('bill_line_items').whereIn('bill_id', createdBillIds).delete();
+    await db('bills').whereIn('id', createdBillIds).delete();
+    createdBillIds.length = 0;
+  }
+
   if (createdTransactionIds.length > 0) {
     await db('transactions').whereIn('id', createdTransactionIds).delete();
     createdTransactionIds.length = 0;
+  }
+
+  if (createdTaxRateIds.length > 0) {
+    await db('tax_rates').whereIn('id', createdTaxRateIds).delete();
+    createdTaxRateIds.length = 0;
+  }
+
+  for (const restore of accountActiveRestores) {
+    await db('accounts').where({ id: restore.id }).update({ is_active: restore.is_active });
+  }
+  accountActiveRestores.length = 0;
+
+  if (createdContactIds.length > 0) {
+    await db('contacts').whereIn('id', createdContactIds).delete();
+    createdContactIds.length = 0;
   }
 
   if (createdFundIds.length > 0) {
@@ -137,8 +162,45 @@ async function createFixture() {
       updated_at: db.fn.now(),
     })
     .returning('*') as Array<{ id: number }>;
-  if (!bankAccount || !incomeAccount || !equityAccount) throw new Error('Failed to create account fixture');
-  createdAccountIds.push(bankAccount.id, incomeAccount.id, equityAccount.id);
+  const [expenseAccount] = await db('accounts')
+    .insert({
+      code: `BFP3-EXP-${suffix}`,
+      name: `Bank Feed Phase3 Expense ${suffix}`,
+      type: 'EXPENSE',
+      account_class: 'EXPENSE',
+      is_active: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  const [recoverableAccount] = await db('accounts')
+    .insert({
+      code: `BFP3-REC-${suffix}`,
+      name: `Bank Feed Phase3 Recoverable ${suffix}`,
+      type: 'ASSET',
+      account_class: 'ASSET',
+      is_active: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!bankAccount || !incomeAccount || !equityAccount || !expenseAccount || !recoverableAccount) {
+    throw new Error('Failed to create account fixture');
+  }
+  createdAccountIds.push(bankAccount.id, incomeAccount.id, equityAccount.id, expenseAccount.id, recoverableAccount.id);
+
+  const [payeeContact] = await db('contacts')
+    .insert({
+      type: 'PAYEE',
+      contact_class: 'INDIVIDUAL',
+      name: `Bank Feed Phase3 Payee ${suffix}`,
+      is_active: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!payeeContact) throw new Error('Failed to create contact fixture');
+  createdContactIds.push(payeeContact.id);
 
   const [fund] = await db('funds')
     .insert({
@@ -157,9 +219,103 @@ async function createFixture() {
     userId: user.id,
     bankAccountId: bankAccount.id,
     incomeAccountId: incomeAccount.id,
+    expenseAccountId: expenseAccount.id,
+    recoverableAccountId: recoverableAccount.id,
+    payeeContactId: payeeContact.id,
     fundId: fund.id,
     suffix,
   };
+}
+
+async function ensureAccountByCode({
+  code,
+  name,
+  type,
+  accountClass,
+}: {
+  code: string;
+  name: string;
+  type: string;
+  accountClass: string;
+}) {
+  const existing = await db('accounts')
+    .where({ code })
+    .first() as { id: number; is_active: boolean } | undefined;
+  if (existing) {
+    if (!existing.is_active) {
+      accountActiveRestores.push({ id: existing.id, is_active: existing.is_active });
+      await db('accounts').where({ id: existing.id }).update({ is_active: true });
+    }
+    return existing.id;
+  }
+
+  const [created] = await db('accounts')
+    .insert({
+      code,
+      name,
+      type,
+      account_class: accountClass,
+      is_active: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!created) throw new Error(`Failed to create account ${code}`);
+  createdAccountIds.push(created.id);
+  return created.id;
+}
+
+async function createUnpaidBill({
+  fixture,
+  amount,
+  status = 'UNPAID',
+}: {
+  fixture: Awaited<ReturnType<typeof createFixture>>;
+  amount: number;
+  status?: 'UNPAID' | 'PAID';
+}) {
+  const [bill] = await db('bills')
+    .insert({
+      contact_id: fixture.payeeContactId,
+      date: '2026-06-01',
+      due_date: null,
+      bill_number: `BFP3-BILL-${fixture.suffix}-${createdBillIds.length + 1}`,
+      description: `Bank Feed Phase3 Bill ${fixture.suffix}`,
+      amount: amount.toFixed(2),
+      fund_id: fixture.fundId,
+      amount_paid: status === 'PAID' ? amount.toFixed(2) : '0.00',
+      status,
+      created_by: fixture.userId,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!bill) throw new Error('Failed to create bill fixture');
+  createdBillIds.push(bill.id);
+  return bill.id;
+}
+
+async function createTaxRate({
+  fixture,
+  recoverableAccountId = fixture.recoverableAccountId,
+}: {
+  fixture: Awaited<ReturnType<typeof createFixture>>;
+  recoverableAccountId?: number | null;
+}) {
+  const [taxRate] = await db('tax_rates')
+    .insert({
+      name: `BFP3 Tax ${fixture.suffix}-${createdTaxRateIds.length + 1}`,
+      rate: '0.1300',
+      recoverable_account_id: recoverableAccountId,
+      rebate_percentage: '1.0000',
+      is_active: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!taxRate) throw new Error('Failed to create tax rate fixture');
+  createdTaxRateIds.push(taxRate.id);
+  return taxRate.id;
 }
 
 async function createCandidateEntry({
@@ -249,6 +405,9 @@ async function importBankRow({
       ],
     },
   });
+  if (response.status !== 201) {
+    throw new Error(`Import failed: ${response.status} ${JSON.stringify(response.body)}`);
+  }
   expect(response.status).toBe(201);
   createdUploadIds.push(response.body.upload_id as number);
 
@@ -370,32 +529,23 @@ describe('direct DB bank-transactions Phase 3 integration checks', () => {
     }));
   });
 
-  it('rejects bill_id on create and blocks double-create', async () => {
+  it('pays a linked bill on create and blocks double-create', async () => {
     const fixture = await createFixture();
+    await ensureAccountByCode({
+      code: '20000',
+      name: 'Accounts Payable',
+      type: 'LIABILITY',
+      accountClass: 'LIABILITY',
+    });
+    const billId = await createUnpaidBill({ fixture, amount: 80 });
     const bankTransactionId = await importBankRow({
       fixture,
       filename: `phase3-create-${fixture.suffix}.csv`,
-      description: 'Create row',
-      amount: 80,
+      description: 'Bill payment row',
+      amount: -80,
       bankTransactionId: `PH3-CREATE-${fixture.suffix}`,
       date: '2026-06-05',
     });
-
-    const billRejected = await requestRoute({
-      probePath: `/${bankTransactionId}/create`,
-      method: 'POST',
-      userId: fixture.userId,
-      role: 'editor',
-      body: {
-        date: '2026-06-05',
-        description: 'Create row',
-        amount: 80,
-        type: 'deposit',
-        offset_account_id: fixture.incomeAccountId,
-        bill_id: 999,
-      },
-    });
-    expect(billRejected.status).toBe(400);
 
     const created = await requestRoute({
       probePath: `/${bankTransactionId}/create`,
@@ -404,10 +554,10 @@ describe('direct DB bank-transactions Phase 3 integration checks', () => {
       role: 'editor',
       body: {
         date: '2026-06-05',
-        description: 'Create row',
+        description: 'Bill payment row',
         amount: 80,
-        type: 'deposit',
-        offset_account_id: fixture.incomeAccountId,
+        type: 'withdrawal',
+        bill_id: billId,
       },
     });
     expect(created.status).toBe(200);
@@ -419,10 +569,28 @@ describe('direct DB bank-transactions Phase 3 integration checks', () => {
 
     const createdJournalEntryId = created.body.item?.journal_entry_id as number | null | undefined;
     expect(typeof createdJournalEntryId).toBe('number');
+    let paymentTransactionId: number | null = null;
     if (createdJournalEntryId) {
       const je = await db('journal_entries').where({ id: createdJournalEntryId }).first() as { transaction_id: number } | undefined;
-      if (je) createdTransactionIds.push(je.transaction_id);
+      expect(je).toEqual(expect.objectContaining({
+        transaction_id: expect.any(Number),
+      }));
+      if (je) {
+        paymentTransactionId = je.transaction_id;
+        createdTransactionIds.push(je.transaction_id);
+      }
     }
+
+    const paidBill = await db('bills').where({ id: billId }).first() as {
+      status: string;
+      amount_paid: string | number;
+      transaction_id: number | null;
+    } | undefined;
+    expect(paidBill).toEqual(expect.objectContaining({
+      status: 'PAID',
+      transaction_id: paymentTransactionId,
+    }));
+    expect(Number(paidBill?.amount_paid)).toBe(80);
 
     const secondCreate = await requestRoute({
       probePath: `/${bankTransactionId}/create`,
@@ -431,12 +599,268 @@ describe('direct DB bank-transactions Phase 3 integration checks', () => {
       role: 'editor',
       body: {
         date: '2026-06-05',
-        description: 'Create row',
+        description: 'Bill payment row',
         amount: 80,
-        type: 'deposit',
-        offset_account_id: fixture.incomeAccountId,
+        type: 'withdrawal',
+        bill_id: billId,
       },
     });
     expect(secondCreate.status).toBe(409);
+  });
+
+  it('rejects invalid bill-link create combinations', async () => {
+    const fixture = await createFixture();
+    await ensureAccountByCode({
+      code: '20000',
+      name: 'Accounts Payable',
+      type: 'LIABILITY',
+      accountClass: 'LIABILITY',
+    });
+    const billId = await createUnpaidBill({ fixture, amount: 80 });
+    const paidBillId = await createUnpaidBill({ fixture, amount: 80, status: 'PAID' });
+
+    const depositBankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-bill-deposit-${fixture.suffix}.csv`,
+      description: 'Deposit bill row',
+      amount: 80,
+      bankTransactionId: `PH3-BILL-DEP-${fixture.suffix}`,
+      date: '2026-06-05',
+    });
+    const withdrawalBankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-bill-withdrawal-${fixture.suffix}.csv`,
+      description: 'Withdrawal bill row',
+      amount: -80,
+      bankTransactionId: `PH3-BILL-WD-${fixture.suffix}`,
+      date: '2026-06-05',
+    });
+
+    const depositLinked = await requestRoute({
+      probePath: `/${depositBankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-05',
+        description: 'Deposit bill row',
+        amount: 80,
+        type: 'deposit',
+        bill_id: billId,
+      },
+    });
+    expect(depositLinked.status).toBe(400);
+
+    const splitLinked = await requestRoute({
+      probePath: `/${withdrawalBankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-05',
+        description: 'Withdrawal bill row',
+        amount: 80,
+        type: 'withdrawal',
+        bill_id: billId,
+        payee_id: fixture.payeeContactId,
+        splits: [{
+          amount: 80,
+          fund_id: fixture.fundId,
+          expense_account_id: fixture.expenseAccountId,
+          pre_tax_amount: 80,
+          rounding_adjustment: 0,
+        }],
+      },
+    });
+    expect(splitLinked.status).toBe(400);
+
+    const offsetLinked = await requestRoute({
+      probePath: `/${withdrawalBankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-05',
+        description: 'Withdrawal bill row',
+        amount: 80,
+        type: 'withdrawal',
+        bill_id: billId,
+        offset_account_id: fixture.incomeAccountId,
+      },
+    });
+    expect(offsetLinked.status).toBe(400);
+
+    const wrongAmount = await requestRoute({
+      probePath: `/${withdrawalBankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-05',
+        description: 'Withdrawal bill row',
+        amount: 79,
+        type: 'withdrawal',
+        bill_id: billId,
+      },
+    });
+    expect(wrongAmount.status).toBe(400);
+
+    const alreadyPaid = await requestRoute({
+      probePath: `/${withdrawalBankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-05',
+        description: 'Withdrawal bill row',
+        amount: 80,
+        type: 'withdrawal',
+        bill_id: paidBillId,
+      },
+    });
+    expect(alreadyPaid.status).toBe(400);
+  });
+
+  it('posts recoverable tax and rounding lines for bank-feed withdrawal splits', async () => {
+    const fixture = await createFixture();
+    const roundingAccountId = await ensureAccountByCode({
+      code: '59999',
+      name: 'Rounding Adjustments',
+      type: 'EXPENSE',
+      accountClass: 'EXPENSE',
+    });
+    const taxRateId = await createTaxRate({ fixture });
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-tax-split-${fixture.suffix}.csv`,
+      description: 'Taxed withdrawal row',
+      amount: -11.31,
+      bankTransactionId: `PH3-TAX-${fixture.suffix}`,
+      date: '2026-06-07',
+    });
+
+    const created = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-07',
+        description: 'Taxed withdrawal row',
+        amount: 11.31,
+        type: 'withdrawal',
+        payee_id: fixture.payeeContactId,
+        splits: [{
+          amount: 11.31,
+          fund_id: fixture.fundId,
+          expense_account_id: fixture.expenseAccountId,
+          tax_rate_id: taxRateId,
+          pre_tax_amount: 10,
+          rounding_adjustment: 0.01,
+          description: 'Taxed split',
+        }],
+      },
+    });
+    expect(created.status).toBe(200);
+
+    const bankJournalEntryId = created.body.item?.journal_entry_id as number;
+    const bankEntry = await db('journal_entries').where({ id: bankJournalEntryId }).first() as { transaction_id: number } | undefined;
+    expect(bankEntry).toBeDefined();
+    if (!bankEntry) throw new Error('Expected bank journal entry');
+    createdTransactionIds.push(bankEntry.transaction_id);
+
+    const entries = await db('journal_entries')
+      .where({ transaction_id: bankEntry.transaction_id })
+      .select('account_id', 'debit', 'credit', 'tax_rate_id')
+      .orderBy('id', 'asc') as Array<{ account_id: number; debit: string | number; credit: string | number; tax_rate_id: number | null }>;
+
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ account_id: fixture.bankAccountId, debit: '0.00', credit: '11.31' }),
+      expect.objectContaining({ account_id: fixture.expenseAccountId, debit: '10.00', credit: '0.00', tax_rate_id: taxRateId }),
+      expect.objectContaining({ account_id: fixture.recoverableAccountId, debit: '1.30', credit: '0.00' }),
+      expect.objectContaining({ account_id: roundingAccountId, debit: '0.01', credit: '0.00' }),
+    ]));
+  });
+
+  it('rejects withdrawal split tax rates without recoverable accounts', async () => {
+    const fixture = await createFixture();
+    const taxRateId = await createTaxRate({ fixture, recoverableAccountId: null });
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-tax-missing-recoverable-${fixture.suffix}.csv`,
+      description: 'Missing recoverable row',
+      amount: -11.30,
+      bankTransactionId: `PH3-MISS-REC-${fixture.suffix}`,
+      date: '2026-06-07',
+    });
+
+    const rejected = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-07',
+        description: 'Missing recoverable row',
+        amount: 11.30,
+        type: 'withdrawal',
+        payee_id: fixture.payeeContactId,
+        splits: [{
+          amount: 11.30,
+          fund_id: fixture.fundId,
+          expense_account_id: fixture.expenseAccountId,
+          tax_rate_id: taxRateId,
+          pre_tax_amount: 10,
+          rounding_adjustment: 0,
+        }],
+      },
+    });
+    expect(rejected.status).toBe(400);
+  });
+
+  it('rejects withdrawal split rounding when the rounding account is unavailable', async () => {
+    const fixture = await createFixture();
+    const activeRoundingAccounts = await db('accounts')
+      .where({ code: '59999', is_active: true })
+      .select('id', 'is_active') as Array<{ id: number; is_active: boolean }>;
+    activeRoundingAccounts.forEach((account) => {
+      accountActiveRestores.push({ id: account.id, is_active: account.is_active });
+    });
+    if (activeRoundingAccounts.length > 0) {
+      await db('accounts')
+        .whereIn('id', activeRoundingAccounts.map((account) => account.id))
+        .update({ is_active: false });
+    }
+
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-rounding-missing-${fixture.suffix}.csv`,
+      description: 'Missing rounding row',
+      amount: -10.01,
+      bankTransactionId: `PH3-MISS-ROUND-${fixture.suffix}`,
+      date: '2026-06-07',
+    });
+
+    const rejected = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-07',
+        description: 'Missing rounding row',
+        amount: 10.01,
+        type: 'withdrawal',
+        payee_id: fixture.payeeContactId,
+        splits: [{
+          amount: 10.01,
+          fund_id: fixture.fundId,
+          expense_account_id: fixture.expenseAccountId,
+          pre_tax_amount: 10,
+          rounding_adjustment: 0.01,
+        }],
+      },
+    });
+    expect(rejected.status).toBe(400);
   });
 });

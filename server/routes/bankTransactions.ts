@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { Knex } from 'knex';
+import Decimal from 'decimal.js';
 import express = require('express');
 
 import type {
@@ -40,6 +41,7 @@ import {
 } from '../services/bankTransactions/reservations.js';
 import { createFromBankRow } from '../services/bankTransactions/create.js';
 import { resetRowState } from '../services/bankTransactions/resolution.js';
+import { payBillInTransaction } from '../services/bills.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth.js');
@@ -60,6 +62,8 @@ router.use(auth);
 function toNumber(value: string | number | null | undefined) {
   return Number.parseFloat(String(value ?? 0));
 }
+
+const dec = (value: Decimal.Value | null | undefined) => new Decimal(value ?? 0);
 
 function toBankTransaction(row: JoinedBankTransactionRow): ApiBankTransactionWithFingerprint {
   return {
@@ -1056,15 +1060,12 @@ router.post(
   '/:id/create',
   requireRole('admin', 'editor'),
   async (
-    req: Request<{ id: string }, BankTransactionResponse | ApiErrorResponse, CreateFromBankRowInput & { bill_id?: number }>,
+    req: Request<{ id: string }, BankTransactionResponse | ApiErrorResponse, CreateFromBankRowInput>,
     res: Response<BankTransactionResponse | ApiErrorResponse>,
     next: NextFunction
   ) => {
     try {
       const bankTransactionId = parseIntegerId(req.params.id, 'id');
-      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'bill_id')) {
-        return res.status(400).json({ error: 'bill_id is not supported in this endpoint' });
-      }
 
       const item = await db.transaction(async (trx: Knex.Transaction) => {
         const existing = await getJoinedTransaction(trx, bankTransactionId);
@@ -1078,6 +1079,93 @@ router.post(
           const err = new Error('Bank transaction cannot create a new journal entry in its current state') as Error & { statusCode?: number };
           err.statusCode = 409;
           throw err;
+        }
+
+        const billId = req.body?.bill_id === undefined || req.body.bill_id === null
+          ? null
+          : parseIntegerId(String(req.body.bill_id), 'bill_id');
+
+        if (billId) {
+          const hasSplits = Array.isArray(req.body.splits) && req.body.splits.length > 0;
+          const hasOffsetAccount = req.body.offset_account_id !== undefined
+            && req.body.offset_account_id !== null
+            && String(req.body.offset_account_id).trim() !== '';
+          if (req.body.type !== 'withdrawal') {
+            const err = new Error('bill_id is only supported for withdrawal rows') as Error & { statusCode?: number };
+            err.statusCode = 400;
+            throw err;
+          }
+          // Imported bank-feed withdrawals are stored as negative amounts.
+          if (!dec(existing.amount).isNegative()) {
+            const err = new Error('bill_id is only supported for bank withdrawal rows') as Error & { statusCode?: number };
+            err.statusCode = 400;
+            throw err;
+          }
+          if (hasSplits) {
+            const err = new Error('bill_id cannot be combined with splits') as Error & { statusCode?: number };
+            err.statusCode = 400;
+            throw err;
+          }
+          if (hasOffsetAccount) {
+            const err = new Error('bill_id cannot be combined with offset_account_id') as Error & { statusCode?: number };
+            err.statusCode = 400;
+            throw err;
+          }
+
+          const requestAmount = dec(req.body.amount).toDecimalPlaces(2);
+          const bankAmount = dec(existing.amount).abs().toDecimalPlaces(2);
+          if (!requestAmount.equals(bankAmount)) {
+            const err = new Error(`amount ${requestAmount.toFixed(2)} does not match bank transaction amount ${bankAmount.toFixed(2)}`) as Error & { statusCode?: number };
+            err.statusCode = 400;
+            throw err;
+          }
+
+          const result = await payBillInTransaction(
+            String(billId),
+            {
+              payment_date: req.body.date,
+              bank_account_id: existing.account_id,
+              reference_no: req.body.reference_no,
+              amount: parseFloat(requestAmount.toFixed(2)),
+            },
+            req.user!.id,
+            trx,
+            true
+          );
+
+          if (result.errors?.length) {
+            const err = new Error(result.errors.join(', ')) as Error & { statusCode?: number };
+            err.statusCode = 400;
+            throw err;
+          }
+          if (!result.transaction || !result.bank_journal_entry_id) {
+            throw new Error('Failed to create bill payment from bank row');
+          }
+
+          await trx('bank_transactions')
+            .where({ id: bankTransactionId })
+            .update({
+              creation_status: 'created',
+              creation_source: 'human',
+              review_status: 'reviewed',
+              status: 'created_new',
+              journal_entry_id: result.bank_journal_entry_id,
+              last_modified_at: trx.fn.now(),
+            });
+
+          await writeBankTransactionEvent({
+            trx,
+            bankTransactionId,
+            eventType: 'create_new_confirmed',
+            actorType: 'user',
+            actorId: req.user?.id ?? null,
+            payload: {
+              journal_entry_id: result.bank_journal_entry_id,
+              transaction_id: result.transaction.id,
+              bill_id: billId,
+            },
+          });
+          return getJoinedTransaction(trx, bankTransactionId);
         }
 
         const created = await createFromBankRow(
