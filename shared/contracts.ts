@@ -248,6 +248,13 @@ export type BankTransactionStatus =
   | 'locked'
   | 'archived';
 
+export type BankLifecycleStatus = 'open' | 'locked' | 'archived';
+export type BankMatchStatus = 'none' | 'suggested' | 'confirmed' | 'rejected';
+export type BankCreationStatus = 'none' | 'suggested_create' | 'created';
+export type BankReviewStatus = 'pending' | 'reviewed';
+export type BankMatchSource = 'system' | 'human';
+export type BankCreationSource = 'human';
+
 export interface BankTransactionConflict {
   id: number;
   bank_posted_date: string;
@@ -275,6 +282,14 @@ export interface BankTransaction {
   review_decision: 'confirmed_new' | 'mark_as_duplicate' | null;
   imported_at: string;
   last_modified_at: string;
+  lifecycle_status: BankLifecycleStatus;
+  match_status: BankMatchStatus;
+  creation_status: BankCreationStatus;
+  review_status: BankReviewStatus;
+  match_source: BankMatchSource | null;
+  creation_source: BankCreationSource | null;
+  suggested_match_id: number | null;
+  matched_journal_entry_id: number | null;
   conflict?: BankTransactionConflict;
 }
 
@@ -291,9 +306,12 @@ export interface BankUploadSummary {
 }
 
 export interface BankTransactionsQuery {
-  status?: BankTransactionStatus;
+  status?: BankTransactionStatus | BankTransactionStatus[];
   upload_id?: string | number;
   account_id?: string | number;
+  lifecycle_status?: BankLifecycleStatus | BankLifecycleStatus[];
+  match_status?: BankMatchStatus | BankMatchStatus[];
+  review_status?: BankReviewStatus | BankReviewStatus[];
 }
 
 export interface BankTransactionsListResponse {
@@ -310,6 +328,39 @@ export interface BankTransactionResponse {
 
 export interface BankReviewDecision {
   decision: 'confirmed_new' | 'mark_as_duplicate';
+}
+
+export interface MatchCandidate {
+  journal_entry_id: number;
+  transaction_id: number;
+  date: string;
+  description: string;
+  reference_no: string | null;
+  amount: number;
+  direction: 'debit' | 'credit';
+  score_total: number;
+  score_ref: number;
+  score_date: number;
+  score_desc: number;
+  auto_confirm_eligible: boolean;
+}
+
+export interface BankMatchResult {
+  bank_transaction_id: number;
+  candidates: MatchCandidate[];
+  auto_confirmed: MatchCandidate | null;
+}
+
+export interface BankReserveInput {
+  journal_entry_id: number;
+}
+
+export interface BankConfirmInput {
+  journal_entry_id: number;
+}
+
+export interface BankRejectInput {
+  journal_entry_id: number;
 }
 
 export interface GetBillMatchesInput {

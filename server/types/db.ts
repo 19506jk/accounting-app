@@ -261,6 +261,13 @@ export type BankTransactionStatusRow =
   | 'locked'
   | 'archived';
 
+export type BankLifecycleStatusRow = 'open' | 'locked' | 'archived';
+export type BankMatchStatusRow = 'none' | 'suggested' | 'confirmed' | 'rejected';
+export type BankCreationStatusRow = 'none' | 'suggested_create' | 'created';
+export type BankReviewStatusRow = 'pending' | 'reviewed';
+export type BankMatchSourceRow = 'system' | 'human';
+export type BankCreationSourceRow = 'human';
+
 export interface BankTransactionRow {
   id: number;
   upload_id: number;
@@ -279,4 +286,39 @@ export interface BankTransactionRow {
   review_decision: 'confirmed_new' | 'mark_as_duplicate' | null;
   imported_at: Date | string;
   last_modified_at: Date | string;
+  lifecycle_status: BankLifecycleStatusRow;
+  match_status: BankMatchStatusRow;
+  creation_status: BankCreationStatusRow;
+  review_status: BankReviewStatusRow;
+  match_source: BankMatchSourceRow | null;
+  creation_source: BankCreationSourceRow | null;
+  suggested_match_id: number | null;
+  matched_journal_entry_id: number | null;
+}
+
+export interface ReconciliationReservationRow {
+  id: number;
+  journal_entry_id: number;
+  bank_transaction_id: number;
+  reserved_by: number | null;
+  reserved_at: Date | string;
+  expires_at: Date | string;
+}
+
+export interface BankTransactionEventRow {
+  id: number;
+  bank_transaction_id: number | null;
+  event_type: string;
+  actor_type: 'user' | 'system' | 'admin';
+  actor_id: number | null;
+  payload: string | null;
+  created_at: Date | string;
+}
+
+export interface BankTransactionRejectionRow {
+  id: number;
+  bank_transaction_id: number;
+  journal_entry_id: number;
+  rejected_by: number | null;
+  rejected_at: Date | string;
 }

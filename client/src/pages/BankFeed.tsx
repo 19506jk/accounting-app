@@ -2,10 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { useAccounts } from '../api/useAccounts'
 import {
+  useConfirmMatch,
   useBankTransactions,
   useBankUploads,
   useImportBankTransactions,
+  useRejectCandidate,
+  useReleaseReservation,
+  useReserve,
   useReviewBankTransaction,
+  useScanCandidates,
 } from '../api/useBankTransactions'
 import { useFunds } from '../api/useFunds'
 import Button from '../components/ui/Button'
@@ -14,11 +19,11 @@ import { useToast } from '../components/ui/Toast'
 import { getErrorMessage } from '../utils/errors'
 import { parseStatementCsv } from '../utils/parseStatementCsv'
 import ImportSetupPanel from './importCsv/ImportSetupPanel'
-import type { BankImportInput, BankTransactionRow } from '@shared/contracts'
+import type { BankImportInput, BankTransactionRow, MatchCandidate } from '@shared/contracts'
 import type React from 'react'
 import type { SelectOption } from '../components/ui/types'
 
-type TabKey = 'import' | 'review'
+type TabKey = 'import' | 'review' | 'match'
 
 function formatCurrency(value: number) {
   return value.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })
@@ -34,9 +39,27 @@ export default function BankFeed() {
     { status: 'needs_review' },
     { enabled: activeTab === 'review' }
   )
+  const { data: matchItems = [], isLoading: isLoadingMatchItems } = useBankTransactions(
+    {
+      status: 'imported',
+      lifecycle_status: 'open',
+      match_status: ['none', 'suggested'],
+    },
+    { enabled: activeTab === 'match' }
+  )
   const importMutation = useImportBankTransactions()
   const reviewMutation = useReviewBankTransaction()
+  const scanMutation = useScanCandidates()
+  const reserveMutation = useReserve()
+  const confirmMutation = useConfirmMatch()
+  const rejectMutation = useRejectCandidate()
+  const releaseMutation = useReleaseReservation()
   const [reviewingId, setReviewingId] = useState<number | null>(null)
+  const [scanningId, setScanningId] = useState<number | null>(null)
+  const [reservingKey, setReservingKey] = useState<string | null>(null)
+  const [rejectingKey, setRejectingKey] = useState<string | null>(null)
+  const [releasingId, setReleasingId] = useState<number | null>(null)
+  const [scanResults, setScanResults] = useState<Record<number, MatchCandidate[]>>({})
 
   const [bankAccountId, setBankAccountId] = useState('')
   const [fundId, setFundId] = useState('')
@@ -156,6 +179,77 @@ export default function BankFeed() {
     }
   }
 
+  async function handleScan(id: number) {
+    setScanningId(id)
+    try {
+      const result = await scanMutation.mutateAsync(id)
+      setScanResults((prev) => ({ ...prev, [id]: result.candidates }))
+      if (result.auto_confirmed) {
+        addToast('Auto-match confirmed by system rules.', 'success')
+      } else {
+        addToast(`Found ${result.candidates.length} candidate(s).`, 'success')
+      }
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to scan candidates.'), 'error')
+    } finally {
+      setScanningId(null)
+    }
+  }
+
+  async function handleReserveAndConfirm(bankTransactionId: number, candidate: MatchCandidate) {
+    const key = `${bankTransactionId}:${candidate.journal_entry_id}`
+    setReservingKey(key)
+    try {
+      await reserveMutation.mutateAsync({
+        id: bankTransactionId,
+        payload: { journal_entry_id: candidate.journal_entry_id },
+      })
+      await confirmMutation.mutateAsync({
+        id: bankTransactionId,
+        payload: { journal_entry_id: candidate.journal_entry_id },
+      })
+      addToast('Match confirmed.', 'success')
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to reserve and confirm match.'), 'error')
+    } finally {
+      setReservingKey(null)
+    }
+  }
+
+  async function handleRejectCandidate(bankTransactionId: number, candidate: MatchCandidate) {
+    const key = `${bankTransactionId}:${candidate.journal_entry_id}`
+    setRejectingKey(key)
+    try {
+      await rejectMutation.mutateAsync({
+        id: bankTransactionId,
+        payload: { journal_entry_id: candidate.journal_entry_id },
+      })
+      setScanResults((prev) => ({
+        ...prev,
+        [bankTransactionId]: (prev[bankTransactionId] || []).filter((item) => (
+          item.journal_entry_id !== candidate.journal_entry_id
+        )),
+      }))
+      addToast('Candidate rejected.', 'success')
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to reject candidate.'), 'error')
+    } finally {
+      setRejectingKey(null)
+    }
+  }
+
+  async function handleReleaseReservation(bankTransactionId: number) {
+    setReleasingId(bankTransactionId)
+    try {
+      await releaseMutation.mutateAsync(bankTransactionId)
+      addToast('Reservation released.', 'success')
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to release reservation.'), 'error')
+    } finally {
+      setReleasingId(null)
+    }
+  }
+
   const latestUpload = importResult ? uploads.find((upload) => upload.id === importResult.upload_id) : null
 
   return (
@@ -170,6 +264,9 @@ export default function BankFeed() {
           </Button>
           <Button variant={activeTab === 'review' ? 'primary' : 'secondary'} onClick={() => setActiveTab('review')}>
             Review Queue
+          </Button>
+          <Button variant={activeTab === 'match' ? 'primary' : 'secondary'} onClick={() => setActiveTab('match')}>
+            Match
           </Button>
         </div>
       </div>
@@ -309,6 +406,95 @@ export default function BankFeed() {
                 </div>
               </div>
             ))}
+          </div>
+        </Card>
+      )}
+
+      {activeTab === 'match' && (
+        <Card>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <div style={{ fontWeight: 600, color: '#0f172a' }}>
+              Match Queue ({matchItems.length})
+            </div>
+            {isLoadingMatchItems && (
+              <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Loading match queue...</div>
+            )}
+            {!isLoadingMatchItems && matchItems.length === 0 && (
+              <div style={{ fontSize: '0.85rem', color: '#64748b' }}>No open items to match.</div>
+            )}
+            {matchItems.map((item) => {
+              const candidates = scanResults[item.id] || []
+
+              return (
+                <div key={item.id} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.8rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 600 }}>
+                        {item.bank_posted_date} • {formatCurrency(item.amount)}
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: '#475569' }}>{item.raw_description}</div>
+                      {item.suggested_match_id && (
+                        <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                          Suggested JE #{item.suggested_match_id}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleScan(item.id)}
+                        isLoading={scanningId === item.id}
+                      >
+                        Find Matches
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleReleaseReservation(item.id)}
+                        isLoading={releasingId === item.id}
+                      >
+                        Release
+                      </Button>
+                    </div>
+                  </div>
+
+                  {candidates.length > 0 && (
+                    <div style={{ marginTop: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                      {candidates.map((candidate) => {
+                        const key = `${item.id}:${candidate.journal_entry_id}`
+                        return (
+                          <div key={key} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.6rem' }}>
+                            <div style={{ fontSize: '0.82rem', color: '#0f172a', fontWeight: 600 }}>
+                              JE #{candidate.journal_entry_id} • Score {candidate.score_total}
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: '#475569' }}>
+                              {candidate.date} • {candidate.description}
+                            </div>
+                            <div style={{ fontSize: '0.76rem', color: '#64748b' }}>
+                              Ref {candidate.score_ref} · Date {candidate.score_date} · Desc {candidate.score_desc}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+                              <Button
+                                variant="secondary"
+                                onClick={() => handleRejectCandidate(item.id, candidate)}
+                                isLoading={rejectingKey === key}
+                              >
+                                Reject
+                              </Button>
+                              <Button
+                                onClick={() => handleReserveAndConfirm(item.id, candidate)}
+                                isLoading={reservingKey === key}
+                              >
+                                Reserve & Confirm
+                              </Button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </Card>
       )}

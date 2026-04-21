@@ -30,6 +30,7 @@ import type {
 } from '../types/db';
 import { compareDateOnly, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
 import { buildReconciliationReport } from '../services/reports.js';
+import { reconciliationReopenPreflight } from '../services/bankTransactions/preflight.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth.js');
@@ -500,6 +501,14 @@ router.post(
               is_reconciled: true,
               updated_at: trx.fn.now(),
             });
+
+          await trx('bank_transactions')
+            .whereIn('matched_journal_entry_id', clearedEntryIds)
+            .where({ lifecycle_status: 'open', match_status: 'confirmed' })
+            .update({
+              lifecycle_status: 'locked',
+              last_modified_at: trx.fn.now(),
+            });
         }
       });
 
@@ -511,6 +520,98 @@ router.post(
       });
     } catch (err) {
       next(err);
+    }
+  }
+);
+
+router.post(
+  '/:id/reopen',
+  requireRole('admin'),
+  async (
+    req: Request<{ id: string }>,
+    res: Response<{ reconciliation: ReconciliationRow } | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const reconciliationId = Number.parseInt(req.params.id, 10);
+      if (!Number.isInteger(reconciliationId) || reconciliationId <= 0) {
+        return res.status(400).json({ error: 'id must be a positive integer' });
+      }
+
+      const recon = await db('reconciliations')
+        .where({ id: reconciliationId })
+        .first() as ReconciliationRow | undefined;
+      if (!recon) return res.status(404).json({ error: 'Reconciliation not found' });
+      if (!recon.is_closed) {
+        return res.status(409).json({ error: 'Reconciliation is already open' });
+      }
+
+      const latestClosed = await db('reconciliations')
+        .where({ account_id: recon.account_id, is_closed: true })
+        .max('statement_date as max_statement_date')
+        .first() as { max_statement_date: Date | string | null } | undefined;
+      const reconDate = normalizeDateOnly(recon.statement_date);
+      const maxClosedDate = latestClosed?.max_statement_date ? normalizeDateOnly(latestClosed.max_statement_date) : null;
+      if (maxClosedDate && reconDate !== maxClosedDate) {
+        return res.status(409).json({ error: 'Only the most recent closed period can be reopened' });
+      }
+
+      const openForAccount = await db('reconciliations')
+        .where({ account_id: recon.account_id, is_closed: false })
+        .whereNot({ id: reconciliationId })
+        .first() as ReconciliationRow | undefined;
+      if (openForAccount) {
+        return res.status(409).json({ error: 'An open reconciliation already exists for this account' });
+      }
+
+      const preflight = await reconciliationReopenPreflight(reconciliationId, db);
+      if (preflight.blocked) {
+        return res.status(409).json({
+          error: 'Reopen blocked by active bank match claims',
+          conflicts: preflight.conflicts,
+        } as ApiErrorResponse & { conflicts: unknown[] });
+      }
+
+      await db.transaction(async (trx: Knex.Transaction) => {
+        await trx('reconciliations')
+          .where({ id: reconciliationId })
+          .update({
+            is_closed: false,
+            updated_at: trx.fn.now(),
+          });
+
+        const clearedEntryIds = await trx('rec_items')
+          .where({ reconciliation_id: reconciliationId, is_cleared: true })
+          .pluck('journal_entry_id') as number[];
+
+        if (clearedEntryIds.length > 0) {
+          await trx('journal_entries')
+            .whereIn('id', clearedEntryIds)
+            .update({
+              is_reconciled: false,
+              updated_at: trx.fn.now(),
+            });
+
+          await trx('bank_transactions')
+            .whereIn('matched_journal_entry_id', clearedEntryIds)
+            .where({ lifecycle_status: 'locked', match_status: 'confirmed' })
+            .update({
+              lifecycle_status: 'open',
+              last_modified_at: trx.fn.now(),
+            });
+        }
+      });
+
+      const updated = await db('reconciliations')
+        .where({ id: reconciliationId })
+        .first() as ReconciliationRow | undefined;
+      if (!updated) {
+        return res.status(404).json({ error: 'Reconciliation not found' });
+      }
+
+      return res.json({ reconciliation: updated });
+    } catch (err) {
+      return next(err);
     }
   }
 );
