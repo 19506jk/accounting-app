@@ -8,9 +8,11 @@
 - **RoleGuard** — props: roles, fallback — `client/src/components/RoleGuard.tsx`
 - **SaveTemplateModal** — props: isOpen, onClose, onSave, title, placeholder — `client/src/components/SaveTemplateModal.tsx`
 - **TemplateDropdown** — props: templates, isOpen, onToggle, onLoad, onDelete — `client/src/components/TemplateDropdown.tsx`
+- **CreateFromBankRowModal** — props: bankTransaction, onClose, onSuccess — `client/src/components/bank/CreateFromBankRowModal.tsx`
 - **AuthProvider** — `client/src/context/AuthContext.tsx`
 - **DateProvider** — `client/src/context/DateContext.tsx`
 - **GOOGLE_CLIENT_ID** — `client/src/main.tsx`
+- **BankFeed** — `client/src/pages/BankFeed.tsx`
 - **Bills** — `client/src/pages/Bills.tsx`
 - **ChartOfAccounts** — `client/src/pages/ChartOfAccounts.tsx`
 - **Contacts** — `client/src/pages/Contacts.tsx`

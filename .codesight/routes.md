@@ -13,9 +13,27 @@
 ## Other Routes
 
 - `GET` `/api/health` [auth, cache] `[inferred]`
-- `GET` `*` [auth, cache] `[inferred]` ✓
-- `POST` `/api/auth/google` [auth, db] `[inferred]` ✓
-- `GET` `/api/auth/me` [auth, db] `[inferred]` ✓
+- `GET` `*` [auth, cache] `[inferred]`
+- `POST` `/api/auth/google` [auth, db] `[inferred]`
+- `GET` `/api/auth/me` [auth, db] `[inferred]`
+- `POST` `/api/bank-transactions/import` [auth, db, upload] `[inferred]`
+- `GET` `/api/bank-transactions` [auth, db, upload] `[inferred]`
+- `GET` `/api/bank-transactions/uploads` [auth, db, upload] `[inferred]`
+- `GET` `/api/bank-transactions/:id` params(id) [auth, db, upload] `[inferred]`
+- `PUT` `/api/bank-transactions/:id/review` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/scan` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/reserve` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/confirm` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/reject` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/release` params(id) [auth, db, upload] `[inferred]`
+- `DELETE` `/api/bank-transactions/:id/rejections` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/hold` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/release-hold` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/ignore` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/unignore` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/create` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/approve-match` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/bank-transactions/:id/override-match` params(id) [auth, db, upload] `[inferred]`
 - `GET` `/api/bills/summary` [auth, db] `[inferred]`
 - `GET` `/api/bills/reports/aging` [auth, db] `[inferred]`
 - `GET` `/api/bills/:id/available-credits` params(id) [auth, db] `[inferred]`
@@ -35,20 +53,21 @@
 - `POST` `/api/donation-receipts/generate-pdf` [auth] `[inferred]`
 - `POST` `/api/fiscal-periods/investigate` [auth, db] `[inferred]`
 - `POST` `/api/fiscal-periods/close` [auth, db] `[inferred]`
-- `GET` `/api/fiscal-periods` [auth, db] `[inferred]` ✓
+- `GET` `/api/fiscal-periods` [auth, db] `[inferred]`
 - `DELETE` `/api/fiscal-periods/:id/reopen` params(id) [auth, db] `[inferred]`
-- `GET` `/api/reconciliations/:id/report` params(id) [auth, db] `[inferred]`
-- `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db] `[inferred]`
-- `POST` `/api/reconciliations/:id/close` params(id) [auth, db] `[inferred]`
-- `GET` `/api/reports/pl` [auth] `[inferred]` ✓
-- `GET` `/api/reports/balance-sheet` [auth] `[inferred]` ✓
-- `GET` `/api/reports/ledger` [auth] `[inferred]` ✓
-- `GET` `/api/reports/trial-balance` [auth] `[inferred]` ✓
-- `GET` `/api/reports/donors/summary` [auth] `[inferred]` ✓
-- `GET` `/api/reports/donors/detail` [auth] `[inferred]` ✓
-- `GET` `/api/settings` [auth, db] `[inferred]` ✓
-- `PUT` `/api/settings` [auth, db] `[inferred]` ✓
-- `GET` `/api/tax-rates` [auth, db] `[inferred]` ✓
+- `GET` `/api/reconciliations/:id/report` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db, upload] `[inferred]`
+- `POST` `/api/reconciliations/:id/close` params(id) [auth, db, upload] `[inferred]`
+- `POST` `/api/reconciliations/:id/reopen` params(id) [auth, db, upload] `[inferred]`
+- `GET` `/api/reports/pl` [auth] `[inferred]`
+- `GET` `/api/reports/balance-sheet` [auth] `[inferred]`
+- `GET` `/api/reports/ledger` [auth] `[inferred]`
+- `GET` `/api/reports/trial-balance` [auth] `[inferred]`
+- `GET` `/api/reports/donors/summary` [auth] `[inferred]`
+- `GET` `/api/reports/donors/detail` [auth] `[inferred]`
+- `GET` `/api/settings` [auth, db] `[inferred]`
+- `PUT` `/api/settings` [auth, db] `[inferred]`
+- `GET` `/api/tax-rates` [auth, db] `[inferred]`
 - `PUT` `/api/tax-rates/:id` params(id) [auth, db] `[inferred]`
 - `PATCH` `/api/tax-rates/:id/toggle` params(id) [auth, db] `[inferred]`
 - `POST` `/api/transactions/import/bill-matches` [auth, db] `[inferred]`
