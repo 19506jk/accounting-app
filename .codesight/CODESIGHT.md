@@ -3,9 +3,9 @@
 > **Stack:** express | none | react | typescript
 > **Monorepo:** church-accounting-client, church-accounting-server
 
-> 94 routes (94 inferred) | 0 models | 40 components | 37 lib files | 21 env vars | 11 middleware | 30% test coverage
-> **Token savings:** this file is ~7,300 tokens. Without it, AI exploration would cost ~86,200 tokens. **Saves ~78,900 tokens per conversation.**
-> **Last scanned:** 2026-04-21 17:49 — re-run after significant changes
+> 94 routes (94 inferred) | 0 models | 40 components | 37 lib files | 21 env vars | 11 middleware
+> **Token savings:** this file is ~0 tokens. Without it, AI exploration would cost ~0 tokens. **Saves ~0 tokens per conversation.**
+> **Last scanned:** 2026-04-21 17:50 — re-run after significant changes
 
 ---
 
@@ -24,11 +24,11 @@
 ## Other Routes
 
 - `GET` `/api/health` [auth, cache] `[inferred]`
-- `GET` `*` [auth, cache] `[inferred]` ✓
-- `POST` `/api/auth/google` [auth, db] `[inferred]` ✓
-- `GET` `/api/auth/me` [auth, db] `[inferred]` ✓
+- `GET` `*` [auth, cache] `[inferred]`
+- `POST` `/api/auth/google` [auth, db] `[inferred]`
+- `GET` `/api/auth/me` [auth, db] `[inferred]`
 - `POST` `/api/bank-transactions/import` [auth, db, upload] `[inferred]`
-- `GET` `/api/bank-transactions` [auth, db, upload] `[inferred]` ✓
+- `GET` `/api/bank-transactions` [auth, db, upload] `[inferred]`
 - `GET` `/api/bank-transactions/uploads` [auth, db, upload] `[inferred]`
 - `GET` `/api/bank-transactions/:id` params(id) [auth, db, upload] `[inferred]`
 - `PUT` `/api/bank-transactions/:id/review` params(id) [auth, db, upload] `[inferred]`
@@ -64,21 +64,21 @@
 - `POST` `/api/donation-receipts/generate-pdf` [auth] `[inferred]`
 - `POST` `/api/fiscal-periods/investigate` [auth, db] `[inferred]`
 - `POST` `/api/fiscal-periods/close` [auth, db] `[inferred]`
-- `GET` `/api/fiscal-periods` [auth, db] `[inferred]` ✓
+- `GET` `/api/fiscal-periods` [auth, db] `[inferred]`
 - `DELETE` `/api/fiscal-periods/:id/reopen` params(id) [auth, db] `[inferred]`
 - `GET` `/api/reconciliations/:id/report` params(id) [auth, db, upload] `[inferred]`
 - `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db, upload] `[inferred]`
 - `POST` `/api/reconciliations/:id/close` params(id) [auth, db, upload] `[inferred]`
 - `POST` `/api/reconciliations/:id/reopen` params(id) [auth, db, upload] `[inferred]`
-- `GET` `/api/reports/pl` [auth] `[inferred]` ✓
-- `GET` `/api/reports/balance-sheet` [auth] `[inferred]` ✓
-- `GET` `/api/reports/ledger` [auth] `[inferred]` ✓
-- `GET` `/api/reports/trial-balance` [auth] `[inferred]` ✓
-- `GET` `/api/reports/donors/summary` [auth] `[inferred]` ✓
-- `GET` `/api/reports/donors/detail` [auth] `[inferred]` ✓
-- `GET` `/api/settings` [auth, db] `[inferred]` ✓
-- `PUT` `/api/settings` [auth, db] `[inferred]` ✓
-- `GET` `/api/tax-rates` [auth, db] `[inferred]` ✓
+- `GET` `/api/reports/pl` [auth] `[inferred]`
+- `GET` `/api/reports/balance-sheet` [auth] `[inferred]`
+- `GET` `/api/reports/ledger` [auth] `[inferred]`
+- `GET` `/api/reports/trial-balance` [auth] `[inferred]`
+- `GET` `/api/reports/donors/summary` [auth] `[inferred]`
+- `GET` `/api/reports/donors/detail` [auth] `[inferred]`
+- `GET` `/api/settings` [auth, db] `[inferred]`
+- `PUT` `/api/settings` [auth, db] `[inferred]`
+- `GET` `/api/tax-rates` [auth, db] `[inferred]`
 - `PUT` `/api/tax-rates/:id` params(id) [auth, db] `[inferred]`
 - `PATCH` `/api/tax-rates/:id/toggle` params(id) [auth, db] `[inferred]`
 - `POST` `/api/transactions/import/bill-matches` [auth, db] `[inferred]`
@@ -408,44 +408,6 @@
 - `server/routes/routeTestHelpers.ts` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBankTransactions.integration.test.ts`, `server/routes/__tests__/directDbBankTransactionsPhase2.integration.test.ts`, `server/routes/__tests__/directDbBankTransactionsPhase3.integration.test.ts`, `server/routes/__tests__/directDbBills.integration.test.ts` +12 more
 - `server/utils/date.ts` ← `server/routes/bankTransactions.ts`, `server/routes/bills.ts`, `server/routes/fiscalPeriods.ts`, `server/routes/reconciliation.ts`, `server/routes/reports.ts` +12 more
 - `client/src/components/ui/Toast.tsx` ← `client/src/main.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx`, `client/src/pages/Contacts.tsx`, `client/src/pages/DepositEntry.tsx` +11 more
-
----
-
-# Test Coverage
-
-> **30%** of routes and models are covered by tests
-> 43 test files found
-
-## Covered Routes
-
-- GET:*
-- GET:/api/accounts
-- POST:/api/accounts
-- POST:/api/auth/google
-- GET:/api/auth/me
-- GET:/api/bank-transactions
-- GET:/api/bills
-- POST:/api/bills
-- GET:/api/contacts
-- POST:/api/contacts
-- GET:/api/fiscal-periods
-- GET:/api/funds
-- POST:/api/funds
-- GET:/api/reconciliations
-- POST:/api/reconciliations
-- GET:/api/reports/pl
-- GET:/api/reports/balance-sheet
-- GET:/api/reports/ledger
-- GET:/api/reports/trial-balance
-- GET:/api/reports/donors/summary
-- GET:/api/reports/donors/detail
-- GET:/api/settings
-- PUT:/api/settings
-- GET:/api/tax-rates
-- GET:/api/transactions
-- POST:/api/transactions
-- POST:/api/users
-- GET:/api/users
 
 ---
 
