@@ -39,13 +39,14 @@ export function useBankTransactions(params: BankTransactionsQuery = {}, options?
   })
 }
 
-export function useBankUploads() {
+export function useBankUploads(options?: { enabled?: boolean }) {
   return useQuery<BankUploadSummary[]>({
     queryKey: ['bank-uploads'],
     queryFn: async () => {
       const { data } = await client.get<BankUploadsListResponse>('/bank-transactions/uploads')
       return data.uploads
     },
+    enabled: options?.enabled ?? true,
   })
 }
 
