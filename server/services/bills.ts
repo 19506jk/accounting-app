@@ -45,6 +45,11 @@ type Numeric = string | number;
 
 type BillServiceResult = { errors: string[]; outstanding?: number } | { errors?: undefined };
 type BillMutationResult = BillServiceResult & { bill?: BillDetail | null; transaction?: TransactionRow | null };
+type BillPaymentTransactionResult = BillServiceResult & {
+  bill?: BillDetail | null;
+  transaction?: TransactionRow | null;
+  bank_journal_entry_id?: number;
+};
 
 interface AccountRow {
   id: number;
@@ -408,8 +413,14 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
   return { bill: billWithLineItems };
 }
 
-async function payBill(id: string, paymentData: PayBillInput, userId: number): Promise<BillMutationResult> {
-  const bill = await getBillWithLineItems(id);
+async function payBillInTransaction(
+  id: string,
+  paymentData: PayBillInput,
+  userId: number,
+  trx: Knex.Transaction,
+  requireFullPayment = false
+): Promise<BillPaymentTransactionResult> {
+  const bill = await getBillWithLineItems(id, trx);
   if (!bill) {
     return { errors: ['Bill not found'] };
   }
@@ -424,7 +435,7 @@ async function payBill(id: string, paymentData: PayBillInput, userId: number): P
   
   if (errors.length) return { errors };
 
-  const bankAccount = await db('accounts')
+  const bankAccount = await trx('accounts')
     .where({ id: paymentData.bank_account_id })
     .where('is_active', true)
     .first() as AccountRow | undefined;
@@ -461,8 +472,14 @@ async function payBill(id: string, paymentData: PayBillInput, userId: number): P
       outstanding: parseFloat(outstanding.toFixed(2)),
     };
   }
+  if (requireFullPayment && !paymentAmount.equals(outstanding)) {
+    return {
+      errors: [`Payment amount ($${paymentAmount.toFixed(2)}) does not match outstanding balance ($${outstanding.toFixed(2)})`],
+      outstanding: parseFloat(outstanding.toFixed(2)),
+    };
+  }
 
-  const apAccount = await db('accounts')
+  const apAccount = await trx('accounts')
     .where({ code: AP_ACCOUNT_CODE })
     .where('is_active', true)
     .first() as AccountRow | undefined;
@@ -471,71 +488,78 @@ async function payBill(id: string, paymentData: PayBillInput, userId: number): P
     return { errors: [`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`] };
   }
 
-  const result = await db.transaction(async (trx: Knex.Transaction) => {
-    await assertNotClosedPeriod(paymentData.payment_date!, trx);
+  await assertNotClosedPeriod(paymentData.payment_date!, trx);
 
-    const [transaction] = await trx('transactions')
-      .insert({
-        date: paymentData.payment_date,
-        description: `Payment for bill ${bill.bill_number || `#${bill.id}`} - ${bill.description}`,
-        reference_no: paymentData.reference_no?.trim() || null,
-        fund_id: bill.fund_id,
-        created_by: userId,
-        created_at: trx.fn.now(),
-        updated_at: trx.fn.now(),
-      })
-      .returning('*') as TransactionRow[];
-    if (!transaction) throw new Error('Failed to create payment transaction');
+  const [transaction] = await trx('transactions')
+    .insert({
+      date: paymentData.payment_date,
+      description: `Payment for bill ${bill.bill_number || `#${bill.id}`} - ${bill.description}`,
+      reference_no: paymentData.reference_no?.trim() || null,
+      fund_id: bill.fund_id,
+      created_by: userId,
+      created_at: trx.fn.now(),
+      updated_at: trx.fn.now(),
+    })
+    .returning('*') as TransactionRow[];
+  if (!transaction) throw new Error('Failed to create payment transaction');
 
-    const amount = paymentAmount.toFixed(2);
+  const amount = paymentAmount.toFixed(2);
 
-    const billRef = bill.bill_number || `#${bill.id}`;
-    const journalLines: object[] = [
-      {
-        transaction_id: transaction.id,
-        account_id: apAccount.id,
-        fund_id: bill.fund_id,
-        contact_id: bill.contact_id,
-        debit: amount,
-        credit: 0,
-        memo: `Payment for bill ${billRef}`,
-        is_reconciled: false,
-        created_at: trx.fn.now(),
-        updated_at: trx.fn.now(),
-      },
-      {
-        transaction_id: transaction.id,
-        account_id: bankAccount.id,
-        fund_id: bill.fund_id,
-        contact_id: bill.contact_id,
-        debit: 0,
-        credit: amount,
-        memo: `Payment for bill ${billRef}`,
-        is_reconciled: false,
-        created_at: trx.fn.now(),
-        updated_at: trx.fn.now(),
-      },
-    ];
+  const billRef = bill.bill_number || `#${bill.id}`;
+  const journalLines: object[] = [
+    {
+      transaction_id: transaction.id,
+      account_id: apAccount.id,
+      fund_id: bill.fund_id,
+      contact_id: bill.contact_id,
+      debit: amount,
+      credit: 0,
+      memo: `Payment for bill ${billRef}`,
+      is_reconciled: false,
+      created_at: trx.fn.now(),
+      updated_at: trx.fn.now(),
+    },
+    {
+      transaction_id: transaction.id,
+      account_id: bankAccount.id,
+      fund_id: bill.fund_id,
+      contact_id: bill.contact_id,
+      debit: 0,
+      credit: amount,
+      memo: `Payment for bill ${billRef}`,
+      is_reconciled: false,
+      created_at: trx.fn.now(),
+      updated_at: trx.fn.now(),
+    },
+  ];
 
-    await trx('journal_entries').insert(journalLines);
+  await trx('journal_entries').insert(journalLines);
 
-    const newAmountPaid = dec(bill.amount_paid).plus(paymentAmount);
-    const newOutstanding = dec(bill.amount).minus(newAmountPaid);
+  const bankEntry = await trx('journal_entries')
+    .where({ transaction_id: transaction.id, account_id: bankAccount.id })
+    .first('id') as { id: number } | undefined;
+  if (!bankEntry) throw new Error('Failed to locate bank-side payment journal entry');
 
-    const [updatedBill] = await trx('bills')
-      .where({ id })
-      .update({
-        ...buildBillSettlementPatch(bill, newOutstanding, userId, trx),
-        transaction_id: transaction.id,
-      })
-      .returning('*') as BillRow[];
-    if (!updatedBill) throw new Error('Failed to mark bill paid');
+  const newAmountPaid = dec(bill.amount_paid).plus(paymentAmount);
+  const newOutstanding = dec(bill.amount).minus(newAmountPaid);
 
-    return { transaction, bill: updatedBill };
-  });
+  const [updatedBill] = await trx('bills')
+    .where({ id })
+    .update({
+      ...buildBillSettlementPatch(bill, newOutstanding, userId, trx),
+      transaction_id: transaction.id,
+    })
+    .returning('*') as BillRow[];
+  if (!updatedBill) throw new Error('Failed to mark bill paid');
 
-  const billWithLineItems = await getBillWithLineItems(id);
-  return { bill: billWithLineItems, transaction: result.transaction };
+  const billWithLineItems = await getBillWithLineItems(id, trx);
+  return { bill: billWithLineItems, transaction, bank_journal_entry_id: bankEntry.id };
+}
+
+async function payBill(id: string, paymentData: PayBillInput, userId: number): Promise<BillMutationResult> {
+  const result = await db.transaction((trx: Knex.Transaction) => payBillInTransaction(id, paymentData, userId, trx));
+  if (result.errors) return { errors: result.errors, outstanding: result.outstanding };
+  return { bill: result.bill, transaction: result.transaction };
 }
 
 async function voidBill(id: string, userId: number): Promise<BillMutationResult> {
@@ -594,6 +618,7 @@ export {
   createBill,
   updateBill,
   payBill,
+  payBillInTransaction,
   voidBill,
   getAvailableCreditsForBill,
   applyBillCredits,

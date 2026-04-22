@@ -5,6 +5,14 @@
   - function useCreateAccount: () => void
   - function useUpdateAccount: () => void
   - function useDeleteAccount: () => void
+- `client/src/api/useBankTransactions.ts`
+  - function useBankTransactions: (params, options?) => void
+  - function useBankUploads: (options?) => void
+  - function useImportBankTransactions: () => void
+  - function useReviewBankTransaction: () => void
+  - function useScanCandidates: () => void
+  - function useReserve: () => void
+  - _...10 more_
 - `client/src/api/useBills.ts`
   - function useAvailableBillCredits: (id) => void
   - function useBills: (params) => void
@@ -88,7 +96,33 @@
   - function getChurchToday: (timeZone?) => void
   - _...10 more_
 - `client/src/utils/errors.ts` — function getErrorMessage: (err, fallback) => string
+- `client/src/utils/etransferEnrich.ts`
+  - function isEtransferDescription: (description) => boolean
+  - function isAutodepositDescription: (description) => boolean
+  - function buildDonorIndexes: (donorContacts) => void
+  - function matchDonorFromSender: (senderEmail, senderName, donorIndexes) => number | null
+  - const ETRANSFER_TOKENS
+  - const AUTODEPOSIT_DESC
 - `client/src/utils/parseStatementCsv.ts` — function parseStatementCsv: (file) => Promise<ParseStatementCsvResult>
+- `server/services/bankTransactions/create.ts` — function createFromBankRow: (payload, userId, trx) => Promise<
+- `server/services/bankTransactions/matcher.ts`
+  - function scoreRef: (bankTxId, refNo) => number
+  - function scoreDate: (bankDate, txDate) => number
+  - function scoreDesc: (normalizedBankDesc, txDesc) => number
+  - function writeBankTransactionEvent: ({...}, bankTransactionId, eventType, actorType, actorId, payload, reasonNote, }, unknown>;
+  reasonNote?) => void
+  - function confirmMatch: (bankTransactionId, journalEntryId, source, userId, trx) => void
+  - function runMatcher: (bankTransactionId, userId, trx) => Promise<BankMatchResult>
+- `server/services/bankTransactions/normalize.ts` — function normalizeDescription: (raw) => void, function buildFingerprint: (normalizedDesc, amount, date) => void
+- `server/services/bankTransactions/preflight.ts`
+  - function reconciliationReopenPreflight: (reconciliationId, trx) => Promise<ReconciliationReopenPreflightResult>
+  - type ReconciliationReopenConflict
+  - type ReconciliationReopenPreflightResult
+- `server/services/bankTransactions/reservations.ts`
+  - function acquireReservation: (journalEntryId, bankTransactionId, userId, trx) => Promise<AcquireReservationResult>
+  - function releaseReservation: (journalEntryId, bankTransactionId, trx) => void
+  - type AcquireReservationResult
+- `server/services/bankTransactions/resolution.ts` — function isResolved: (row) => boolean, function resetRowState: (bankTxId, trx) => Promise<void>
 - `server/services/bills/billCredits.ts`
   - function getAvailableCreditsForBill: (id, executor) => Promise<AvailableBillCredit[]>
   - function unapplyBillCredits: (id, userId, executor) => Promise<

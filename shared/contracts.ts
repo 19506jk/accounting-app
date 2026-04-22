@@ -184,6 +184,7 @@ export interface TransactionSplit {
 export interface ImportTransactionRow {
   date: string;
   description: string;
+  raw_description?: string;
   reference_no?: string;
   amount: number;
   type: 'withdrawal' | 'deposit';
@@ -214,6 +215,282 @@ export interface ImportTransactionsResult {
   imported: number;
   skipped: number;
   skipped_rows: SkippedImportRow[];
+}
+
+export interface BankTransactionRow {
+  bank_posted_date: string;
+  bank_effective_date?: string | null;
+  raw_description: string;
+  amount: number;
+  bank_transaction_id?: string | null;
+  sender_name?: string | null;
+  sender_email?: string | null;
+  bank_description_2?: string | null;
+}
+
+export interface BankImportInput {
+  account_id: number;
+  fund_id: number;
+  filename: string;
+  rows: BankTransactionRow[];
+}
+
+export interface BankImportResult {
+  upload_id: number;
+  inserted: number;
+  skipped: number;
+  needs_review: number;
+  warnings: string[];
+}
+
+export type BankTransactionStatus =
+  | 'imported'
+  | 'needs_review'
+  | 'matched_existing'
+  | 'created_new'
+  | 'locked'
+  | 'archived';
+
+export type BankLifecycleStatus = 'open' | 'locked' | 'archived';
+export type BankMatchStatus = 'none' | 'suggested' | 'confirmed' | 'rejected';
+export type BankCreationStatus = 'none' | 'suggested_create' | 'created';
+export type BankReviewStatus = 'pending' | 'reviewed';
+export type BankMatchSource = 'system' | 'human';
+export type BankCreationSource = 'human';
+export type BankDisposition = 'none' | 'hold' | 'ignored';
+export type BankRuleTransactionType = 'deposit' | 'withdrawal';
+export type BankRuleMatchType = 'exact' | 'contains' | 'regex';
+
+export interface BankStoredCreateProposal {
+  description?: string;
+  reference_no?: string;
+  offset_account_id?: number;
+  payee_id?: number;
+  contact_id?: number;
+  splits?: TransactionSplit[];
+}
+
+export interface BankTransactionConflict {
+  id: number;
+  bank_posted_date: string;
+  raw_description: string;
+  amount: number;
+  status: BankTransactionStatus;
+}
+
+export interface BankTransaction {
+  id: number;
+  upload_id: number;
+  account_id: number;
+  fund_id: number;
+  row_index: number;
+  bank_transaction_id: string | null;
+  bank_posted_date: string;
+  bank_effective_date: string | null;
+  raw_description: string;
+  sender_name: string | null;
+  sender_email: string | null;
+  bank_description_2: string | null;
+  normalized_description: string;
+  amount: number;
+  status: BankTransactionStatus;
+  journal_entry_id: number | null;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+  review_decision: 'confirmed_new' | 'mark_as_duplicate' | null;
+  imported_at: string;
+  last_modified_at: string;
+  lifecycle_status: BankLifecycleStatus;
+  match_status: BankMatchStatus;
+  creation_status: BankCreationStatus;
+  review_status: BankReviewStatus;
+  match_source: BankMatchSource | null;
+  creation_source: BankCreationSource | null;
+  suggested_match_id: number | null;
+  matched_journal_entry_id: number | null;
+  disposition: BankDisposition;
+  create_proposal: BankStoredCreateProposal | null;
+  create_proposal_rule_id: number | null;
+  create_proposal_rule_name: string | null;
+  create_proposal_created_at: string | null;
+  conflict?: BankTransactionConflict;
+}
+
+export interface BankMatchingRuleSplitDraft {
+  percentage: number;
+  fund_id: number;
+  offset_account_id?: number;
+  expense_account_id?: number;
+  contact_id?: number | null;
+  tax_rate_id?: number | null;
+  memo?: string | null;
+  description?: string | null;
+}
+
+export interface BankMatchingRuleSplit extends BankMatchingRuleSplitDraft {
+  id: number;
+  rule_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BankMatchingRuleDraft {
+  name: string;
+  priority?: number;
+  transaction_type: BankRuleTransactionType;
+  match_type: BankRuleMatchType;
+  match_pattern: string;
+  bank_account_id?: number | null;
+  offset_account_id?: number | null;
+  payee_id?: number | null;
+  contact_id?: number | null;
+  is_active?: boolean;
+  splits?: BankMatchingRuleSplitDraft[];
+}
+
+export interface BankMatchingRule extends Omit<BankMatchingRuleDraft, 'splits'> {
+  id: number;
+  priority: number;
+  is_active: boolean;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+  splits: BankMatchingRuleSplit[];
+}
+
+export interface BankRuleSimulationMatch {
+  bank_transaction_id: number;
+  bank_posted_date: string;
+  raw_description: string;
+  amount: number;
+  create_proposal: BankStoredCreateProposal;
+}
+
+export interface BankRuleConflict {
+  rule_id: number;
+  rule_name: string;
+  priority: number;
+  match_type: BankRuleMatchType;
+  match_pattern: string;
+  reason: string;
+  sample_bank_transaction_ids: number[];
+}
+
+export interface SimulateBankMatchingRuleInput {
+  rule: BankMatchingRuleDraft;
+  exclude_rule_id?: number;
+  filters?: {
+    account_id?: number;
+    from?: string;
+    to?: string;
+    limit?: number;
+  };
+}
+
+export interface SimulateBankMatchingRuleResult {
+  matches: BankRuleSimulationMatch[];
+  conflicts: BankRuleConflict[];
+}
+
+export interface BankMatchingRulesResponse {
+  rules: BankMatchingRule[];
+}
+
+export interface BankMatchingRuleResponse {
+  rule: BankMatchingRule;
+}
+
+export interface BankUploadSummary {
+  id: number;
+  account_id: number;
+  account_name: string;
+  fund_id: number;
+  fund_name: string;
+  uploaded_by: number | null;
+  filename: string;
+  row_count: number;
+  imported_at: string;
+}
+
+export interface BankTransactionsQuery {
+  status?: BankTransactionStatus | BankTransactionStatus[];
+  upload_id?: string | number;
+  account_id?: string | number;
+  lifecycle_status?: BankLifecycleStatus | BankLifecycleStatus[];
+  match_status?: BankMatchStatus | BankMatchStatus[];
+  review_status?: BankReviewStatus | BankReviewStatus[];
+  disposition?: BankDisposition | BankDisposition[];
+}
+
+export interface BankTransactionsListResponse {
+  items: BankTransaction[];
+}
+
+export interface BankUploadsListResponse {
+  uploads: BankUploadSummary[];
+}
+
+export interface BankTransactionResponse {
+  item: BankTransaction;
+}
+
+export interface BankReviewDecision {
+  decision: 'confirmed_new' | 'mark_as_duplicate';
+}
+
+export interface MatchCandidate {
+  journal_entry_id: number;
+  transaction_id: number;
+  date: string;
+  description: string;
+  reference_no: string | null;
+  amount: number;
+  direction: 'debit' | 'credit';
+  score_total: number;
+  score_ref: number;
+  score_date: number;
+  score_desc: number;
+  auto_confirm_eligible: boolean;
+}
+
+export interface BankMatchResult {
+  bank_transaction_id: number;
+  candidates: MatchCandidate[];
+  auto_confirmed: MatchCandidate | null;
+}
+
+export interface BankReserveInput {
+  journal_entry_id: number;
+}
+
+export interface BankConfirmInput {
+  journal_entry_id: number;
+}
+
+export interface BankRejectInput {
+  journal_entry_id: number;
+}
+
+export interface BankHoldInput {
+  reason_note?: string;
+}
+
+export interface BankIgnoreInput {
+  reason_note?: string;
+}
+
+export interface CreateFromBankRowInput {
+  date: string;
+  description: string;
+  reference_no?: string;
+  amount: number;
+  type: 'withdrawal' | 'deposit';
+  train_from_feed?: boolean;
+  offset_account_id?: number;
+  payee_id?: number;
+  contact_id?: number;
+  bill_id?: number;
+  splits?: TransactionSplit[];
 }
 
 export interface GetBillMatchesInput {

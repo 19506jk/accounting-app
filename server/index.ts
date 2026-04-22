@@ -20,6 +20,8 @@ import billRoutes from './routes/bills.js';
 import taxRatesRouter from './routes/taxRates.js';
 import fiscalPeriodRoutes from './routes/fiscalPeriods.js';
 import donationReceiptRoutes from './routes/donationReceipts.js';
+import bankTransactionRoutes from './routes/bankTransactions.js';
+import bankMatchingRulesRoutes from './routes/bankMatchingRules.js';
 import { initializeChurchTimeZoneCache } from './services/churchTimeZone.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -68,6 +70,8 @@ app.use('/api/bills', billRoutes);
 app.use('/api/tax-rates', taxRatesRouter);
 app.use('/api/fiscal-periods', fiscalPeriodRoutes);
 app.use('/api/donation-receipts', donationReceiptRoutes);
+app.use('/api/bank-transactions', bankTransactionRoutes);
+app.use('/api/bank-matching-rules', bankMatchingRulesRoutes);
 
 if (process.env.NODE_ENV === 'production') {
   const clientDistPath = path.resolve(__dirname, '../../client/dist');

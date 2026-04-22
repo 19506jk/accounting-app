@@ -12,7 +12,7 @@ const NAV_LINKS = [
   { to: '/transactions',            label: '💳 Transactions', end: true },
   { to: '/transactions/deposit',    label: '💰 Make a Deposit' },
   { to: '/transactions/expense',    label: '🧾 Record Expense' },
-  { to: '/transactions/import',     label: '📥 Import Bank Statement' },
+  { to: '/transactions/bank-feed',  label: '🏦 Bank Feed Queue' },
   { to: '/reconciliation',          label: '✅ Reconciliation' },
   { to: '/reports',                 label: '📈 Reports' },
 ];

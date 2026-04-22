@@ -11,6 +11,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
 const db = require('../../db') as Knex;
 
 const createdReconciliationIds: number[] = [];
+const createdUploadIds: number[] = [];
 const createdTransactionIds: number[] = [];
 const createdFundIds: number[] = [];
 const createdAccountIds: number[] = [];
@@ -29,6 +30,11 @@ afterEach(async () => {
   if (createdReconciliationIds.length > 0) {
     await db('reconciliations').whereIn('id', createdReconciliationIds).delete();
     createdReconciliationIds.length = 0;
+  }
+
+  if (createdUploadIds.length > 0) {
+    await db('bank_uploads').whereIn('id', createdUploadIds).delete();
+    createdUploadIds.length = 0;
   }
 
   if (createdTransactionIds.length > 0) {
@@ -1124,5 +1130,90 @@ describe('direct DB reconciliation integration smoke checks', () => {
     });
     expect(missingReport.status).toBe(404);
     expect(missingReport.body).toEqual({ error: 'Reconciliation not found' });
+  });
+
+  it('blocks close when unresolved bank transactions exist in period', async () => {
+    const fixture = await createFixture();
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 25,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+
+    const detail = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    const firstItemId = detail.body.reconciliation.items[0].id as number;
+
+    const clear = await requestRoute({
+      probePath: `/${reconciliationId}/items/${firstItemId}/clear`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+    expect(clear.status).toBe(200);
+
+    const [upload] = await db('bank_uploads')
+      .insert({
+        account_id: fixture.bankAccountId,
+        fund_id: fixture.fundId,
+        uploaded_by: fixture.userId,
+        filename: `phase3-unresolved-${fixture.suffix}.csv`,
+        row_count: 1,
+        imported_at: db.fn.now(),
+      })
+      .returning('*') as Array<{ id: number }>;
+    if (!upload) throw new Error('Failed to create upload fixture');
+    createdUploadIds.push(upload.id);
+
+    const [bankTx] = await db('bank_transactions')
+      .insert({
+        upload_id: upload.id,
+        row_index: 0,
+        bank_transaction_id: `UNRES-${fixture.suffix}`,
+        bank_posted_date: fixture.date,
+        bank_effective_date: null,
+        raw_description: 'Unresolved row',
+        normalized_description: 'unresolved row',
+        amount: '10.00',
+        fingerprint: `phase3-unresolved-${fixture.suffix}`,
+        status: 'imported',
+        imported_at: db.fn.now(),
+        last_modified_at: db.fn.now(),
+        lifecycle_status: 'open',
+        match_status: 'none',
+        creation_status: 'none',
+        review_status: 'pending',
+        disposition: 'none',
+      })
+      .returning('id') as Array<{ id: number }>;
+    if (bankTx?.id) {
+      await db('bank_transaction_events').where({ bank_transaction_id: bankTx.id }).delete();
+    }
+
+    const close = await requestRoute({
+      probePath: `/${reconciliationId}/close`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+    expect(close.status).toBe(409);
+    expect(close.body).toEqual(expect.objectContaining({
+      error: 'Reconciliation period has unresolved bank transactions',
+      unresolved_count: 1,
+    }));
   });
 });
