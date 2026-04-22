@@ -15,6 +15,7 @@ import type {
   BankRejectInput,
   BankReserveInput,
   BankReviewDecision,
+  BankStoredCreateProposal,
   BankTransaction,
   BankTransactionConflict,
   BankTransactionResponse,
@@ -41,6 +42,10 @@ import {
 } from '../services/bankTransactions/reservations.js';
 import { createFromBankRow } from '../services/bankTransactions/create.js';
 import { resetRowState } from '../services/bankTransactions/resolution.js';
+import {
+  extractTrainFromFeedPattern,
+  upsertBankMatchingRule,
+} from '../services/bankTransactions/ruleEngine.js';
 import { payBillInTransaction } from '../services/bills.js';
 
 const db = require('../db');
@@ -64,6 +69,88 @@ function toNumber(value: string | number | null | undefined) {
 }
 
 const dec = (value: Decimal.Value | null | undefined) => new Decimal(value ?? 0);
+
+function toTrainFromFeedDraft(
+  bankRow: JoinedBankTransactionRow,
+  payload: CreateFromBankRowInput
+) {
+  const pattern = extractTrainFromFeedPattern({
+    raw_description: bankRow.raw_description,
+    sender_name: bankRow.sender_name,
+    bank_description_2: bankRow.bank_description_2,
+  });
+  if (!pattern) return null;
+
+  const base = {
+    name: `Auto rule: ${pattern}`,
+    priority: 100,
+    transaction_type: payload.type,
+    match_type: 'contains' as const,
+    match_pattern: pattern,
+    bank_account_id: bankRow.account_id,
+    is_active: true,
+  };
+
+  if (Array.isArray(payload.splits) && payload.splits.length > 0) {
+    const total = payload.splits.reduce((sum, split) => sum.plus(dec(split.amount)), dec(0)).toDecimalPlaces(2);
+    if (total.lte(0)) return null;
+
+    let running = dec(0);
+    const splits = payload.splits.map((split, index) => {
+      const isLast = index === payload.splits!.length - 1;
+      const pct = isLast
+        ? dec(100).minus(running).toDecimalPlaces(4)
+        : dec(split.amount).div(total).times(100).toDecimalPlaces(4);
+      if (!isLast) running = running.plus(pct);
+      return {
+        percentage: Number(pct.toFixed(4)),
+        fund_id: split.fund_id,
+        offset_account_id: split.offset_account_id,
+        expense_account_id: split.expense_account_id,
+        contact_id: split.contact_id ?? null,
+        tax_rate_id: split.tax_rate_id ?? null,
+        memo: split.memo ?? null,
+        description: split.description ?? null,
+      };
+    });
+
+    return {
+      ...base,
+      payee_id: payload.type === 'withdrawal' ? payload.payee_id : undefined,
+      contact_id: payload.type === 'deposit' ? payload.contact_id : undefined,
+      splits,
+    };
+  }
+
+  if (payload.type === 'deposit') {
+    if (!payload.offset_account_id) return null;
+    return {
+      ...base,
+      offset_account_id: payload.offset_account_id,
+      contact_id: payload.contact_id,
+    };
+  }
+
+  if (!payload.offset_account_id || !payload.payee_id) return null;
+  return {
+    ...base,
+    offset_account_id: payload.offset_account_id,
+    payee_id: payload.payee_id,
+  };
+}
+
+function parseCreateProposal(value: unknown): BankStoredCreateProposal | null {
+  if (!value) return null;
+  if (typeof value === 'object') return value as BankStoredCreateProposal;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as BankStoredCreateProposal;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 function toBankTransaction(row: JoinedBankTransactionRow): ApiBankTransactionWithFingerprint {
   return {
@@ -98,6 +185,10 @@ function toBankTransaction(row: JoinedBankTransactionRow): ApiBankTransactionWit
     suggested_match_id: row.suggested_match_id,
     matched_journal_entry_id: row.matched_journal_entry_id,
     disposition: row.disposition,
+    create_proposal: parseCreateProposal(row.create_proposal),
+    create_proposal_rule_id: row.create_proposal_rule_id ?? null,
+    create_proposal_rule_name: row.create_proposal_rule_name ?? null,
+    create_proposal_created_at: row.create_proposal_created_at ? String(row.create_proposal_created_at) : null,
   };
 }
 
@@ -520,9 +611,18 @@ router.post(
   ) => {
     try {
       const bankTransactionId = parseIntegerId(req.params.id, 'id');
-      const result = await db.transaction(async (trx: Knex.Transaction) => (
-        runMatcher(bankTransactionId, req.user?.id ?? null, trx)
-      ));
+      const result = await db.transaction(async (trx: Knex.Transaction) => {
+        const existing = await getJoinedTransaction(trx, bankTransactionId);
+        if (!existing) {
+          const err = new Error('Bank transaction not found') as Error & { statusCode?: number };
+          err.statusCode = 404;
+          throw err;
+        }
+        if (existing.creation_status === 'suggested_create') {
+          await resetRowState(bankTransactionId, trx);
+        }
+        return runMatcher(bankTransactionId, req.user?.id ?? null, trx);
+      });
       return res.json(result);
     } catch (err) {
       const statusCode = (err as { statusCode?: number }).statusCode;
@@ -868,6 +968,10 @@ router.post(
           .where({ id: bankTransactionId })
           .update({
             disposition: 'hold',
+            create_proposal: null,
+            create_proposal_rule_id: null,
+            create_proposal_rule_name: null,
+            create_proposal_created_at: null,
             last_modified_at: trx.fn.now(),
           });
 
@@ -983,6 +1087,10 @@ router.post(
           .where({ id: bankTransactionId })
           .update({
             disposition: 'ignored',
+            create_proposal: null,
+            create_proposal_rule_id: null,
+            create_proposal_rule_name: null,
+            create_proposal_created_at: null,
             last_modified_at: trx.fn.now(),
           });
 
@@ -1074,7 +1182,7 @@ router.post(
           existing.lifecycle_status !== 'open'
           || existing.match_status === 'confirmed'
           || existing.disposition === 'ignored'
-          || existing.creation_status !== 'none'
+          || (existing.creation_status !== 'none' && existing.creation_status !== 'suggested_create')
         ) {
           const err = new Error('Bank transaction cannot create a new journal entry in its current state') as Error & { statusCode?: number };
           err.statusCode = 409;
@@ -1150,6 +1258,10 @@ router.post(
               review_status: 'reviewed',
               status: 'created_new',
               journal_entry_id: result.bank_journal_entry_id,
+              create_proposal: null,
+              create_proposal_rule_id: null,
+              create_proposal_rule_name: null,
+              create_proposal_created_at: null,
               last_modified_at: trx.fn.now(),
             });
 
@@ -1186,6 +1298,10 @@ router.post(
             review_status: 'reviewed',
             status: 'created_new',
             journal_entry_id: created.bank_je_id,
+            create_proposal: null,
+            create_proposal_rule_id: null,
+            create_proposal_rule_name: null,
+            create_proposal_created_at: null,
             last_modified_at: trx.fn.now(),
           });
 
@@ -1200,6 +1316,39 @@ router.post(
             transaction_id: created.transaction_id,
           },
         });
+
+        if (req.body?.train_from_feed && !existing.create_proposal_rule_id) {
+          const draft = toTrainFromFeedDraft(existing, req.body);
+          if (draft) {
+            try {
+              const trainedRuleId = await upsertBankMatchingRule(draft, req.user?.id ?? null, trx);
+              await writeBankTransactionEvent({
+                trx,
+                bankTransactionId,
+                eventType: 'train_from_feed_rule_created',
+                actorType: 'user',
+                actorId: req.user?.id ?? null,
+                payload: {
+                  rule_id: trainedRuleId,
+                  rule_name: draft.name,
+                  match_pattern: draft.match_pattern,
+                },
+              });
+            } catch (err) {
+              await writeBankTransactionEvent({
+                trx,
+                bankTransactionId,
+                eventType: 'train_from_feed_rule_failed',
+                actorType: 'user',
+                actorId: req.user?.id ?? null,
+                payload: {
+                  reason: (err as Error).message,
+                },
+              });
+            }
+          }
+        }
+
         return getJoinedTransaction(trx, bankTransactionId);
       });
 

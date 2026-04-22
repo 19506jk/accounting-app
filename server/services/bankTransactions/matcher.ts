@@ -10,9 +10,11 @@ import type {
 } from '../../types/db';
 import { normalizeDescription } from './normalize.js';
 import { acquireReservation, releaseReservation } from './reservations.js';
+import { evaluateBankTransactionRule } from './ruleEngine.js';
 
 type JoinedBankTransactionRow = BankTransactionRow & {
   account_id: number;
+  fund_id: number;
 };
 
 type CandidateRow = {
@@ -129,7 +131,7 @@ async function loadBankTransaction(
   return trx('bank_transactions as bt')
     .join('bank_uploads as bu', 'bu.id', 'bt.upload_id')
     .where('bt.id', bankTransactionId)
-    .select('bt.*', 'bu.account_id')
+    .select('bt.*', 'bu.account_id', 'bu.fund_id')
     .first() as Promise<JoinedBankTransactionRow | undefined>;
 }
 
@@ -294,13 +296,61 @@ export async function runMatcher(
 
   const rows = await query as CandidateRow[];
   if (rows.length === 0) {
+    const ruleResult = await evaluateBankTransactionRule(bankTransactionId, trx);
+
     await trx('bank_transactions')
       .where({ id: bankTransactionId })
       .update({
         suggested_match_id: null,
         match_status: 'rejected',
+        creation_status: ruleResult.status === 'matched' ? 'suggested_create' : 'none',
+        create_proposal: ruleResult.status === 'matched' ? ruleResult.proposal : null,
+        create_proposal_rule_id: ruleResult.status === 'matched' ? ruleResult.ruleId : null,
+        create_proposal_rule_name: ruleResult.status === 'matched' ? ruleResult.ruleName : null,
+        create_proposal_created_at: ruleResult.status === 'matched' ? trx.fn.now() : null,
         last_modified_at: trx.fn.now(),
       });
+
+    if (ruleResult.status === 'matched') {
+      await writeBankTransactionEvent({
+        trx,
+        bankTransactionId,
+        eventType: 'create_suggested',
+        actorType: userId ? 'user' : 'system',
+        actorId: userId,
+        payload: {
+          rule_id: ruleResult.ruleId,
+          rule_name: ruleResult.ruleName,
+          transaction_type: ruleResult.transactionType,
+          match_type: ruleResult.matchType,
+          match_pattern: ruleResult.matchPattern,
+          proposal: ruleResult.proposal,
+        },
+      });
+      return {
+        bank_transaction_id: bankTransactionId,
+        candidates: [],
+        auto_confirmed: null,
+      };
+    }
+
+    if (ruleResult.status === 'trust_gate_failed') {
+      await writeBankTransactionEvent({
+        trx,
+        bankTransactionId,
+        eventType: 'rule_trust_gate_failed',
+        actorType: userId ? 'user' : 'system',
+        actorId: userId,
+        payload: {
+          rule_id: ruleResult.ruleId,
+          rule_name: ruleResult.ruleName,
+          transaction_type: ruleResult.transactionType,
+          match_type: ruleResult.matchType,
+          match_pattern: ruleResult.matchPattern,
+          reason: ruleResult.reason,
+        },
+      });
+    }
 
     await writeBankTransactionEvent({
       trx,
@@ -308,7 +358,9 @@ export async function runMatcher(
       eventType: 'match_exhausted',
       actorType: userId ? 'user' : 'system',
       actorId: userId,
-      payload: { reason: 'no_candidates' },
+      payload: {
+        reason: ruleResult.status === 'trust_gate_failed' ? 'rule_trust_gate_failed' : 'no_candidates',
+      },
     });
 
     return {
@@ -360,6 +412,11 @@ export async function runMatcher(
     .update({
       suggested_match_id: top.journal_entry_id,
       match_status: 'suggested',
+      creation_status: 'none',
+      create_proposal: null,
+      create_proposal_rule_id: null,
+      create_proposal_rule_name: null,
+      create_proposal_created_at: null,
       last_modified_at: trx.fn.now(),
     });
 

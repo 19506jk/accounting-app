@@ -258,6 +258,17 @@ export type BankReviewStatus = 'pending' | 'reviewed';
 export type BankMatchSource = 'system' | 'human';
 export type BankCreationSource = 'human';
 export type BankDisposition = 'none' | 'hold' | 'ignored';
+export type BankRuleTransactionType = 'deposit' | 'withdrawal';
+export type BankRuleMatchType = 'exact' | 'contains' | 'regex';
+
+export interface BankStoredCreateProposal {
+  description?: string;
+  reference_no?: string;
+  offset_account_id?: number;
+  payee_id?: number;
+  contact_id?: number;
+  splits?: TransactionSplit[];
+}
 
 export interface BankTransactionConflict {
   id: number;
@@ -298,7 +309,95 @@ export interface BankTransaction {
   suggested_match_id: number | null;
   matched_journal_entry_id: number | null;
   disposition: BankDisposition;
+  create_proposal: BankStoredCreateProposal | null;
+  create_proposal_rule_id: number | null;
+  create_proposal_rule_name: string | null;
+  create_proposal_created_at: string | null;
   conflict?: BankTransactionConflict;
+}
+
+export interface BankMatchingRuleSplitDraft {
+  percentage: number;
+  fund_id: number;
+  offset_account_id?: number;
+  expense_account_id?: number;
+  contact_id?: number | null;
+  tax_rate_id?: number | null;
+  memo?: string | null;
+  description?: string | null;
+}
+
+export interface BankMatchingRuleSplit extends BankMatchingRuleSplitDraft {
+  id: number;
+  rule_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BankMatchingRuleDraft {
+  name: string;
+  priority?: number;
+  transaction_type: BankRuleTransactionType;
+  match_type: BankRuleMatchType;
+  match_pattern: string;
+  bank_account_id?: number | null;
+  offset_account_id?: number | null;
+  payee_id?: number | null;
+  contact_id?: number | null;
+  is_active?: boolean;
+  splits?: BankMatchingRuleSplitDraft[];
+}
+
+export interface BankMatchingRule extends Omit<BankMatchingRuleDraft, 'splits'> {
+  id: number;
+  priority: number;
+  is_active: boolean;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+  splits: BankMatchingRuleSplit[];
+}
+
+export interface BankRuleSimulationMatch {
+  bank_transaction_id: number;
+  bank_posted_date: string;
+  raw_description: string;
+  amount: number;
+  create_proposal: BankStoredCreateProposal;
+}
+
+export interface BankRuleConflict {
+  rule_id: number;
+  rule_name: string;
+  priority: number;
+  match_type: BankRuleMatchType;
+  match_pattern: string;
+  reason: string;
+  sample_bank_transaction_ids: number[];
+}
+
+export interface SimulateBankMatchingRuleInput {
+  rule: BankMatchingRuleDraft;
+  exclude_rule_id?: number;
+  filters?: {
+    account_id?: number;
+    from?: string;
+    to?: string;
+    limit?: number;
+  };
+}
+
+export interface SimulateBankMatchingRuleResult {
+  matches: BankRuleSimulationMatch[];
+  conflicts: BankRuleConflict[];
+}
+
+export interface BankMatchingRulesResponse {
+  rules: BankMatchingRule[];
+}
+
+export interface BankMatchingRuleResponse {
+  rule: BankMatchingRule;
 }
 
 export interface BankUploadSummary {
@@ -386,6 +485,7 @@ export interface CreateFromBankRowInput {
   reference_no?: string;
   amount: number;
   type: 'withdrawal' | 'deposit';
+  train_from_feed?: boolean;
   offset_account_id?: number;
   payee_id?: number;
   contact_id?: number;

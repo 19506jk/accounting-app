@@ -268,6 +268,8 @@ export type BankReviewStatusRow = 'pending' | 'reviewed';
 export type BankMatchSourceRow = 'system' | 'human';
 export type BankCreationSourceRow = 'human';
 export type BankDispositionRow = 'none' | 'hold' | 'ignored';
+export type BankRuleTransactionTypeRow = 'deposit' | 'withdrawal';
+export type BankRuleMatchTypeRow = 'exact' | 'contains' | 'regex';
 
 export interface BankTransactionRow {
   id: number;
@@ -299,6 +301,10 @@ export interface BankTransactionRow {
   suggested_match_id: number | null;
   matched_journal_entry_id: number | null;
   disposition: BankDispositionRow;
+  create_proposal: unknown | null;
+  create_proposal_rule_id: number | null;
+  create_proposal_rule_name: string | null;
+  create_proposal_created_at: Date | string | null;
 }
 
 export interface ReconciliationReservationRow {
@@ -327,4 +333,37 @@ export interface BankTransactionRejectionRow {
   journal_entry_id: number;
   rejected_by: number | null;
   rejected_at: Date | string;
+}
+
+export interface BankMatchingRuleRow {
+  id: number;
+  name: string;
+  priority: number;
+  transaction_type: BankRuleTransactionTypeRow;
+  match_type: BankRuleMatchTypeRow;
+  match_pattern: string;
+  bank_account_id: number | null;
+  offset_account_id: number | null;
+  payee_id: number | null;
+  contact_id: number | null;
+  is_active: boolean;
+  deleted_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+export interface BankMatchingRuleSplitRow {
+  id: number;
+  rule_id: number;
+  percentage: string | number;
+  fund_id: number;
+  offset_account_id: number | null;
+  expense_account_id: number | null;
+  contact_id: number | null;
+  tax_rate_id: number | null;
+  memo: string | null;
+  description: string | null;
+  sort_order: number;
+  created_at: Date | string;
+  updated_at: Date | string;
 }

@@ -116,9 +116,12 @@ function useBankFeedMatchTab(isActive: boolean) {
       }
 
       if (
-        item.disposition === 'none'
-        && item.creation_status === 'none'
-        && item.match_status === 'rejected'
+        item.disposition !== 'hold'
+        && item.disposition !== 'ignored'
+        && (
+          item.creation_status === 'suggested_create'
+          || (item.creation_status === 'none' && item.match_status === 'rejected')
+        )
       ) {
         nextCreateItems.push(item)
       }

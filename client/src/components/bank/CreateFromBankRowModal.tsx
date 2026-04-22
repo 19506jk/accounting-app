@@ -41,16 +41,19 @@ export default function CreateFromBankRowModal({
 
   const [error, setError] = useState('')
   const [splitModalOpen, setSplitModalOpen] = useState(false)
+  const [trainFromFeed, setTrainFromFeed] = useState(false)
+  const proposal = bankTransaction.create_proposal
+  const fallbackDescription = [bankTransaction.raw_description, bankTransaction.bank_description_2].filter(Boolean).join(' — ')
   const [row, setRow] = useState<ParsedImportRow>({
     date: bankTransaction.bank_posted_date,
-    description: [bankTransaction.raw_description, bankTransaction.bank_description_2].filter(Boolean).join(' — '),
-    reference_no: bankTransaction.bank_transaction_id || undefined,
+    description: proposal?.description || fallbackDescription,
+    reference_no: proposal?.reference_no || bankTransaction.bank_transaction_id || undefined,
     amount: Math.abs(bankTransaction.amount),
     type: bankTransaction.amount >= 0 ? 'deposit' : 'withdrawal',
-    offset_account_id: undefined,
-    payee_id: undefined,
-    contact_id: undefined,
-    splits: undefined,
+    offset_account_id: proposal?.offset_account_id,
+    payee_id: proposal?.payee_id,
+    contact_id: proposal?.contact_id,
+    splits: proposal?.splits?.map((split) => ({ ...split })),
   })
 
   const activeAccounts = useMemo(() => accounts.filter((a) => a.is_active), [accounts])
@@ -174,6 +177,7 @@ export default function CreateFromBankRowModal({
       reference_no: row.reference_no || undefined,
       amount: row.amount,
       type: row.type,
+      train_from_feed: trainFromFeed,
       offset_account_id: hasSplits ? undefined : (row.offset_account_id ? Number(row.offset_account_id) : undefined),
       payee_id: row.payee_id ? Number(row.payee_id) : undefined,
       contact_id: row.contact_id ? Number(row.contact_id) : undefined,
@@ -257,6 +261,15 @@ export default function CreateFromBankRowModal({
               </Button>
             </div>
           </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: '#334155' }}>
+            <input
+              type="checkbox"
+              checked={trainFromFeed}
+              onChange={(event) => setTrainFromFeed(event.target.checked)}
+            />
+            Always treat transactions like this as this account/fund setup
+          </label>
 
           {error && (
             <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.65rem', color: '#b91c1c', fontSize: '0.82rem' }}>
