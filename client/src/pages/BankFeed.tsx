@@ -5,11 +5,12 @@ import { useFunds } from '../api/useFunds'
 import Button from '../components/ui/Button'
 import BankFeedImportTab from './bankFeed/BankFeedImportTab'
 import BankFeedMatchTab from './bankFeed/BankFeedMatchTab'
+import BankFeedRulesTab from './bankFeed/BankFeedRulesTab'
 import BankFeedReviewTab from './bankFeed/BankFeedReviewTab'
 import type React from 'react'
 import type { SelectOption } from '../components/ui/types'
 
-type TabKey = 'import' | 'review' | 'match'
+type TabKey = 'import' | 'review' | 'match' | 'rules'
 
 function PersistentTabPanel({
   isActive,
@@ -65,6 +66,9 @@ export default function BankFeed() {
           <Button variant={activeTab === 'match' ? 'primary' : 'secondary'} onClick={() => setActiveTab('match')}>
             Match
           </Button>
+          <Button variant={activeTab === 'rules' ? 'primary' : 'secondary'} onClick={() => setActiveTab('rules')}>
+            Rules
+          </Button>
         </div>
       </div>
 
@@ -82,6 +86,9 @@ export default function BankFeed() {
       </PersistentTabPanel>
       <PersistentTabPanel isActive={activeTab === 'match'}>
         <BankFeedMatchTab isActive={activeTab === 'match'} />
+      </PersistentTabPanel>
+      <PersistentTabPanel isActive={activeTab === 'rules'}>
+        <BankFeedRulesTab isActive={activeTab === 'rules'} />
       </PersistentTabPanel>
     </div>
   )
