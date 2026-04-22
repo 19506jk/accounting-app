@@ -8,13 +8,14 @@
 
 ## Scale
 
-94 API routes · 40 UI components · 37 library files · 11 middleware layers · 21 environment variables
+99 API routes · 40 UI components · 40 library files · 11 middleware layers · 21 environment variables
 
 ## Subsystems
 
 - **[Auth](./auth.md)** — 3 routes — touches: auth, db, upload
 - **[*](./section.md)** — 1 routes — touches: auth, cache
 - **[Accounts](./accounts.md)** — 5 routes — touches: auth, db
+- **[BankMatchingRules](./bankmatchingrules.md)** — 5 routes — touches: auth, db
 - **[BankTransactions](./banktransactions.md)** — 17 routes — touches: auth, db, upload
 - **[Bills](./bills.md)** — 11 routes — touches: auth, db
 - **[Contacts](./contacts.md)** — 10 routes — touches: auth, db, cache
@@ -31,18 +32,18 @@
 
 **UI:** 40 components (react) — see [ui.md](./ui.md)
 
-**Libraries:** 37 files — see [libraries.md](./libraries.md)
+**Libraries:** 40 files — see [libraries.md](./libraries.md)
 
 ## High-Impact Files
 
 Changes to these files have the widest blast radius across the codebase:
 
-- `server/db/index.js` — imported by **45** files
+- `server/db/index.js` — imported by **48** files
 - `client/src/components/ui/types.ts` — imported by **29** files
 - `client/src/components/ui/Button.tsx` — imported by **27** files
-- `client/src/utils/date.ts` — imported by **19** files
-- `client/src/utils/errors.ts` — imported by **19** files
-- `client/src/api/client.ts` — imported by **18** files
+- `client/src/utils/errors.ts` — imported by **20** files
+- `client/src/api/client.ts` — imported by **19** files
+- `server/routes/routeTestHelpers.ts` — imported by **19** files
 
 ## Required Environment Variables
 
@@ -52,4 +53,4 @@ Changes to these files have the widest blast radius across the codebase:
 - `DB_USER` — `server/routes/__tests__/auth.test.ts`
 
 ---
-_Back to [index.md](./index.md) · Generated 2026-04-21_
+_Back to [index.md](./index.md) · Generated 2026-04-22_

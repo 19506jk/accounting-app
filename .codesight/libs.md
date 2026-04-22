@@ -5,6 +5,12 @@
   - function useCreateAccount: () => void
   - function useUpdateAccount: () => void
   - function useDeleteAccount: () => void
+- `client/src/api/useBankMatchingRules.ts`
+  - function useBankMatchingRules: (options?) => void
+  - function useCreateBankMatchingRule: () => void
+  - function useUpdateBankMatchingRule: () => void
+  - function useDeleteBankMatchingRule: () => void
+  - function useSimulateBankMatchingRule: () => void
 - `client/src/api/useBankTransactions.ts`
   - function useBankTransactions: (params, options?) => void
   - function useBankUploads: (options?) => void
@@ -79,8 +85,7 @@
   - function useCreateTransaction: () => void
   - function useUpdateTransaction: () => void
   - function useDeleteTransaction: () => void
-  - function useImportTransactions: () => void
-  - _...1 more_
+  - function useGetBillMatches: () => void
 - `client/src/api/useUsers.ts`
   - function useUsers: () => void
   - function useCreateUser: () => void
@@ -104,6 +109,11 @@
   - const ETRANSFER_TOKENS
   - const AUTODEPOSIT_DESC
 - `client/src/utils/parseStatementCsv.ts` — function parseStatementCsv: (file) => Promise<ParseStatementCsvResult>
+- `client/src/utils/trainFromFeed.ts`
+  - function extractTrainPattern: (input, 'raw_description' | 'sender_name' | 'bank_description_2'>) => void
+  - function buildTrainFromFeedDraft: (bankTransaction, 'account_id' | 'raw_description' | 'sender_name' | 'bank_description_2'>, row) => TrainFromFeedDraftResult
+  - interface TrainFromFeedRowInput
+  - interface TrainFromFeedDraftResult
 - `server/services/bankTransactions/create.ts` — function createFromBankRow: (payload, userId, trx) => Promise<
 - `server/services/bankTransactions/matcher.ts`
   - function scoreRef: (bankTxId, refNo) => number
@@ -123,6 +133,14 @@
   - function releaseReservation: (journalEntryId, bankTransactionId, trx) => void
   - type AcquireReservationResult
 - `server/services/bankTransactions/resolution.ts` — function isResolved: (row) => boolean, function resetRowState: (bankTxId, trx) => Promise<void>
+- `server/services/bankTransactions/ruleEngine.ts`
+  - function evaluateBankTransactionRule: (bankTransactionId, trx) => Promise<RuleResult>
+  - function validateBankMatchingRuleDraft: (draft) => Promise<void>
+  - function simulateBankMatchingRule: (input, trx) => Promise<SimulateBankMatchingRuleResult>
+  - function upsertBankMatchingRule: (draft, actorId, trx, existingId?) => void
+  - function listBankMatchingRules: (trx, includeInactive) => void
+  - function softDeleteBankMatchingRule: (ruleId, actorId, trx) => void
+  - _...1 more_
 - `server/services/bills/billCredits.ts`
   - function getAvailableCreditsForBill: (id, executor) => Promise<AvailableBillCredit[]>
   - function unapplyBillCredits: (id, userId, executor) => Promise<

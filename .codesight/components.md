@@ -8,6 +8,7 @@
 - **RoleGuard** — props: roles, fallback — `client/src/components/RoleGuard.tsx`
 - **SaveTemplateModal** — props: isOpen, onClose, onSave, title, placeholder — `client/src/components/SaveTemplateModal.tsx`
 - **TemplateDropdown** — props: templates, isOpen, onToggle, onLoad, onDelete — `client/src/components/TemplateDropdown.tsx`
+- **BankMatchingRuleModal** — props: rule, onClose — `client/src/components/bank/BankMatchingRuleModal.tsx`
 - **CreateFromBankRowModal** — props: bankTransaction, onClose, onSuccess — `client/src/components/bank/CreateFromBankRowModal.tsx`
 - **AuthProvider** — `client/src/context/AuthContext.tsx`
 - **DateProvider** — `client/src/context/DateContext.tsx`
@@ -21,7 +22,6 @@
 - **DonationReceipts** — `client/src/pages/DonationReceipts.tsx`
 - **ExpenseEntry** — `client/src/pages/ExpenseEntry.tsx`
 - **HardCloseWizard** — props: open, onClose, onSuccess — `client/src/pages/HardClose.tsx`
-- **ImportCsv** — `client/src/pages/ImportCsv.tsx`
 - **Login** — `client/src/pages/Login.tsx`
 - **Reconciliation** — props: id, onBack, onExport, isExporting — `client/src/pages/Reconciliation.tsx`
 - **Reports** — `client/src/pages/Reports.tsx`
@@ -31,10 +31,10 @@
 - **BankFeedImportTab** — props: isActive, bankAccountOptions, fundOptions, postImportNeedsReview, setPostImportNeedsReview — `client/src/pages/bankFeed/BankFeedImportTab.tsx`
 - **BankFeedMatchTab** — props: isActive — `client/src/pages/bankFeed/BankFeedMatchTab.tsx`
 - **BankFeedReviewTab** — props: isActive, onReviewed — `client/src/pages/bankFeed/BankFeedReviewTab.tsx`
+- **BankFeedRulesTab** — props: isActive — `client/src/pages/bankFeed/BankFeedRulesTab.tsx`
 - **BillForm** — props: bill, onClose, onSaved — `client/src/pages/bills/BillForm.tsx`
 - **BillsTable** — props: bills, isLoading, canEdit, onPay, onRowClick — `client/src/pages/bills/BillsTable.tsx`
 - **PaymentModal** — props: bill, isOpen, onClose, onPaid — `client/src/pages/bills/PaymentModal.tsx`
-- **ImportPreviewTable** — props: rows, selectedRows, suggestionsByRow, offsetOptions, donorOptions, payeeOptions, onSelectedRowsChange, onToggleRow, onOffsetChange, onReferenceChange — `client/src/pages/importCsv/ImportPreviewTable.tsx`
 - **ImportSetupPanel** — props: bankAccountId, fundId, bankAccountOptions, fundOptions, isParsing, parsedRowCount, parseError, parseWarnings, onFileChange, onBankAccountChange — `client/src/pages/importCsv/ImportSetupPanel.tsx`
 - **SplitTransactionModal** — props: isOpen, onClose, onSave, row, defaultFundId, offsetAccountOptions, fundOptions, donorOptions, payeeOptions, expenseAccountOptions — `client/src/pages/importCsv/SplitTransactionModal.tsx`
 - **DiagnosticsPanel** — props: diagnostics, onInvestigate — `client/src/pages/reports/ReportSections.tsx`

@@ -3,9 +3,9 @@
 > **Stack:** express | none | react | typescript
 > **Monorepo:** church-accounting-client, church-accounting-server
 
-> 94 routes (94 inferred) | 0 models | 40 components | 37 lib files | 21 env vars | 11 middleware
-> **Token savings:** this file is ~0 tokens. Without it, AI exploration would cost ~0 tokens. **Saves ~0 tokens per conversation.**
-> **Last scanned:** 2026-04-21 17:50 — re-run after significant changes
+> 99 routes (99 inferred) | 0 models | 40 components | 40 lib files | 21 env vars | 11 middleware | 30% test coverage
+> **Token savings:** this file is ~7,700 tokens. Without it, AI exploration would cost ~89,600 tokens. **Saves ~81,800 tokens per conversation.**
+> **Last scanned:** 2026-04-22 02:24 — re-run after significant changes
 
 ---
 
@@ -14,6 +14,7 @@
 ## CRUD Resources
 
 - **`/api/accounts`** GET | POST | GET/:id | PUT/:id | DELETE/:id → Account
+- **`/api/bank-matching-rules`** GET | POST | GET/:id | PUT/:id | DELETE/:id → Bank-matching-rule
 - **`/api/bills`** GET | POST | GET/:id | PUT/:id → Bill
 - **`/api/contacts`** GET | POST | GET/:id | PUT/:id | DELETE/:id → Contact
 - **`/api/funds`** GET | POST | GET/:id | PUT/:id | DELETE/:id → Fund
@@ -24,11 +25,12 @@
 ## Other Routes
 
 - `GET` `/api/health` [auth, cache] `[inferred]`
-- `GET` `*` [auth, cache] `[inferred]`
-- `POST` `/api/auth/google` [auth, db] `[inferred]`
-- `GET` `/api/auth/me` [auth, db] `[inferred]`
+- `GET` `*` [auth, cache] `[inferred]` ✓
+- `POST` `/api/auth/google` [auth, db] `[inferred]` ✓
+- `GET` `/api/auth/me` [auth, db] `[inferred]` ✓
+- `POST` `/api/bank-matching-rules/simulate` [auth, db] `[inferred]`
 - `POST` `/api/bank-transactions/import` [auth, db, upload] `[inferred]`
-- `GET` `/api/bank-transactions` [auth, db, upload] `[inferred]`
+- `GET` `/api/bank-transactions` [auth, db, upload] `[inferred]` ✓
 - `GET` `/api/bank-transactions/uploads` [auth, db, upload] `[inferred]`
 - `GET` `/api/bank-transactions/:id` params(id) [auth, db, upload] `[inferred]`
 - `PUT` `/api/bank-transactions/:id/review` params(id) [auth, db, upload] `[inferred]`
@@ -64,21 +66,21 @@
 - `POST` `/api/donation-receipts/generate-pdf` [auth] `[inferred]`
 - `POST` `/api/fiscal-periods/investigate` [auth, db] `[inferred]`
 - `POST` `/api/fiscal-periods/close` [auth, db] `[inferred]`
-- `GET` `/api/fiscal-periods` [auth, db] `[inferred]`
+- `GET` `/api/fiscal-periods` [auth, db] `[inferred]` ✓
 - `DELETE` `/api/fiscal-periods/:id/reopen` params(id) [auth, db] `[inferred]`
 - `GET` `/api/reconciliations/:id/report` params(id) [auth, db, upload] `[inferred]`
 - `POST` `/api/reconciliations/:id/items/:itemId/clear` params(id, itemId) [auth, db, upload] `[inferred]`
 - `POST` `/api/reconciliations/:id/close` params(id) [auth, db, upload] `[inferred]`
 - `POST` `/api/reconciliations/:id/reopen` params(id) [auth, db, upload] `[inferred]`
-- `GET` `/api/reports/pl` [auth] `[inferred]`
-- `GET` `/api/reports/balance-sheet` [auth] `[inferred]`
-- `GET` `/api/reports/ledger` [auth] `[inferred]`
-- `GET` `/api/reports/trial-balance` [auth] `[inferred]`
-- `GET` `/api/reports/donors/summary` [auth] `[inferred]`
-- `GET` `/api/reports/donors/detail` [auth] `[inferred]`
-- `GET` `/api/settings` [auth, db] `[inferred]`
-- `PUT` `/api/settings` [auth, db] `[inferred]`
-- `GET` `/api/tax-rates` [auth, db] `[inferred]`
+- `GET` `/api/reports/pl` [auth] `[inferred]` ✓
+- `GET` `/api/reports/balance-sheet` [auth] `[inferred]` ✓
+- `GET` `/api/reports/ledger` [auth] `[inferred]` ✓
+- `GET` `/api/reports/trial-balance` [auth] `[inferred]` ✓
+- `GET` `/api/reports/donors/summary` [auth] `[inferred]` ✓
+- `GET` `/api/reports/donors/detail` [auth] `[inferred]` ✓
+- `GET` `/api/settings` [auth, db] `[inferred]` ✓
+- `PUT` `/api/settings` [auth, db] `[inferred]` ✓
+- `GET` `/api/tax-rates` [auth, db] `[inferred]` ✓
 - `PUT` `/api/tax-rates/:id` params(id) [auth, db] `[inferred]`
 - `PATCH` `/api/tax-rates/:id/toggle` params(id) [auth, db] `[inferred]`
 - `POST` `/api/transactions/import/bill-matches` [auth, db] `[inferred]`
@@ -98,6 +100,7 @@
 - **RoleGuard** — props: roles, fallback — `client/src/components/RoleGuard.tsx`
 - **SaveTemplateModal** — props: isOpen, onClose, onSave, title, placeholder — `client/src/components/SaveTemplateModal.tsx`
 - **TemplateDropdown** — props: templates, isOpen, onToggle, onLoad, onDelete — `client/src/components/TemplateDropdown.tsx`
+- **BankMatchingRuleModal** — props: rule, onClose — `client/src/components/bank/BankMatchingRuleModal.tsx`
 - **CreateFromBankRowModal** — props: bankTransaction, onClose, onSuccess — `client/src/components/bank/CreateFromBankRowModal.tsx`
 - **AuthProvider** — `client/src/context/AuthContext.tsx`
 - **DateProvider** — `client/src/context/DateContext.tsx`
@@ -111,7 +114,6 @@
 - **DonationReceipts** — `client/src/pages/DonationReceipts.tsx`
 - **ExpenseEntry** — `client/src/pages/ExpenseEntry.tsx`
 - **HardCloseWizard** — props: open, onClose, onSuccess — `client/src/pages/HardClose.tsx`
-- **ImportCsv** — `client/src/pages/ImportCsv.tsx`
 - **Login** — `client/src/pages/Login.tsx`
 - **Reconciliation** — props: id, onBack, onExport, isExporting — `client/src/pages/Reconciliation.tsx`
 - **Reports** — `client/src/pages/Reports.tsx`
@@ -121,10 +123,10 @@
 - **BankFeedImportTab** — props: isActive, bankAccountOptions, fundOptions, postImportNeedsReview, setPostImportNeedsReview — `client/src/pages/bankFeed/BankFeedImportTab.tsx`
 - **BankFeedMatchTab** — props: isActive — `client/src/pages/bankFeed/BankFeedMatchTab.tsx`
 - **BankFeedReviewTab** — props: isActive, onReviewed — `client/src/pages/bankFeed/BankFeedReviewTab.tsx`
+- **BankFeedRulesTab** — props: isActive — `client/src/pages/bankFeed/BankFeedRulesTab.tsx`
 - **BillForm** — props: bill, onClose, onSaved — `client/src/pages/bills/BillForm.tsx`
 - **BillsTable** — props: bills, isLoading, canEdit, onPay, onRowClick — `client/src/pages/bills/BillsTable.tsx`
 - **PaymentModal** — props: bill, isOpen, onClose, onPaid — `client/src/pages/bills/PaymentModal.tsx`
-- **ImportPreviewTable** — props: rows, selectedRows, suggestionsByRow, offsetOptions, donorOptions, payeeOptions, onSelectedRowsChange, onToggleRow, onOffsetChange, onReferenceChange — `client/src/pages/importCsv/ImportPreviewTable.tsx`
 - **ImportSetupPanel** — props: bankAccountId, fundId, bankAccountOptions, fundOptions, isParsing, parsedRowCount, parseError, parseWarnings, onFileChange, onBankAccountChange — `client/src/pages/importCsv/ImportSetupPanel.tsx`
 - **SplitTransactionModal** — props: isOpen, onClose, onSave, row, defaultFundId, offsetAccountOptions, fundOptions, donorOptions, payeeOptions, expenseAccountOptions — `client/src/pages/importCsv/SplitTransactionModal.tsx`
 - **DiagnosticsPanel** — props: diagnostics, onInvestigate — `client/src/pages/reports/ReportSections.tsx`
@@ -140,6 +142,12 @@
   - function useCreateAccount: () => void
   - function useUpdateAccount: () => void
   - function useDeleteAccount: () => void
+- `client/src/api/useBankMatchingRules.ts`
+  - function useBankMatchingRules: (options?) => void
+  - function useCreateBankMatchingRule: () => void
+  - function useUpdateBankMatchingRule: () => void
+  - function useDeleteBankMatchingRule: () => void
+  - function useSimulateBankMatchingRule: () => void
 - `client/src/api/useBankTransactions.ts`
   - function useBankTransactions: (params, options?) => void
   - function useBankUploads: (options?) => void
@@ -214,8 +222,7 @@
   - function useCreateTransaction: () => void
   - function useUpdateTransaction: () => void
   - function useDeleteTransaction: () => void
-  - function useImportTransactions: () => void
-  - _...1 more_
+  - function useGetBillMatches: () => void
 - `client/src/api/useUsers.ts`
   - function useUsers: () => void
   - function useCreateUser: () => void
@@ -239,6 +246,11 @@
   - const ETRANSFER_TOKENS
   - const AUTODEPOSIT_DESC
 - `client/src/utils/parseStatementCsv.ts` — function parseStatementCsv: (file) => Promise<ParseStatementCsvResult>
+- `client/src/utils/trainFromFeed.ts`
+  - function extractTrainPattern: (input, 'raw_description' | 'sender_name' | 'bank_description_2'>) => void
+  - function buildTrainFromFeedDraft: (bankTransaction, 'account_id' | 'raw_description' | 'sender_name' | 'bank_description_2'>, row) => TrainFromFeedDraftResult
+  - interface TrainFromFeedRowInput
+  - interface TrainFromFeedDraftResult
 - `server/services/bankTransactions/create.ts` — function createFromBankRow: (payload, userId, trx) => Promise<
 - `server/services/bankTransactions/matcher.ts`
   - function scoreRef: (bankTxId, refNo) => number
@@ -258,6 +270,14 @@
   - function releaseReservation: (journalEntryId, bankTransactionId, trx) => void
   - type AcquireReservationResult
 - `server/services/bankTransactions/resolution.ts` — function isResolved: (row) => boolean, function resetRowState: (bankTxId, trx) => Promise<void>
+- `server/services/bankTransactions/ruleEngine.ts`
+  - function evaluateBankTransactionRule: (bankTransactionId, trx) => Promise<RuleResult>
+  - function validateBankMatchingRuleDraft: (draft) => Promise<void>
+  - function simulateBankMatchingRule: (input, trx) => Promise<SimulateBankMatchingRuleResult>
+  - function upsertBankMatchingRule: (draft, actorId, trx, existingId?) => void
+  - function listBankMatchingRules: (trx, includeInactive) => void
+  - function softDeleteBankMatchingRule: (ruleId, actorId, trx) => void
+  - _...1 more_
 - `server/services/bills/billCredits.ts`
   - function getAvailableCreditsForBill: (id, executor) => Promise<AvailableBillCredit[]>
   - function unapplyBillCredits: (id, userId, executor) => Promise<
@@ -375,39 +395,79 @@
 
 ## Most Imported Files (change these carefully)
 
-- `server/db/index.js` — imported by **45** files
+- `server/db/index.js` — imported by **48** files
 - `client/src/components/ui/types.ts` — imported by **29** files
 - `client/src/components/ui/Button.tsx` — imported by **27** files
-- `client/src/utils/date.ts` — imported by **19** files
-- `client/src/utils/errors.ts` — imported by **19** files
-- `client/src/api/client.ts` — imported by **18** files
+- `client/src/utils/errors.ts` — imported by **20** files
+- `client/src/api/client.ts` — imported by **19** files
+- `server/routes/routeTestHelpers.ts` — imported by **19** files
+- `server/utils/date.ts` — imported by **18** files
+- `client/src/utils/date.ts` — imported by **17** files
 - `client/src/components/ui/Input.tsx` — imported by **17** files
-- `server/routes/routeTestHelpers.ts` — imported by **17** files
-- `server/utils/date.ts` — imported by **17** files
-- `client/src/components/ui/Toast.tsx` — imported by **16** files
-- `server/middleware/auth.ts` — imported by **15** files
-- `client/src/components/ui/Card.tsx` — imported by **14** files
+- `client/src/components/ui/Toast.tsx` — imported by **17** files
+- `server/middleware/auth.ts` — imported by **16** files
+- `client/src/components/ui/Card.tsx` — imported by **15** files
 - `client/src/components/ui/Combobox.tsx` — imported by **13** files
+- `client/src/api/useAccounts.ts` — imported by **13** files
+- `server/middleware/roles.ts` — imported by **13** files
 - `client/src/context/AuthContext.tsx` — imported by **12** files
-- `client/src/api/useAccounts.ts` — imported by **12** files
+- `client/src/components/ui/Select.tsx` — imported by **12** files
 - `server/services/churchTimeZone.ts` — imported by **12** files
-- `server/middleware/roles.ts` — imported by **12** files
-- `client/src/components/ui/Select.tsx` — imported by **11** files
-- `client/src/components/ui/Modal.tsx` — imported by **10** files
+- `client/src/components/ui/Modal.tsx` — imported by **11** files
 - `server/types/db.ts` — imported by **10** files
 
 ## Import Map (who imports what)
 
-- `server/db/index.js` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBankTransactions.integration.test.ts`, `server/routes/__tests__/directDbBankTransactionsPhase2.integration.test.ts`, `server/routes/__tests__/directDbBankTransactionsPhase3.integration.test.ts`, `server/routes/__tests__/directDbBills.integration.test.ts` +40 more
-- `client/src/components/ui/types.ts` ← `client/src/api/useExpenseTemplates.ts`, `client/src/components/ExpenseBreakdown.tsx`, `client/src/components/bank/CreateFromBankRowModal.tsx`, `client/src/components/ui/Combobox.tsx`, `client/src/components/ui/MultiSelectCombobox.tsx` +24 more
-- `client/src/components/ui/Button.tsx` ← `client/src/components/SaveTemplateModal.tsx`, `client/src/components/TemplateDropdown.tsx`, `client/src/components/bank/CreateFromBankRowModal.tsx`, `client/src/components/ui/TransactionTable.tsx`, `client/src/pages/BankFeed.tsx` +22 more
-- `client/src/utils/date.ts` ← `client/src/api/useDashboard.ts`, `client/src/components/ui/DateRangePicker.tsx`, `client/src/components/ui/TransactionTable.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx` +14 more
-- `client/src/utils/errors.ts` ← `client/src/components/bank/CreateFromBankRowModal.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx`, `client/src/pages/Contacts.tsx`, `client/src/pages/DepositEntry.tsx` +14 more
-- `client/src/api/client.ts` ← `client/src/api/useAccounts.ts`, `client/src/api/useBankTransactions.ts`, `client/src/api/useBills.ts`, `client/src/api/useContacts.ts`, `client/src/api/useDashboard.ts` +13 more
-- `client/src/components/ui/Input.tsx` ← `client/src/components/ExpenseBreakdown.tsx`, `client/src/components/SaveTemplateModal.tsx`, `client/src/components/bank/CreateFromBankRowModal.tsx`, `client/src/pages/ChartOfAccounts.tsx`, `client/src/pages/Contacts.tsx` +12 more
-- `server/routes/routeTestHelpers.ts` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBankTransactions.integration.test.ts`, `server/routes/__tests__/directDbBankTransactionsPhase2.integration.test.ts`, `server/routes/__tests__/directDbBankTransactionsPhase3.integration.test.ts`, `server/routes/__tests__/directDbBills.integration.test.ts` +12 more
-- `server/utils/date.ts` ← `server/routes/bankTransactions.ts`, `server/routes/bills.ts`, `server/routes/fiscalPeriods.ts`, `server/routes/reconciliation.ts`, `server/routes/reports.ts` +12 more
-- `client/src/components/ui/Toast.tsx` ← `client/src/main.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx`, `client/src/pages/Contacts.tsx`, `client/src/pages/DepositEntry.tsx` +11 more
+- `server/db/index.js` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBankMatchingRules.integration.test.ts`, `server/routes/__tests__/directDbBankRuleEngine.integration.test.ts`, `server/routes/__tests__/directDbBankTransactions.integration.test.ts`, `server/routes/__tests__/directDbBankTransactionsPhase2.integration.test.ts` +43 more
+- `client/src/components/ui/types.ts` ← `client/src/api/useExpenseTemplates.ts`, `client/src/components/ExpenseBreakdown.tsx`, `client/src/components/bank/BankMatchingRuleModal.tsx`, `client/src/components/bank/CreateFromBankRowModal.tsx`, `client/src/components/ui/Combobox.tsx` +24 more
+- `client/src/components/ui/Button.tsx` ← `client/src/components/SaveTemplateModal.tsx`, `client/src/components/TemplateDropdown.tsx`, `client/src/components/bank/BankMatchingRuleModal.tsx`, `client/src/components/bank/CreateFromBankRowModal.tsx`, `client/src/components/ui/TransactionTable.tsx` +22 more
+- `client/src/utils/errors.ts` ← `client/src/components/bank/BankMatchingRuleModal.tsx`, `client/src/components/bank/CreateFromBankRowModal.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx`, `client/src/pages/Contacts.tsx` +15 more
+- `client/src/api/client.ts` ← `client/src/api/useAccounts.ts`, `client/src/api/useBankMatchingRules.ts`, `client/src/api/useBankTransactions.ts`, `client/src/api/useBills.ts`, `client/src/api/useContacts.ts` +14 more
+- `server/routes/routeTestHelpers.ts` ← `server/routes/__tests__/directDbAuth.integration.test.ts`, `server/routes/__tests__/directDbBankMatchingRules.integration.test.ts`, `server/routes/__tests__/directDbBankRuleEngine.integration.test.ts`, `server/routes/__tests__/directDbBankTransactions.integration.test.ts`, `server/routes/__tests__/directDbBankTransactionsPhase2.integration.test.ts` +14 more
+- `server/utils/date.ts` ← `server/routes/bankTransactions.ts`, `server/routes/bills.ts`, `server/routes/fiscalPeriods.ts`, `server/routes/reconciliation.ts`, `server/routes/reports.ts` +13 more
+- `client/src/utils/date.ts` ← `client/src/api/useDashboard.ts`, `client/src/components/ui/DateRangePicker.tsx`, `client/src/components/ui/TransactionTable.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx` +12 more
+- `client/src/components/ui/Input.tsx` ← `client/src/components/ExpenseBreakdown.tsx`, `client/src/components/SaveTemplateModal.tsx`, `client/src/components/bank/BankMatchingRuleModal.tsx`, `client/src/components/bank/CreateFromBankRowModal.tsx`, `client/src/pages/ChartOfAccounts.tsx` +12 more
+- `client/src/components/ui/Toast.tsx` ← `client/src/components/bank/BankMatchingRuleModal.tsx`, `client/src/main.tsx`, `client/src/pages/Bills.tsx`, `client/src/pages/ChartOfAccounts.tsx`, `client/src/pages/Contacts.tsx` +12 more
+
+---
+
+# Test Coverage
+
+> **30%** of routes and models are covered by tests
+> 46 test files found
+
+## Covered Routes
+
+- GET:*
+- GET:/api/accounts
+- POST:/api/accounts
+- POST:/api/auth/google
+- GET:/api/auth/me
+- GET:/api/bank-matching-rules
+- POST:/api/bank-matching-rules
+- GET:/api/bank-transactions
+- GET:/api/bills
+- POST:/api/bills
+- GET:/api/contacts
+- POST:/api/contacts
+- GET:/api/fiscal-periods
+- GET:/api/funds
+- POST:/api/funds
+- GET:/api/reconciliations
+- POST:/api/reconciliations
+- GET:/api/reports/pl
+- GET:/api/reports/balance-sheet
+- GET:/api/reports/ledger
+- GET:/api/reports/trial-balance
+- GET:/api/reports/donors/summary
+- GET:/api/reports/donors/detail
+- GET:/api/settings
+- PUT:/api/settings
+- GET:/api/tax-rates
+- GET:/api/transactions
+- POST:/api/transactions
+- POST:/api/users
+- GET:/api/users
 
 ---
 
