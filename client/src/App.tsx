@@ -20,7 +20,6 @@ const Settings         = lazy(() => import('./pages/Settings'));
 const UserManagement   = lazy(() => import('./pages/UserManagement'));
 const DepositEntry     = lazy(() => import('./pages/DepositEntry'));
 const ExpenseEntry     = lazy(() => import('./pages/ExpenseEntry'));
-const ImportCsv        = lazy(() => import('./pages/ImportCsv'));
 const BankFeed         = lazy(() => import('./pages/BankFeed'));
 
 function AppRoutes() {
@@ -53,7 +52,6 @@ function AppRoutes() {
             <Route index element={<Transactions />} />
             <Route path="deposit" element={<DepositEntry />} />
             <Route path="expense" element={<ExpenseEntry />} />
-            <Route path="import" element={<ImportCsv />} />
             <Route path="bank-feed" element={<BankFeed />} />
           </Route>
           <Route path="/reconciliation" element={<Reconciliation />} />
