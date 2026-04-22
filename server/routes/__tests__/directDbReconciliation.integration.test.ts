@@ -13,6 +13,7 @@ const db = require('../../db') as Knex;
 const createdReconciliationIds: number[] = [];
 const createdUploadIds: number[] = [];
 const createdTransactionIds: number[] = [];
+const createdBankTransactionIds: number[] = [];
 const createdFundIds: number[] = [];
 const createdAccountIds: number[] = [];
 const createdUserIds: number[] = [];
@@ -27,6 +28,12 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  if (createdBankTransactionIds.length > 0) {
+    await db('bank_transaction_events').whereIn('bank_transaction_id', createdBankTransactionIds).delete();
+    await db('bank_transactions').whereIn('id', createdBankTransactionIds).delete();
+    createdBankTransactionIds.length = 0;
+  }
+
   if (createdReconciliationIds.length > 0) {
     await db('reconciliations').whereIn('id', createdReconciliationIds).delete();
     createdReconciliationIds.length = 0;
@@ -320,6 +327,122 @@ async function countReconciliationItems(reconciliationId: number) {
     .count('id as count')
     .first() as { count: string } | undefined;
   return parseInt(row?.count || '0', 10);
+}
+
+async function createBankUpload({
+  accountId,
+  fundId,
+  userId,
+  suffix,
+}: {
+  accountId: number;
+  fundId: number;
+  userId: number;
+  suffix: string;
+}) {
+  const [upload] = await db('bank_uploads')
+    .insert({
+      account_id: accountId,
+      fund_id: fundId,
+      uploaded_by: userId,
+      filename: `reconciliation-voided-${suffix}-${Date.now()}.csv`,
+      row_count: 1,
+      imported_at: db.fn.now(),
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!upload) throw new Error('Failed to create bank upload fixture');
+  createdUploadIds.push(upload.id);
+  return upload.id;
+}
+
+async function createMatchedBankTransaction({
+  uploadId,
+  journalEntryId,
+  date,
+  status,
+  suffix,
+}: {
+  uploadId: number;
+  journalEntryId: number;
+  date: string;
+  status: 'open' | 'locked';
+  suffix: string;
+}) {
+  const [bankTx] = await db('bank_transactions')
+    .insert({
+      upload_id: uploadId,
+      row_index: Math.floor(Math.random() * 100000),
+      bank_transaction_id: `REC-VOIDED-${suffix}-${Date.now()}`,
+      bank_posted_date: date,
+      bank_effective_date: null,
+      raw_description: 'Voided reconciliation fixture',
+      normalized_description: 'voided reconciliation fixture',
+      amount: '25.00',
+      fingerprint: `${suffix}-${Math.random()}`,
+      status: 'matched_existing',
+      journal_entry_id: journalEntryId,
+      imported_at: db.fn.now(),
+      last_modified_at: db.fn.now(),
+      lifecycle_status: status,
+      match_status: 'confirmed',
+      creation_status: 'none',
+      review_status: status === 'open' ? 'reviewed' : 'pending',
+      match_source: 'human',
+      creation_source: null,
+      suggested_match_id: null,
+      matched_journal_entry_id: journalEntryId,
+      disposition: 'none',
+    })
+    .returning('*') as Array<{ id: number }>;
+  if (!bankTx) throw new Error('Failed to create matched bank transaction');
+  createdBankTransactionIds.push(bankTx.id);
+  return bankTx.id;
+}
+
+async function createVoidedBankEntry({
+  fixture,
+  date,
+  amount = '25.00',
+}: {
+  fixture: Awaited<ReturnType<typeof createFixture>>;
+  date: string;
+  amount?: string;
+}) {
+  const created = await createTransactionEntry({
+    date,
+    description: `Voided Reconciliation Transaction ${fixture.suffix}`,
+    referenceNo: `IR-VOID-${fixture.suffix}-${Date.now()}`,
+    fundId: fixture.fundId,
+    createdBy: fixture.userId,
+    entries: [
+      {
+        account_id: fixture.bankAccountId,
+        fund_id: fixture.fundId,
+        debit: amount,
+        credit: '0.00',
+        memo: 'Voided bank entry',
+      },
+      {
+        account_id: fixture.incomeAccountId,
+        fund_id: fixture.fundId,
+        debit: '0.00',
+        credit: amount,
+        memo: 'Voided offset',
+      },
+    ],
+  });
+
+  await db('transactions')
+    .where({ id: created.transactionId })
+    .update({ is_voided: true, updated_at: db.fn.now() });
+
+  const bankEntry = created.entries.find((entry) => entry.account_id === fixture.bankAccountId);
+  if (!bankEntry) throw new Error('Failed to create voided bank entry');
+
+  return {
+    transactionId: created.transactionId,
+    journalEntryId: bankEntry.id,
+  };
 }
 
 describe('direct DB reconciliation integration smoke checks', () => {
@@ -1130,6 +1253,358 @@ describe('direct DB reconciliation integration smoke checks', () => {
     });
     expect(missingReport.status).toBe(404);
     expect(missingReport.body).toEqual({ error: 'Reconciliation not found' });
+  });
+
+  it('does not load voided transactions when creating a reconciliation', async () => {
+    const fixture = await createFixture();
+    const baseTransaction = await db('journal_entries')
+      .where({ id: fixture.bankEntryId })
+      .first('transaction_id') as { transaction_id: number } | undefined;
+    if (!baseTransaction) throw new Error('Expected base transaction row');
+
+    await db('transactions')
+      .where({ id: baseTransaction.transaction_id })
+      .update({ is_voided: true, updated_at: db.fn.now() });
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 0,
+        opening_balance: 0,
+      },
+    });
+
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+    expect(created.body.items_loaded).toBe(0);
+
+    const loadedVoidedItem = await db('rec_items')
+      .where({ reconciliation_id: reconciliationId, journal_entry_id: fixture.bankEntryId })
+      .first();
+    expect(loadedVoidedItem).toBeUndefined();
+  });
+
+  it('hides voided items from reconciliation detail and summary', async () => {
+    const fixture = await createFixture();
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 25,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+
+    const voided = await createVoidedBankEntry({ fixture, date: fixture.date });
+    await db('rec_items').insert({
+      reconciliation_id: reconciliationId,
+      journal_entry_id: voided.journalEntryId,
+      is_cleared: false,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    });
+
+    const detail = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(detail.status).toBe(200);
+    expect(detail.body.reconciliation.items).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ journal_entry_id: voided.journalEntryId }),
+    ]));
+    expect(detail.body.reconciliation.summary.total_items).toBe(1);
+  });
+
+  it('excludes voided items from reconciliation report', async () => {
+    const fixture = await createFixture();
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 25,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+
+    const voided = await createVoidedBankEntry({ fixture, date: fixture.date });
+    await db('rec_items').insert({
+      reconciliation_id: reconciliationId,
+      journal_entry_id: voided.journalEntryId,
+      is_cleared: false,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    });
+
+    const report = await requestRoute({
+      probePath: `/${reconciliationId}/report`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(report.status).toBe(200);
+    expect(report.body.report.in_transit_items).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ reference_no: expect.stringContaining('IR-VOID') }),
+    ]));
+  });
+
+  it('does not reconcile voided journal entries when closing', async () => {
+    const fixture = await createFixture();
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 25,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+
+    const detail = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    const validItemId = detail.body.reconciliation.items[0].id as number;
+    const clearValid = await requestRoute({
+      probePath: `/${reconciliationId}/items/${validItemId}/clear`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+    expect(clearValid.status).toBe(200);
+
+    const voided = await createVoidedBankEntry({ fixture, date: fixture.date });
+    await db('rec_items').insert({
+      reconciliation_id: reconciliationId,
+      journal_entry_id: voided.journalEntryId,
+      is_cleared: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    });
+
+    const close = await requestRoute({
+      probePath: `/${reconciliationId}/close`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+    expect(close.status).toBe(200);
+
+    const voidedEntry = await db('journal_entries')
+      .where({ id: voided.journalEntryId })
+      .first('is_reconciled') as { is_reconciled: boolean } | undefined;
+    expect(voidedEntry?.is_reconciled).toBe(false);
+  });
+
+  it('returns 404 when attempting to clear a voided reconciliation item', async () => {
+    const fixture = await createFixture();
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 25,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+
+    const voided = await createVoidedBankEntry({ fixture, date: fixture.date });
+    const [voidedItem] = await db('rec_items')
+      .insert({
+        reconciliation_id: reconciliationId,
+        journal_entry_id: voided.journalEntryId,
+        is_cleared: false,
+        created_at: db.fn.now(),
+        updated_at: db.fn.now(),
+      })
+      .returning('*') as Array<{ id: number }>;
+    if (!voidedItem) throw new Error('Failed to insert voided rec item');
+
+    const toggle = await requestRoute({
+      probePath: `/${reconciliationId}/items/${voidedItem.id}/clear`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+    expect(toggle.status).toBe(404);
+    expect(toggle.body).toEqual({ error: 'Item not found in this reconciliation' });
+
+    const unchanged = await db('rec_items').where({ id: voidedItem.id }).first('is_cleared') as { is_cleared: boolean } | undefined;
+    expect(unchanged?.is_cleared).toBe(false);
+  });
+
+  it('leaves voided journal entry reconciliation state unchanged on reopen', async () => {
+    const fixture = await createFixture();
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 25,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+
+    const detail = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    const validItemId = detail.body.reconciliation.items[0].id as number;
+    const clearValid = await requestRoute({
+      probePath: `/${reconciliationId}/items/${validItemId}/clear`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+    expect(clearValid.status).toBe(200);
+
+    const close = await requestRoute({
+      probePath: `/${reconciliationId}/close`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+    expect(close.status).toBe(200);
+
+    const voided = await createVoidedBankEntry({ fixture, date: fixture.date });
+    await db('rec_items').insert({
+      reconciliation_id: reconciliationId,
+      journal_entry_id: voided.journalEntryId,
+      is_cleared: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    });
+    await db('journal_entries')
+      .where({ id: voided.journalEntryId })
+      .update({ is_reconciled: true, updated_at: db.fn.now() });
+
+    const reopen = await requestRoute({
+      probePath: `/${reconciliationId}/reopen`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+    expect(reopen.status).toBe(200);
+
+    const voidedEntry = await db('journal_entries')
+      .where({ id: voided.journalEntryId })
+      .first('is_reconciled') as { is_reconciled: boolean } | undefined;
+    expect(voidedEntry?.is_reconciled).toBe(true);
+  });
+
+  it('does not block reopen for open confirmed matches linked to voided items', async () => {
+    const fixture = await createFixture();
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 25,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+
+    const detail = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    const validItemId = detail.body.reconciliation.items[0].id as number;
+    const clearValid = await requestRoute({
+      probePath: `/${reconciliationId}/items/${validItemId}/clear`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+    expect(clearValid.status).toBe(200);
+
+    const close = await requestRoute({
+      probePath: `/${reconciliationId}/close`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+    expect(close.status).toBe(200);
+
+    const voided = await createVoidedBankEntry({ fixture, date: fixture.date });
+    await db('rec_items').insert({
+      reconciliation_id: reconciliationId,
+      journal_entry_id: voided.journalEntryId,
+      is_cleared: true,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    });
+
+    const uploadId = await createBankUpload({
+      accountId: fixture.bankAccountId,
+      fundId: fixture.fundId,
+      userId: fixture.userId,
+      suffix: fixture.suffix,
+    });
+    await createMatchedBankTransaction({
+      uploadId,
+      journalEntryId: voided.journalEntryId,
+      date: fixture.date,
+      status: 'open',
+      suffix: fixture.suffix,
+    });
+
+    const reopen = await requestRoute({
+      probePath: `/${reconciliationId}/reopen`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+    });
+    expect(reopen.status).toBe(200);
   });
 
   it('blocks close when unresolved bank transactions exist in period', async () => {

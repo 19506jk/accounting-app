@@ -48,8 +48,10 @@ async function calcBalance(
 ): Promise<Decimal> {
   const result = await db('rec_items as ri')
     .join('journal_entries as je', 'je.id', 'ri.journal_entry_id')
+    .join('transactions as t', 't.id', 'je.transaction_id')
     .where('ri.reconciliation_id', reconciliationId)
     .where('ri.is_cleared', true)
+    .where('t.is_voided', false)
     .select(
       db.raw('COALESCE(SUM(je.debit),  0) AS total_debits'),
       db.raw('COALESCE(SUM(je.credit), 0) AS total_credits')
@@ -70,7 +72,9 @@ async function calcBalance(
 async function calcSummary(reconciliationId: number | string): Promise<ReconciliationSummaryCounts> {
   const stats = await db('rec_items as ri')
     .join('journal_entries as je', 'je.id', 'ri.journal_entry_id')
+    .join('transactions as t', 't.id', 'je.transaction_id')
     .where('ri.reconciliation_id', reconciliationId)
+    .where('t.is_voided', false)
     .select(
       db.raw('COUNT(*) as total_items'),
       db.raw('COUNT(*) FILTER (WHERE ri.is_cleared = true) as cleared_items'),
@@ -109,6 +113,7 @@ async function loadItems(
     .where('je.account_id', accountId)
     .where('je.is_reconciled', false)
     .where('t.date', '<=', statementDate)
+    .where('t.is_voided', false)
     .whereNull('ri.id')
     .select('je.id') as Array<{ id: number }>;
 
@@ -189,6 +194,7 @@ router.get(
         .join('transactions as t', 't.id', 'je.transaction_id')
         .join('funds as f', 'f.id', 'je.fund_id')
         .where('ri.reconciliation_id', id)
+        .where('t.is_voided', false)
         .select(
           'ri.id',
           'ri.journal_entry_id',
@@ -419,8 +425,12 @@ router.post(
         return res.status(409).json({ error: 'Cannot modify a closed reconciliation' });
       }
 
-      const item = await db('rec_items')
-        .where({ id: itemId, reconciliation_id: id })
+      const item = await db('rec_items as ri')
+        .join('journal_entries as je', 'je.id', 'ri.journal_entry_id')
+        .join('transactions as t', 't.id', 'je.transaction_id')
+        .where({ 'ri.id': itemId, 'ri.reconciliation_id': id })
+        .where('t.is_voided', false)
+        .select('ri.*')
         .first() as RecItemRow | undefined;
 
       if (!item) return res.status(404).json({ error: 'Item not found in this reconciliation' });
@@ -536,9 +546,12 @@ router.post(
           updated_at: trx.fn.now(),
         });
 
-        const clearedEntryIds = await trx('rec_items')
-          .where({ reconciliation_id: id, is_cleared: true })
-          .pluck('journal_entry_id') as number[];
+        const clearedEntryIds = await trx('rec_items as ri')
+          .join('journal_entries as je', 'je.id', 'ri.journal_entry_id')
+          .join('transactions as t', 't.id', 'je.transaction_id')
+          .where({ 'ri.reconciliation_id': id, 'ri.is_cleared': true })
+          .where('t.is_voided', false)
+          .pluck('ri.journal_entry_id') as number[];
 
         if (clearedEntryIds.length > 0) {
           await trx('journal_entries')
@@ -626,9 +639,12 @@ router.post(
             updated_at: trx.fn.now(),
           });
 
-        const clearedEntryIds = await trx('rec_items')
-          .where({ reconciliation_id: reconciliationId, is_cleared: true })
-          .pluck('journal_entry_id') as number[];
+        const clearedEntryIds = await trx('rec_items as ri')
+          .join('journal_entries as je', 'je.id', 'ri.journal_entry_id')
+          .join('transactions as t', 't.id', 'je.transaction_id')
+          .where({ 'ri.reconciliation_id': reconciliationId, 'ri.is_cleared': true })
+          .where('t.is_voided', false)
+          .pluck('ri.journal_entry_id') as number[];
 
         if (clearedEntryIds.length > 0) {
           await trx('journal_entries')

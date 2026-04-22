@@ -15,9 +15,12 @@ export async function reconciliationReopenPreflight(
   reconciliationId: number,
   trx: Knex | Knex.Transaction
 ): Promise<ReconciliationReopenPreflightResult> {
-  const journalEntryIds = await trx('rec_items')
-    .where({ reconciliation_id: reconciliationId })
-    .pluck('journal_entry_id') as number[];
+  const journalEntryIds = await trx('rec_items as ri')
+    .join('journal_entries as je', 'je.id', 'ri.journal_entry_id')
+    .join('transactions as t', 't.id', 'je.transaction_id')
+    .where({ 'ri.reconciliation_id': reconciliationId })
+    .where('t.is_voided', false)
+    .pluck('ri.journal_entry_id') as number[];
 
   if (journalEntryIds.length === 0) {
     return { blocked: false, conflicts: [] };

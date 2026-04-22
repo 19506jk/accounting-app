@@ -1133,6 +1133,7 @@ async function buildReconciliationReport(id: number | string): Promise<Reconcili
     .join('funds as f', 'f.id', 'je.fund_id')
     .leftJoin('contacts as c', 'c.id', 'je.contact_id')
     .where('ri.reconciliation_id', id)
+    .where('t.is_voided', false)
     .select(
       'ri.is_cleared',
       't.date',
