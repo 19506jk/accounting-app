@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAccounts } from '../../api/useAccounts'
+import { useSimulateBankMatchingRule } from '../../api/useBankMatchingRules'
 import { useCreateFromBankRow } from '../../api/useBankTransactions'
 import { useContacts } from '../../api/useContacts'
 import { useFunds } from '../../api/useFunds'
@@ -11,13 +12,14 @@ import Input from '../ui/Input'
 import Modal from '../ui/Modal'
 import SplitTransactionModal from '../../pages/importCsv/SplitTransactionModal'
 import { getErrorMessage } from '../../utils/errors'
+import { buildTrainFromFeedDraft, extractTrainPattern } from '../../utils/trainFromFeed'
 import {
   buildDonorIndexes,
   isAutodepositDescription,
   isEtransferDescription,
   matchDonorFromSender,
 } from '../../utils/etransferEnrich'
-import type { BankTransaction, CreateFromBankRowInput } from '@shared/contracts'
+import type { BankTransaction, CreateFromBankRowInput, SimulateBankMatchingRuleResult } from '@shared/contracts'
 import type { ParsedImportRow, SplitSavePayload } from '../../pages/importCsv/importCsvTypes'
 import type { SelectOption } from '../ui/types'
 
@@ -33,6 +35,7 @@ export default function CreateFromBankRowModal({
   onSuccess,
 }: CreateFromBankRowModalProps) {
   const createMutation = useCreateFromBankRow()
+  const simulateMutation = useSimulateBankMatchingRule()
   const { data: accounts = [] } = useAccounts()
   const { data: funds = [] } = useFunds()
   const { data: settings } = useSettings()
@@ -40,6 +43,7 @@ export default function CreateFromBankRowModal({
   const { data: payeeContacts = [] } = useContacts({ type: 'PAYEE' })
 
   const [error, setError] = useState('')
+  const [previewError, setPreviewError] = useState('')
   const [splitModalOpen, setSplitModalOpen] = useState(false)
   const [trainFromFeed, setTrainFromFeed] = useState(false)
   const proposal = bankTransaction.create_proposal
@@ -125,6 +129,20 @@ export default function CreateFromBankRowModal({
     () => activeAccounts.filter((a) => a.type === 'EXPENSE').map((a) => a.id),
     [activeAccounts]
   )
+  const accountNameMap = useMemo(
+    () => new Map(accounts.map((account) => [account.id, `${account.code} - ${account.name}`])),
+    [accounts]
+  )
+  const contactNameMap = useMemo(() => {
+    const map = new Map<number, string>()
+    donorContacts.forEach((contact) => map.set(contact.id, contact.name))
+    payeeContacts.forEach((contact) => map.set(contact.id, contact.name))
+    return map
+  }, [donorContacts, payeeContacts])
+  const trainPattern = useMemo(
+    () => extractTrainPattern(bankTransaction),
+    [bankTransaction]
+  )
 
   const fundOptions = useMemo<SelectOption[]>(
     () => activeFunds.map((f) => ({ value: f.id, label: f.name })),
@@ -149,8 +167,14 @@ export default function CreateFromBankRowModal({
 
   const hasSplits = (row.splits?.length || 0) > 0
 
+  function resetPreview() {
+    setPreviewError('')
+    simulateMutation.reset()
+  }
+
   function handleSplitSave(payload: SplitSavePayload) {
     const splitPayload = Array.isArray(payload) ? { splits: payload } : payload
+    resetPreview()
     setRow((prev) => ({
       ...prev,
       splits: splitPayload.splits,
@@ -162,11 +186,28 @@ export default function CreateFromBankRowModal({
   }
 
   function clearSplits() {
+    resetPreview()
     setRow((prev) => ({
       ...prev,
       splits: undefined,
       payee_id: undefined,
     }))
+  }
+
+  async function handlePreview() {
+    setPreviewError('')
+    const { draft, error: draftError } = buildTrainFromFeedDraft(bankTransaction, row)
+    if (!draft) {
+      simulateMutation.reset()
+      setPreviewError(draftError || 'Preview failed.')
+      return
+    }
+
+    try {
+      await simulateMutation.mutateAsync({ rule: draft, filters: { limit: 20 } })
+    } catch (err) {
+      setPreviewError(getErrorMessage(err, 'Preview failed.'))
+    }
   }
 
   async function handleSubmit() {
@@ -222,7 +263,10 @@ export default function CreateFromBankRowModal({
               <Combobox
                 label="Offset Account"
                 value={row.offset_account_id || ''}
-                onChange={(value) => setRow((prev) => ({ ...prev, offset_account_id: Number(value) || undefined }))}
+                onChange={(value) => {
+                  resetPreview()
+                  setRow((prev) => ({ ...prev, offset_account_id: Number(value) || undefined }))
+                }}
                 options={offsetAccountOptions}
                 placeholder="Select offset account"
               />
@@ -230,7 +274,10 @@ export default function CreateFromBankRowModal({
                 <Combobox
                   label="Contact"
                   value={row.contact_id || ''}
-                  onChange={(value) => setRow((prev) => ({ ...prev, contact_id: Number(value) || undefined }))}
+                  onChange={(value) => {
+                    resetPreview()
+                    setRow((prev) => ({ ...prev, contact_id: Number(value) || undefined }))
+                  }}
                   options={donorOptions}
                   placeholder="Optional contact"
                 />
@@ -238,7 +285,10 @@ export default function CreateFromBankRowModal({
                 <Combobox
                   label="Payee"
                   value={row.payee_id || ''}
-                  onChange={(value) => setRow((prev) => ({ ...prev, payee_id: Number(value) || undefined }))}
+                  onChange={(value) => {
+                    resetPreview()
+                    setRow((prev) => ({ ...prev, payee_id: Number(value) || undefined }))
+                  }}
                   options={payeeOptions}
                   placeholder="Optional payee"
                 />
@@ -266,10 +316,50 @@ export default function CreateFromBankRowModal({
             <input
               type="checkbox"
               checked={trainFromFeed}
-              onChange={(event) => setTrainFromFeed(event.target.checked)}
+              onChange={(event) => {
+                const checked = event.target.checked
+                if (!checked) {
+                  resetPreview()
+                }
+                setTrainFromFeed(checked)
+              }}
             />
             Always treat transactions like this as this account/fund setup
           </label>
+
+          {trainFromFeed && (
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              <div style={{ fontSize: '0.8rem', color: '#475569' }}>
+                Pattern to match:{' '}
+                <code style={{ background: '#e2e8f0', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
+                  {trainPattern || '(empty - no pattern extracted)'}
+                </code>
+              </div>
+              <div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  isLoading={simulateMutation.isPending}
+                  disabled={!trainPattern || simulateMutation.isPending}
+                  onClick={() => void handlePreview()}
+                >
+                  Preview matches
+                </Button>
+              </div>
+              {previewError && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.65rem', color: '#b91c1c', fontSize: '0.82rem' }}>
+                  {previewError}
+                </div>
+              )}
+              {simulateMutation.data && (
+                <TrainPreviewResults
+                  result={simulateMutation.data}
+                  accountNameMap={accountNameMap}
+                  contactNameMap={contactNameMap}
+                />
+              )}
+            </div>
+          )}
 
           {error && (
             <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.65rem', color: '#b91c1c', fontSize: '0.82rem' }}>
@@ -298,5 +388,47 @@ export default function CreateFromBankRowModal({
         activeExpenseAccountIds={activeExpenseAccountIds}
       />
     </>
+  )
+}
+
+interface TrainPreviewResultsProps {
+  result: SimulateBankMatchingRuleResult
+  accountNameMap: Map<number, string>
+  contactNameMap: Map<number, string>
+}
+
+function TrainPreviewResults({ result, accountNameMap, contactNameMap }: TrainPreviewResultsProps) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+      {result.matches.length === 0 && (
+        <div style={{ fontSize: '0.84rem', color: '#64748b' }}>
+          No matches found in the sampled recent transactions.
+        </div>
+      )}
+
+      {result.matches.slice(0, 5).map((match) => (
+        <div key={match.bank_transaction_id} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.65rem' }}>
+          <div style={{ fontSize: '0.83rem', color: '#334155' }}>
+            {match.bank_posted_date} | {match.raw_description} | {match.amount.toFixed(2)}
+          </div>
+          <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.25rem' }}>
+            Proposal: account {accountNameMap.get(match.create_proposal.offset_account_id || 0) || '-'}, payee {contactNameMap.get(match.create_proposal.payee_id || 0) || '-'}, contact {contactNameMap.get(match.create_proposal.contact_id || 0) || '-'}, splits {(match.create_proposal.splits || []).length}
+          </div>
+        </div>
+      ))}
+
+      {result.conflicts.length > 0 && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '0.7rem' }}>
+          <div style={{ fontSize: '0.82rem', color: '#92400e', marginBottom: '0.35rem' }}>
+            This pattern overlaps with an existing active rule. Rules are evaluated by specificity (exact {'->'} contains {'->'} regex), then priority, then ID.
+          </div>
+          {result.conflicts.map((conflict) => (
+            <div key={`${conflict.rule_id}-${conflict.match_pattern}`} style={{ fontSize: '0.8rem', color: '#78350f' }}>
+              {conflict.rule_name} ({conflict.match_type}: "{conflict.match_pattern}")
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
