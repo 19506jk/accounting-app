@@ -166,6 +166,7 @@ function toBankTransaction(row: JoinedBankTransactionRow): ApiBankTransactionWit
     sender_name: row.sender_name ?? null,
     sender_email: row.sender_email ?? null,
     bank_description_2: row.bank_description_2 ?? null,
+    payment_method: row.payment_method ?? null,
     normalized_description: row.normalized_description,
     amount: toNumber(row.amount),
     fingerprint: row.fingerprint,
@@ -317,6 +318,7 @@ router.post(
         const senderName = row?.sender_name ? String(row.sender_name).trim() : null;
         const senderEmail = row?.sender_email ? String(row.sender_email).trim() : null;
         const bankDescription2 = row?.bank_description_2 ? String(row.bank_description_2).trim() : null;
+        const paymentMethod = row?.payment_method ? String(row.payment_method).trim() : null;
 
         return {
           row_index: index,
@@ -327,6 +329,7 @@ router.post(
           sender_name: senderName || null,
           sender_email: senderEmail || null,
           bank_description_2: bankDescription2 || null,
+          payment_method: paymentMethod || null,
           normalized_description: normalizedDescription,
           amount: Number(amount.toFixed(2)),
           fingerprint,
@@ -394,6 +397,7 @@ router.post(
             sender_name: row.sender_name,
             sender_email: row.sender_email,
             bank_description_2: row.bank_description_2,
+            payment_method: row.payment_method,
             normalized_description: row.normalized_description,
             amount: row.amount.toFixed(2),
             fingerprint: row.fingerprint,

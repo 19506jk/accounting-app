@@ -282,6 +282,7 @@ export interface BankTransactionRow {
   sender_name: string | null;
   sender_email: string | null;
   bank_description_2: string | null;
+  payment_method: string | null;
   normalized_description: string;
   amount: string | number;
   fingerprint: string;

@@ -1,17 +1,16 @@
 import type { ContactSummary } from '@shared/contracts'
 
 export const ETRANSFER_TOKENS = ['e-transfer', 'etransfer', 'interac e-transfer']
-export const AUTODEPOSIT_DESC = 'e-transfer - autodeposit'
 
 const normalize = (s: unknown) => String(s ?? '').trim().toLowerCase()
+
+export function isInteracEtransferPaymentMethod(value: string | null | undefined): boolean {
+  return normalize(value) === 'interac e-transfer'
+}
 
 export function isEtransferDescription(description: string): boolean {
   const desc = normalize(description)
   return ETRANSFER_TOKENS.some((token) => desc.includes(token))
-}
-
-export function isAutodepositDescription(description: string): boolean {
-  return normalize(description) === AUTODEPOSIT_DESC
 }
 
 export function buildDonorIndexes(donorContacts: ContactSummary[]) {

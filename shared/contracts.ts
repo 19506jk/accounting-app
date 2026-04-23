@@ -226,6 +226,7 @@ export interface BankTransactionRow {
   sender_name?: string | null;
   sender_email?: string | null;
   bank_description_2?: string | null;
+  payment_method?: string | null;
 }
 
 export interface BankImportInput {
@@ -291,6 +292,7 @@ export interface BankTransaction {
   sender_name: string | null;
   sender_email: string | null;
   bank_description_2: string | null;
+  payment_method: string | null;
   normalized_description: string;
   amount: number;
   status: BankTransactionStatus;

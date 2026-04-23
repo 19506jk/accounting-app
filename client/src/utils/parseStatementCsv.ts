@@ -5,6 +5,7 @@ import type { ImportTransactionRow } from '@shared/contracts'
 interface RowMetadata {
   description_1: string
   description_2: string
+  payment_method: string
   sender: string
   from: string
 }
@@ -18,6 +19,7 @@ interface ParseStatementCsvResult {
 const DATE_ALIASES = ['Posted Date', 'Transaction Date', 'Date']
 const DESCRIPTION_1_ALIASES = ['Description 1', 'Description', 'Payee']
 const DESCRIPTION_2_ALIASES = ['Description 2', 'Details', 'Memo']
+const PAYMENT_METHOD_ALIASES = ['Payment Method']
 const WITHDRAWAL_ALIASES = ['Withdrawals', 'Debit', 'Amount Debit']
 const DEPOSIT_ALIASES = ['Deposits', 'Credit', 'Amount Credit']
 const REFERENCE_ALIASES = ['Interac Reference Number', 'Reference Number', 'Reference No']
@@ -98,6 +100,7 @@ export async function parseStatementCsv(file: File): Promise<ParseStatementCsvRe
   const desc2Col = getColumnIndex(headerRow, DESCRIPTION_2_ALIASES)
   const withdrawalCol = getColumnIndex(headerRow, WITHDRAWAL_ALIASES)
   const depositCol = getColumnIndex(headerRow, DEPOSIT_ALIASES)
+  const paymentMethodCol = getColumnIndex(headerRow, PAYMENT_METHOD_ALIASES)
   const referenceCol = getColumnIndex(headerRow, REFERENCE_ALIASES)
   const senderCol = getColumnIndex(headerRow, SENDER_ALIASES)
   const fromCol = getColumnIndex(headerRow, FROM_ALIASES)
@@ -138,6 +141,7 @@ export async function parseStatementCsv(file: File): Promise<ParseStatementCsvRe
     const descriptionPart2 = desc2Col >= 0 ? String(row[desc2Col] ?? '').trim() : ''
     const senderValue = senderCol >= 0 ? String(row[senderCol] ?? '').trim() : ''
     const fromValue = fromCol >= 0 ? String(row[fromCol] ?? '').trim() : ''
+    const paymentMethodValue = paymentMethodCol >= 0 ? String(row[paymentMethodCol] ?? '').trim() : ''
     const description = [descriptionPart1, descriptionPart2].filter(Boolean).join(' — ') || 'Bank statement import'
     const reference = referenceCol >= 0 ? String(row[referenceCol] ?? '').trim() : ''
 
@@ -153,6 +157,7 @@ export async function parseStatementCsv(file: File): Promise<ParseStatementCsvRe
     metadata.push({
       description_1: descriptionPart1,
       description_2: descriptionPart2,
+      payment_method: paymentMethodValue,
       sender: senderValue,
       from: fromValue,
     })

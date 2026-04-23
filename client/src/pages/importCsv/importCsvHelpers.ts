@@ -7,8 +7,8 @@ import type {
 } from '@shared/contracts';
 import type { ParsedImportRow, StatementRowMetadata } from './importCsvTypes';
 import {
-  AUTODEPOSIT_DESC,
   buildDonorIndexes,
+  isInteracEtransferPaymentMethod,
   isEtransferDescription,
   matchDonorFromSender,
 } from '../../utils/etransferEnrich';
@@ -23,11 +23,15 @@ export const dec = (value: Decimal.Value | null | undefined) => {
   }
 };
 
-const normalize = (s: unknown) => String(s ?? '').trim().toLowerCase();
-
 function isEtransferDeposit(row: ImportTransactionRow, metadata?: StatementRowMetadata) {
   if (row.type !== 'deposit') return false;
-  return isEtransferDescription(metadata?.description_1 ?? '');
+
+  if (isInteracEtransferPaymentMethod(metadata?.payment_method)) {
+    return true;
+  }
+
+  const fallbackDescription = [metadata?.description_1, metadata?.description_2].filter(Boolean).join(' — ');
+  return isEtransferDescription(fallbackDescription);
 }
 
 function findMatchedDonorId(metadata: StatementRowMetadata | undefined, donorIndexes: ReturnType<typeof buildDonorIndexes>) {
@@ -47,7 +51,7 @@ export function enrichParsedRows(
     const etransferPrefill = isEtransferDeposit(row, rowMetadata) ? etransferOffsetId : 0;
     const base: ParsedImportRow = { ...row, offset_account_id: etransferPrefill };
     if (row.type !== 'deposit') return base;
-    if (normalize(rowMetadata?.description_1) !== AUTODEPOSIT_DESC) return base;
+    if (!isEtransferDeposit(row, rowMetadata)) return base;
 
     const matchedId = findMatchedDonorId(rowMetadata, donorIndexes);
     if (matchedId) base.contact_id = matchedId;

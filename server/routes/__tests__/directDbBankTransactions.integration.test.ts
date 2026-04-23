@@ -414,6 +414,10 @@ describe('direct DB bank-transactions integration checks', () => {
             raw_description: 'Read Path Row',
             amount: 40,
             bank_transaction_id: `READ-${fixture.suffix}`,
+            sender_name: '  Jane Doe  ',
+            sender_email: '  jane@example.com  ',
+            bank_description_2: '  Donation  ',
+            payment_method: '  Interac e-Transfer  ',
           },
         ],
       },
@@ -462,6 +466,10 @@ describe('direct DB bank-transactions integration checks', () => {
       raw_description: 'Read Path Row',
       amount: 40,
       status: 'imported',
+      sender_name: 'Jane Doe',
+      sender_email: 'jane@example.com',
+      bank_description_2: 'Donation',
+      payment_method: 'Interac e-Transfer',
     }));
     expect(detail.body.item).not.toHaveProperty('fingerprint');
   });

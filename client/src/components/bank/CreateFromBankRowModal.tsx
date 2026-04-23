@@ -15,7 +15,7 @@ import { getErrorMessage } from '../../utils/errors'
 import { buildTrainFromFeedDraft, extractTrainPattern } from '../../utils/trainFromFeed'
 import {
   buildDonorIndexes,
-  isAutodepositDescription,
+  isInteracEtransferPaymentMethod,
   isEtransferDescription,
   matchDonorFromSender,
 } from '../../utils/etransferEnrich'
@@ -48,6 +48,12 @@ export default function CreateFromBankRowModal({
   const [trainFromFeed, setTrainFromFeed] = useState(false)
   const proposal = bankTransaction.create_proposal
   const fallbackDescription = [bankTransaction.raw_description, bankTransaction.bank_description_2].filter(Boolean).join(' — ')
+  const fallbackEtransferDescription = [bankTransaction.raw_description, bankTransaction.bank_description_2].filter(Boolean).join(' — ')
+  const isEtransferDeposit = useMemo(() => {
+    if (bankTransaction.amount < 0) return false
+    if (isInteracEtransferPaymentMethod(bankTransaction.payment_method)) return true
+    return isEtransferDescription(fallbackEtransferDescription)
+  }, [bankTransaction.amount, bankTransaction.payment_method, fallbackEtransferDescription])
   const [row, setRow] = useState<ParsedImportRow>({
     date: bankTransaction.bank_posted_date,
     description: proposal?.description || fallbackDescription,
@@ -78,23 +84,19 @@ export default function CreateFromBankRowModal({
     if (offsetEnriched.current || !settings) return
     offsetEnriched.current = true
 
-    const isDeposit = bankTransaction.amount >= 0
-    if (!isDeposit) return
-    if (!isEtransferDescription(bankTransaction.raw_description)) return
+    if (!isEtransferDeposit) return
     if (!etransferOffsetId) return
 
     setRow((prev) => (
       prev.offset_account_id ? prev : { ...prev, offset_account_id: etransferOffsetId }
     ))
-  }, [settings, bankTransaction, etransferOffsetId])
+  }, [settings, etransferOffsetId, isEtransferDeposit])
 
   useEffect(() => {
     if (donorEnriched.current || donorContacts.length === 0) return
     donorEnriched.current = true
 
-    const isDeposit = bankTransaction.amount >= 0
-    if (!isDeposit) return
-    if (!isAutodepositDescription(bankTransaction.raw_description)) return
+    if (!isEtransferDeposit) return
 
     const matchedId = matchDonorFromSender(
       bankTransaction.sender_email,
@@ -106,7 +108,7 @@ export default function CreateFromBankRowModal({
     setRow((prev) => (
       prev.contact_id ? prev : { ...prev, contact_id: matchedId }
     ))
-  }, [donorContacts, bankTransaction, donorIndexes])
+  }, [donorContacts, bankTransaction, donorIndexes, isEtransferDeposit])
 
   const offsetAccountOptions = useMemo<SelectOption[]>(
     () => [

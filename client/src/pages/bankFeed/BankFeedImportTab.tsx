@@ -84,6 +84,7 @@ export default function BankFeedImportTab({
           sender_name: meta?.sender || null,
           sender_email: meta?.from || null,
           bank_description_2: meta?.description_2 || null,
+          payment_method: meta?.payment_method || null,
         }
       }))
     } catch (err) {
