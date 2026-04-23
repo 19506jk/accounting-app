@@ -22,7 +22,7 @@ type XlsxRow = XlsxValue[];
 
 function formatReferenceForExport(referenceNo: string | null | undefined) {
   if (referenceNo === null || referenceNo === undefined || referenceNo === '') return '-'
-  return `'${String(referenceNo)}`
+  return String(referenceNo)
 }
 
 export function exportPL(data: PLReportData, filters: PLReportFilters) {

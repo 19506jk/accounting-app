@@ -139,7 +139,7 @@ function AccountLedgerDrawer({ target, onClose }: { target: LedgerTarget | null;
     if (!ledger) return;
     const formatReferenceForExport = (referenceNo: string | null | undefined) => {
       if (referenceNo === null || referenceNo === undefined || referenceNo === '') return '-';
-      return `'${String(referenceNo)}`;
+      return String(referenceNo);
     };
 
     const rows = [
