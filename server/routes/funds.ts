@@ -48,7 +48,7 @@ router.get('/', async (_req: Request, res: Response<{ funds: FundSummary[] }>, n
         'a.name  as net_asset_name'
       )
       .orderBy('f.is_active', 'desc')
-      .orderBy('f.name', 'asc');
+      .orderBy('f.id', 'asc');
 
     res.json({ funds: funds as FundSummary[] });
   } catch (err) {
