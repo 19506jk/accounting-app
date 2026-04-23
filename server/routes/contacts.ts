@@ -121,7 +121,8 @@ router.get(
       const query = db('contacts')
         .select(
           'id', 'type', 'contact_class', 'name', 'first_name', 'last_name',
-          'email', 'phone', 'city', 'province', 'postal_code',
+          'email', 'phone', 'address_line1', 'address_line2',
+          'city', 'province', 'postal_code',
           'donor_id', 'is_active', 'created_at'
         )
         .orderBy('name', 'asc');

@@ -14,6 +14,8 @@ const donorContacts: ContactSummary[] = [
     last_name: null,
     email: 'jane@example.com',
     phone: null,
+    address_line1: null,
+    address_line2: null,
     city: null,
     province: null,
     postal_code: null,

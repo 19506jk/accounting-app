@@ -17,6 +17,7 @@ import Button  from '../components/ui/Button';
 import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
 import { getErrorMessage } from '../utils/errors';
+import { exportContacts } from './reports/reportExports';
 import type React from 'react';
 import type { ContactClass, ContactDetail, ContactSummary, ContactType } from '@shared/contracts';
 import type { TableColumn } from '../components/ui/types';
@@ -335,6 +336,11 @@ export default function Contacts() {
           <Button variant="secondary" onClick={() => setShowInactive((v) => !v)}>
             {showInactive ? 'Hide Inactive' : 'Show Inactive'}
           </Button>
+          {contacts && contacts.length > 0 && (
+            <Button variant="secondary" onClick={() => exportContacts(contacts)}>
+              Export Excel
+            </Button>
+          )}
           <Button onClick={openAdd}>+ Add Contact</Button>
         </div>
       </div>

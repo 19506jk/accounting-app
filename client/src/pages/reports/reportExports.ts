@@ -4,6 +4,7 @@ import { getVisibleTrialBalanceAccounts } from './trialBalanceHelpers';
 import type {
   BalanceSheetReportData,
   BalanceSheetReportFilters,
+  ContactSummary,
   DonorDetailReportData,
   DonorDetailReportFilters,
   DonorSummaryReportData,
@@ -178,6 +179,36 @@ export function exportDonorDetail(data: DonorDetailReportData, filters: DonorDet
   }
   rows.push(['Grand Total', '', '', '', data.grand_total]);
   downloadXlsx(rows, `donor_detail_${filters.from}_${filters.to}.xlsx`, 'Donor Detail');
+}
+
+export function exportContacts(contacts: ContactSummary[]) {
+  const active = contacts.filter((c) => c.is_active);
+  const rows: XlsxRow[] = [
+    ['Contacts & Donors'],
+    [`Exported: ${new Date().toISOString().slice(0, 10)}`],
+    [],
+    ['Donor ID', 'Name', 'First Name', 'Last Name', 'Email', 'Phone',
+      'Address Line 1', 'Address Line 2', 'City', 'Province', 'Postal Code'],
+    ...active.map((c) => [
+      c.donor_id      || '',
+      c.name,
+      c.first_name    || '',
+      c.last_name     || '',
+      c.email         || '',
+      c.phone         || '',
+      c.address_line1 || '',
+      c.address_line2 || '',
+      c.city          || '',
+      c.province      || '',
+      c.postal_code   || '',
+    ]),
+  ];
+  const cols = [
+    { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 16 },
+    { wch: 28 }, { wch: 16 }, { wch: 28 }, { wch: 20 },
+    { wch: 16 }, { wch: 10 }, { wch: 14 },
+  ];
+  downloadXlsx(rows, `contacts_${new Date().toISOString().slice(0, 10)}.xlsx`, 'Contacts', cols);
 }
 
 function getQbLabels(accountType: ReconciliationReport['account_type']) {

@@ -763,6 +763,8 @@ export interface ContactSummary {
   last_name: string | null;
   email: string | null;
   phone: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
   city: string | null;
   province: string | null;
   postal_code: string | null;
@@ -772,8 +774,6 @@ export interface ContactSummary {
 }
 
 export interface ContactDetail extends ContactSummary {
-  address_line1: string | null;
-  address_line2: string | null;
   notes: string | null;
   updated_at?: string;
 }
