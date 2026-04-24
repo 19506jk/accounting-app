@@ -7,3 +7,5 @@ client/dist/
 shared/contracts.js
 server/coverage/
 client/coverage/
+# Added by code-review-graph
+.code-review-graph/
