@@ -1641,6 +1641,7 @@ export interface AccessLogQuery {
   actor_id?: number;
   outcome?: AccessLogEntry['outcome'];
   method?: string;
+  session_token?: string;
   from?: string;
   to?: string;
   limit?: number;
@@ -1657,6 +1658,7 @@ export interface AuditLogQuery {
   entity_id?: string;
   actor_id?: number;
   action?: AuditAction;
+  session_token?: string;
   from?: string;
   to?: string;
   limit?: number;
