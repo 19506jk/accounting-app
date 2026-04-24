@@ -328,6 +328,64 @@ export interface BankTransactionEventRow {
   created_at: Date | string;
 }
 
+export type AuditAction =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'void'
+  | 'close'
+  | 'reopen'
+  | 'pay'
+  | 'apply_credit'
+  | 'unapply_credit';
+
+export type AuditEntityType =
+  | 'transaction'
+  | 'bill'
+  | 'account'
+  | 'fund'
+  | 'contact'
+  | 'tax_rate'
+  | 'reconciliation'
+  | 'fiscal_period'
+  | 'user'
+  | 'settings'
+  | 'bank_matching_rule';
+
+export interface AccessLogRow {
+  id: number;
+  session_token: string;
+  actor_id: number | null;
+  actor_email: string | null;
+  request_method: string;
+  request_path: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  http_status: number | null;
+  outcome: 'success' | 'unauthorized' | 'error' | 'pending';
+  created_at: Date | string;
+}
+
+export interface AuditLogRow {
+  id: number;
+  session_token: string | null;
+  entity_type: AuditEntityType;
+  entity_id: string;
+  entity_label: string | null;
+  action: AuditAction;
+  payload: {
+    old?: Record<string, unknown>;
+    new?: Record<string, unknown>;
+    fields_changed?: Record<string, { from: unknown; to: unknown }>;
+  } | null;
+  reason_note: string | null;
+  actor_id: number | null;
+  actor_name: string;
+  actor_email: string;
+  actor_role: string;
+  created_at: Date | string;
+}
+
 export interface BankTransactionRejectionRow {
   id: number;
   bank_transaction_id: number;

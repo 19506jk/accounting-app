@@ -1561,3 +1561,109 @@ export interface UpdateTaxRateInput {
   // Matches current server route: PUT /api/tax-rates/:id accepts only `rate`.
   rate: number;
 }
+
+export interface VoidBillBody {
+  reason_note: string;
+}
+
+export interface UnapplyCreditsBody {
+  confirm_unapply_credits: true;
+  reason_note: string;
+}
+
+export interface ReopenFiscalPeriodBody {
+  reason_note: string;
+}
+
+export interface ReopenReconciliationBody {
+  reason_note: string;
+}
+
+export type AuditAction =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'void'
+  | 'close'
+  | 'reopen'
+  | 'pay'
+  | 'apply_credit'
+  | 'unapply_credit';
+
+export type AuditEntityType =
+  | 'transaction'
+  | 'bill'
+  | 'account'
+  | 'fund'
+  | 'contact'
+  | 'tax_rate'
+  | 'reconciliation'
+  | 'fiscal_period'
+  | 'user'
+  | 'settings'
+  | 'bank_matching_rule';
+
+export interface AccessLogEntry {
+  id: number;
+  session_token: string;
+  actor_id: number | null;
+  actor_email: string | null;
+  request_method: string;
+  request_path: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  http_status: number | null;
+  outcome: 'success' | 'unauthorized' | 'error' | 'pending';
+  created_at: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  session_token: string | null;
+  entity_type: AuditEntityType;
+  entity_id: string;
+  entity_label: string | null;
+  action: AuditAction;
+  payload: {
+    old?: Record<string, unknown>;
+    new?: Record<string, unknown>;
+    fields_changed?: Record<string, { from: unknown; to: unknown }>;
+  } | null;
+  reason_note: string | null;
+  actor_id: number | null;
+  actor_name: string;
+  actor_email: string;
+  actor_role: string;
+  created_at: string;
+}
+
+export interface AccessLogQuery {
+  actor_id?: number;
+  outcome?: AccessLogEntry['outcome'];
+  method?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AccessLogResponse {
+  access_logs: AccessLogEntry[];
+  total?: number;
+}
+
+export interface AuditLogQuery {
+  entity_type?: AuditEntityType;
+  entity_id?: string;
+  actor_id?: number;
+  action?: AuditAction;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuditLogResponse {
+  audit_logs: AuditLogEntry[];
+  total?: number;
+}
