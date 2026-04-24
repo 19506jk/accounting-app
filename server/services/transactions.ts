@@ -18,6 +18,7 @@ import type {
 import { addDaysDateOnly, compareDateOnly, getChurchToday, normalizeDateOnly, parseDateOnlyStrict } from '../utils/date.js';
 import { getChurchTimeZone } from './churchTimeZone.js';
 import { assertNotClosedPeriod } from '../utils/hardCloseGuard.js';
+import { computeDiff, type ForensicContext, writeForensicEntry } from './auditLog.js';
 
 const db = require('../db') as Knex;
 
@@ -31,6 +32,28 @@ function serviceError(message: string, status: number, validationErrors?: string
     statusCode: status,
     validationErrors,
   });
+}
+
+function transactionSnapshot(row: TransactionRow) {
+  return {
+    id: row.id,
+    date: normalizeDateOnly(row.date),
+    description: row.description,
+    reference_no: row.reference_no,
+    fund_id: row.fund_id,
+  };
+}
+
+function entrySnapshots(entries: JournalEntryRow[]) {
+  return entries.map((entry) => ({
+    id: entry.id,
+    account_id: entry.account_id,
+    fund_id: entry.fund_id,
+    debit: entry.debit,
+    credit: entry.credit,
+    memo: entry.memo,
+    contact_id: entry.contact_id,
+  }));
 }
 
 async function validateTransaction(body: CreateTransactionInput, dbOrTrx: DbHandle = db): Promise<string[]> {
@@ -188,7 +211,7 @@ async function getTransactionDetailById(id: string | number, dbOrTrx: DbHandle =
   };
 }
 
-async function createTransaction(payload: CreateTransactionInput, userId: number): Promise<TransactionCreateResult> {
+async function createTransaction(payload: CreateTransactionInput, userId: number, ctx: ForensicContext): Promise<TransactionCreateResult> {
   const { date, description, reference_no, entries } = payload || {};
   const errors = await validateTransaction(payload);
   if (errors.length) throw serviceError('Validation failed', 400, errors);
@@ -226,6 +249,18 @@ async function createTransaction(payload: CreateTransactionInput, userId: number
     }));
 
     const insertedEntries = await trx('journal_entries').insert(entryRows).returning('*') as JournalEntryRow[];
+    await writeForensicEntry(trx, ctx, {
+      entity_type: 'transaction',
+      entity_id: transaction.id,
+      entity_label: `${normalizeDateOnly(transaction.date)} - ${transaction.description}`,
+      action: 'create',
+      payload: {
+        new: {
+          transaction: transactionSnapshot(transaction),
+          entries: entrySnapshots(insertedEntries),
+        },
+      },
+    });
     return { transaction, entries: insertedEntries };
   });
 
@@ -244,7 +279,7 @@ async function createTransaction(payload: CreateTransactionInput, userId: number
   };
 }
 
-async function updateTransaction(id: string, payload: UpdateTransactionInput): Promise<TransactionDetail> {
+async function updateTransaction(id: string, payload: UpdateTransactionInput, ctx: ForensicContext): Promise<TransactionDetail> {
   const { date, description, reference_no, entries } = payload || {};
 
   const transaction = await db('transactions').where({ id }).first() as TransactionRow | undefined;
@@ -268,18 +303,21 @@ async function updateTransaction(id: string, payload: UpdateTransactionInput): P
   const nextReferenceNo = reference_no !== undefined ? reference_no?.trim() || null : transaction.reference_no;
 
   await db.transaction(async (trx: Knex.Transaction) => {
-    const existingTx = await trx('transactions')
+    const beforeTx = await trx('transactions')
       .where({ id })
-      .select('date', 'is_voided')
-      .first() as Pick<TransactionRow, 'date' | 'is_voided'> | undefined;
-    if (!existingTx) {
+      .first() as TransactionRow | undefined;
+    if (!beforeTx) {
       throw serviceError('Transaction not found', 404);
     }
-    if (existingTx.is_voided) {
+    if (beforeTx.is_voided) {
       throw serviceError('Voided transactions cannot be edited.', 422);
     }
-    await assertNotClosedPeriod(normalizeDateOnly(existingTx.date), trx);
+    await assertNotClosedPeriod(normalizeDateOnly(beforeTx.date), trx);
     await assertNotClosedPeriod(nextDate, trx);
+
+    const beforeEntries = await trx('journal_entries')
+      .where({ transaction_id: id })
+      .orderBy('id', 'asc') as JournalEntryRow[];
 
     if (entries !== undefined) {
       const validationPayload: CreateTransactionInput = {
@@ -378,6 +416,32 @@ async function updateTransaction(id: string, payload: UpdateTransactionInput): P
       })
       .returning('*') as TransactionRow[];
     if (!updated) throw new Error('Failed to update transaction');
+
+    const afterEntries = await trx('journal_entries')
+      .where({ transaction_id: id })
+      .orderBy('id', 'asc') as JournalEntryRow[];
+
+    const beforeHeader = transactionSnapshot(beforeTx);
+    const afterHeader = transactionSnapshot(updated);
+    const diff = computeDiff(beforeHeader, afterHeader);
+
+    await writeForensicEntry(trx, ctx, {
+      entity_type: 'transaction',
+      entity_id: id,
+      entity_label: `${afterHeader.date} - ${afterHeader.description}`,
+      action: 'update',
+      payload: {
+        old: {
+          transaction: beforeHeader,
+          entries: entrySnapshots(beforeEntries),
+        },
+        new: {
+          transaction: afterHeader,
+          entries: entrySnapshots(afterEntries),
+        },
+        fields_changed: diff.fields_changed,
+      },
+    });
   });
 
   const detail = await getTransactionDetailById(id);
@@ -385,12 +449,11 @@ async function updateTransaction(id: string, payload: UpdateTransactionInput): P
   return detail;
 }
 
-async function deleteTransaction(id: string): Promise<void> {
+async function deleteTransaction(id: string, ctx: ForensicContext): Promise<void> {
   await db.transaction(async (trx: Knex.Transaction) => {
     const transaction = await trx('transactions')
       .where({ id })
-      .select('date', 'is_closing_entry', 'is_voided')
-      .first() as Pick<TransactionRow, 'date' | 'is_closing_entry' | 'is_voided'> | undefined;
+      .first() as TransactionRow | undefined;
     if (!transaction) throw serviceError('Transaction not found', 404);
 
     if (transaction.is_voided) {
@@ -411,7 +474,24 @@ async function deleteTransaction(id: string): Promise<void> {
       throw serviceError('Transaction cannot be deleted — one or more entries have been reconciled.', 409);
     }
 
+    const beforeEntries = await trx('journal_entries')
+      .where({ transaction_id: id })
+      .orderBy('id', 'asc') as JournalEntryRow[];
+
     await trx('transactions').where({ id }).delete();
+
+    await writeForensicEntry(trx, ctx, {
+      entity_type: 'transaction',
+      entity_id: id,
+      entity_label: `${normalizeDateOnly(transaction.date)} - ${transaction.description}`,
+      action: 'delete',
+      payload: {
+        old: {
+          transaction: transactionSnapshot(transaction),
+          entries: entrySnapshots(beforeEntries),
+        },
+      },
+    });
   });
 }
 

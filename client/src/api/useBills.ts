@@ -12,7 +12,9 @@ import type {
   BillsQuery,
   CreateBillInput,
   PayBillInput,
+  UnapplyCreditsBody,
   UpdateBillInput,
+  VoidBillBody,
 } from '@shared/contracts'
 
 interface UpdateBillPayload extends UpdateBillInput {
@@ -128,8 +130,10 @@ export function usePayBill() {
 export function useVoidBill() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (id: number) => {
-      const { data } = await client.post<{ bill: BillDetail }>(`/bills/${id}/void`)
+    mutationFn: async ({ id, reason_note }: { id: number; reason_note: string }) => {
+      const { data } = await client.post<{ bill: BillDetail }>(`/bills/${id}/void`, {
+        reason_note,
+      } satisfies VoidBillBody)
       return data.bill
     },
     onSuccess: () => {
@@ -159,13 +163,16 @@ export function useApplyBillCredits() {
 export function useUnapplyBillCredits() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (id: number) => {
-      const { data } = await client.post<{ bill: BillDetail; unapplied_count: number }>(`/bills/${id}/unapply-credits`)
+    mutationFn: async ({ id, reason_note }: { id: number; reason_note: string }) => {
+      const { data } = await client.post<{ bill: BillDetail; unapplied_count: number }>(`/bills/${id}/unapply-credits`, {
+        confirm_unapply_credits: true,
+        reason_note,
+      } satisfies UnapplyCreditsBody)
       return data
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['bills'] })
-      queryClient.invalidateQueries({ queryKey: ['bills', id] })
+      queryClient.invalidateQueries({ queryKey: ['bills', vars.id] })
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
     },

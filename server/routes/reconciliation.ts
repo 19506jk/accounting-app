@@ -18,6 +18,7 @@ import type {
   ReconciliationStatus,
   ReconciliationSummary,
   ReconciliationSummaryCounts,
+  ReopenReconciliationBody,
   UpdateReconciliationInput,
 } from '@shared/contracts';
 import type {
@@ -31,6 +32,7 @@ import type {
 import { addDaysDateOnly, compareDateOnly, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
 import { buildReconciliationReport } from '../services/reports.js';
 import { reconciliationReopenPreflight } from '../services/bankTransactions/preflight.js';
+import { writeForensicEntry } from '../services/auditLog.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth.js');
@@ -569,6 +571,25 @@ router.post(
               last_modified_at: trx.fn.now(),
             });
         }
+
+        await writeForensicEntry(trx, {
+          sessionToken: req.auditSessionToken,
+          actor: {
+            id: req.user!.id,
+            name: req.user!.name,
+            email: req.user!.email,
+            role: req.user!.role,
+          },
+        }, {
+          entity_type: 'reconciliation',
+          entity_id: id,
+          entity_label: `Reconciliation #${id} (${normalizeDateOnly(recon.statement_date)} / ${String(recon.statement_balance)})`,
+          action: 'close',
+          payload: {
+            old: { is_closed: false },
+            new: { is_closed: true },
+          },
+        });
       });
 
       const summary = await calcSummary(id);
@@ -587,11 +608,15 @@ router.post(
   '/:id/reopen',
   requireRole('admin'),
   async (
-    req: Request<{ id: string }>,
+    req: Request<{ id: string }, { reconciliation: ReconciliationRow } | ApiErrorResponse, ReopenReconciliationBody>,
     res: Response<{ reconciliation: ReconciliationRow } | ApiErrorResponse>,
     next: NextFunction
   ) => {
     try {
+      const reasonNote = (req.body?.reason_note ?? '').trim();
+      if (!reasonNote) {
+        return res.status(400).json({ error: 'reason_note is required for this operation' });
+      }
       const reconciliationId = Number.parseInt(req.params.id, 10);
       if (!Number.isInteger(reconciliationId) || reconciliationId <= 0) {
         return res.status(400).json({ error: 'id must be a positive integer' });
@@ -662,6 +687,26 @@ router.post(
               last_modified_at: trx.fn.now(),
             });
         }
+
+        await writeForensicEntry(trx, {
+          sessionToken: req.auditSessionToken,
+          actor: {
+            id: req.user!.id,
+            name: req.user!.name,
+            email: req.user!.email,
+            role: req.user!.role,
+          },
+          reasonNote,
+        }, {
+          entity_type: 'reconciliation',
+          entity_id: reconciliationId,
+          entity_label: `Reconciliation #${reconciliationId} (${normalizeDateOnly(recon.statement_date)})`,
+          action: 'reopen',
+          payload: {
+            old: { is_closed: true },
+            new: { is_closed: false },
+          },
+        });
       });
 
       const updated = await db('reconciliations')

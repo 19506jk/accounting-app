@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import type { Knex } from 'knex';
 import express = require('express');
 
 import type {
@@ -9,6 +10,7 @@ import type {
   UserSummary,
 } from '@shared/contracts';
 import type { UserRow } from '../types/db';
+import { writeForensicEntry } from '../services/auditLog.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth.js');
@@ -91,16 +93,46 @@ router.put(
         return res.status(400).json({ error: 'You cannot change your own role' });
       }
 
-      const [updated] = await db('users')
-        .where({ id })
-        .update({ role, updated_at: db.fn.now() })
-        .returning(['id', 'name', 'email', 'role', 'is_active']);
+      const updated = await db.transaction(async (trx: Knex.Transaction) => {
+        const before = await trx('users').where({ id }).first() as UserRow | undefined;
+        if (!before) return null;
+
+        const [after] = await trx('users')
+          .where({ id })
+          .update({ role, updated_at: trx.fn.now() })
+          .returning(['id', 'name', 'email', 'role', 'is_active']);
+        if (!after) return null;
+
+        await writeForensicEntry(trx, {
+          sessionToken: req.auditSessionToken,
+          actor: {
+            id: req.user!.id,
+            name: req.user!.name,
+            email: req.user!.email,
+            role: req.user!.role,
+          },
+        }, {
+          entity_type: 'user',
+          entity_id: id,
+          entity_label: `${before.email} (#${before.id})`,
+          action: 'update',
+          payload: {
+            old: { role: before.role },
+            new: { role },
+            fields_changed: {
+              role: { from: before.role, to: role },
+            },
+          },
+        });
+
+        return after as UserSummary;
+      });
 
       if (!updated) {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      res.json({ user: updated as UserSummary });
+      res.json({ user: updated });
     } catch (err) {
       next(err);
     }

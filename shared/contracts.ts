@@ -1567,7 +1567,7 @@ export interface VoidBillBody {
 }
 
 export interface UnapplyCreditsBody {
-  confirm_unapply_credits: true;
+  confirm_unapply_credits?: boolean;
   reason_note: string;
 }
 

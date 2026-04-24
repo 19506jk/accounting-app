@@ -11,6 +11,7 @@ import type {
   ReconciliationReport,
   ReconciliationReportResponse,
   ReconciliationSummary,
+  ReopenReconciliationBody,
   UpdateReconciliationInput,
 } from '@shared/contracts'
 
@@ -119,6 +120,18 @@ export function useCloseReconciliation() {
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['reconciliations'] })
       queryClient.invalidateQueries({ queryKey: ['reconciliation', id] })
+    },
+  })
+}
+
+export function useReopenReconciliation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, reason_note }: { id: number; reason_note: string }) => {
+      await client.post(`/reconciliations/${id}/reopen`, { reason_note } satisfies ReopenReconciliationBody)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reconciliations'] })
     },
   })
 }

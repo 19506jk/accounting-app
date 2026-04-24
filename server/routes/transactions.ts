@@ -24,6 +24,7 @@ import transactionService = require('../services/transactions');
 import { listTransactions } from '../services/transactions/list.js';
 import transactionImportService = require('../services/transactions/imports');
 import { getBillMatchSuggestions } from '../services/transactions/billMatches.js';
+import type { ForensicContext } from '../services/auditLog.js';
 
 const router = express.Router();
 router.use(auth);
@@ -121,7 +122,16 @@ router.post(
     next: NextFunction
   ) => {
     try {
-      const transaction = await transactionService.createTransaction(req.body, req.user!.id);
+      const ctx: ForensicContext = {
+        sessionToken: req.auditSessionToken,
+        actor: {
+          id: req.user!.id,
+          name: req.user!.name,
+          email: req.user!.email,
+          role: req.user!.role,
+        },
+      };
+      const transaction = await transactionService.createTransaction(req.body, req.user!.id, ctx);
       res.status(201).json({ transaction });
     } catch (err) {
       return handleServiceError(err, res, next);
@@ -139,7 +149,16 @@ router.put(
   ) => {
     try {
       const { id } = req.params;
-      const transaction = await transactionService.updateTransaction(id, req.body);
+      const ctx: ForensicContext = {
+        sessionToken: req.auditSessionToken,
+        actor: {
+          id: req.user!.id,
+          name: req.user!.name,
+          email: req.user!.email,
+          role: req.user!.role,
+        },
+      };
+      const transaction = await transactionService.updateTransaction(id, req.body, ctx);
 
       res.json({
         transaction,
@@ -160,8 +179,17 @@ router.delete(
   ) => {
     try {
       const { id } = req.params;
+      const ctx: ForensicContext = {
+        sessionToken: req.auditSessionToken,
+        actor: {
+          id: req.user!.id,
+          name: req.user!.name,
+          email: req.user!.email,
+          role: req.user!.role,
+        },
+      };
 
-      await transactionService.deleteTransaction(id);
+      await transactionService.deleteTransaction(id, ctx);
       res.json({ message: 'Transaction deleted successfully' });
     } catch (err) {
       next(err);

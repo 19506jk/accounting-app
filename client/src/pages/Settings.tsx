@@ -62,6 +62,7 @@ export default function Settings() {
 
   const [form, setForm] = useState<SettingsValues>({});
   const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [reopenReason, setReopenReason] = useState('');
   const latestPeriodId = useMemo(() => {
     if (!fiscalPeriods.length) return null;
     const latest = fiscalPeriods.reduce<FiscalPeriod | null>((current, period) => {
@@ -135,10 +136,13 @@ export default function Settings() {
 
   async function handleReopen() {
     if (confirmId === null) return;
+    const reason_note = reopenReason.trim();
+    if (!reason_note) return;
     try {
-      await reopenPeriod.mutateAsync(confirmId);
+      await reopenPeriod.mutateAsync({ id: confirmId, reason_note });
       addToast('Period reopened.', 'success');
       setConfirmId(null);
+      setReopenReason('');
     } catch (err) {
       addToast(getErrorMessage(err, 'Failed to reopen period.'), 'error');
     }
@@ -427,18 +431,35 @@ export default function Settings() {
 
       <Modal
         isOpen={confirmId !== null}
-        onClose={() => setConfirmId(null)}
+        onClose={() => {
+          setConfirmId(null);
+          setReopenReason('');
+        }}
         title="Reopen Fiscal Period?"
       >
         <p style={{ margin: 0, color: '#374151', fontSize: '0.875rem', lineHeight: 1.5 }}>
           This will void the closing entry and unlock the period for new transactions.
           This cannot be undone without running Hard Close again.
         </p>
+        <div style={{ marginTop: '1rem' }}>
+          <Input
+            label="Reason for reopening"
+            value={reopenReason}
+            onChange={(event) => setReopenReason(event.target.value)}
+          />
+        </div>
         <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
-          <Button variant="ghost" onClick={() => setConfirmId(null)} disabled={reopenPeriod.isPending}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setConfirmId(null);
+              setReopenReason('');
+            }}
+            disabled={reopenPeriod.isPending}
+          >
             Cancel
           </Button>
-          <Button variant="primary" isLoading={reopenPeriod.isPending} onClick={handleReopen}>
+          <Button variant="primary" isLoading={reopenPeriod.isPending} onClick={handleReopen} disabled={!reopenReason.trim()}>
             Confirm Reopen
           </Button>
         </div>
