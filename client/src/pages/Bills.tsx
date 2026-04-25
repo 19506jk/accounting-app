@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import Card from '../components/ui/Card';
 import Drawer from '../components/ui/Drawer';
+import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Combobox from '../components/ui/Combobox';
@@ -24,6 +25,7 @@ type BillDrawerState =
   | { type: 'edit'; bill: BillSummary }
   | { type: 'view'; bill: BillSummary }
   | null;
+type VoidPromptState = { bill: EditableBill; closeDrawer: boolean } | null;
 
 function currentMonth() {
   return currentMonthRange();
@@ -45,6 +47,8 @@ export default function Bills() {
   const [showVoided, setShowVoided] = useState(false);
   const [drawer, setDrawer] = useState<BillDrawerState>(null);
   const [paymentBill, setPaymentBill] = useState<BillSummary | BillDetail | null>(null);
+  const [voidPrompt, setVoidPrompt] = useState<VoidPromptState>(null);
+  const [voidReason, setVoidReason] = useState('');
 
   const { data: bills, isLoading, refetch } = useBills({
     status: statusFilter || undefined,
@@ -96,20 +100,25 @@ export default function Bills() {
     setPaymentBill(bill);
   }
 
-  async function handleVoid(bill: EditableBill, { closeDrawer = false }: { closeDrawer?: boolean } = {}) {
-    const confirmed = window.confirm(
-      `Are you sure you want to void this bill? This action cannot be undone and will be recorded in the audit history.\n\n` +
-      `Vendor: ${bill.vendor_name}\n` +
-      `Amount: ${fmt(bill.amount)}\n` +
-      `Bill #: ${bill.bill_number || '—'}`
-    );
+  function handleVoid(bill: EditableBill, { closeDrawer = false }: { closeDrawer?: boolean } = {}) {
+    setVoidPrompt({ bill, closeDrawer });
+    setVoidReason('');
+  }
 
-    if (!confirmed) return;
+  function closeVoidPrompt() {
+    setVoidPrompt(null);
+    setVoidReason('');
+  }
 
+  async function confirmVoid() {
+    if (!voidPrompt) return;
+    const reason_note = voidReason.trim();
+    if (!reason_note) return;
     try {
-      await voidBill.mutateAsync(bill.id);
+      await voidBill.mutateAsync({ id: voidPrompt.bill.id, reason_note });
       addToast('Bill voided successfully.', 'success');
-      if (closeDrawer) setDrawer(null);
+      if (voidPrompt.closeDrawer) setDrawer(null);
+      closeVoidPrompt();
       refetch();
     } catch (err) {
       addToast(getErrorMessage(err, 'Cannot void bill.'), 'error');
@@ -226,6 +235,52 @@ export default function Bills() {
         onClose={() => setPaymentBill(null)}
         onPaid={() => { refetch(); }}
       />
+
+      <Modal
+        isOpen={!!voidPrompt}
+        onClose={closeVoidPrompt}
+        title="Void Bill?"
+      >
+        <p style={{ margin: 0, color: '#374151', fontSize: '0.875rem', lineHeight: 1.5 }}>
+          This action cannot be undone and will be recorded in the audit history.
+        </p>
+        <div style={{ marginTop: '0.75rem', color: '#374151', fontSize: '0.875rem' }}>
+          <div>Vendor: {voidPrompt?.bill.vendor_name || '—'}</div>
+          <div>Amount: {voidPrompt ? fmt(voidPrompt.bill.amount) : '—'}</div>
+          <div>Bill #: {voidPrompt?.bill.bill_number || '—'}</div>
+        </div>
+        <div style={{ marginTop: '1rem' }}>
+          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem', color: '#374151' }}>
+            Reason for voiding
+          </label>
+          <textarea
+            value={voidReason}
+            onChange={(event) => setVoidReason(event.target.value)}
+            rows={3}
+            style={{
+              width: '100%',
+              border: '1px solid #d1d5db',
+              borderRadius: '0.5rem',
+              padding: '0.6rem 0.75rem',
+              fontSize: '0.875rem',
+              resize: 'vertical',
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+          <Button variant="ghost" onClick={closeVoidPrompt} disabled={voidBill.isPending}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            isLoading={voidBill.isPending}
+            onClick={confirmVoid}
+            disabled={!voidReason.trim()}
+          >
+            Confirm Void
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

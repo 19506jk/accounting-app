@@ -19,7 +19,9 @@ import type {
   CreateBillInput,
   UnapplyBillCreditsResponse,
   PayBillInput,
+  UnapplyCreditsBody,
   UpdateBillInput,
+  VoidBillBody,
 } from '@shared/contracts';
 import type {
   BillLineItemRow,
@@ -45,6 +47,7 @@ import {
 } from '../services/bills.js';
 import { getChurchToday, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
 import { getChurchTimeZone } from '../services/churchTimeZone.js';
+import type { ForensicContext } from '../services/auditLog.js';
 
 const router = express.Router();
 router.use(auth);
@@ -230,7 +233,16 @@ router.post(
     next: NextFunction
   ) => {
     try {
-      const result = await applyBillCredits(req.params.id, req.body, req.user!.id);
+      const ctx: ForensicContext = {
+        sessionToken: req.auditSessionToken,
+        actor: {
+          id: req.user!.id,
+          name: req.user!.name,
+          email: req.user!.email,
+          role: req.user!.role,
+        },
+      };
+      const result = await applyBillCredits(req.params.id, req.body, req.user!.id, db, ctx);
       if (result.errors) return res.status(400).json({ errors: result.errors });
       if (!result.bill) throw new Error('Unexpected missing bill after applyBillCredits');
       res.json({
@@ -248,12 +260,26 @@ router.post(
   '/:id/unapply-credits',
   requireRole('admin', 'editor'),
   async (
-    req: Request<{ id: string }>,
+    req: Request<{ id: string }, UnapplyBillCreditsResponse | ApiValidationErrorResponse, UnapplyCreditsBody>,
     res: Response<UnapplyBillCreditsResponse | ApiValidationErrorResponse>,
     next: NextFunction
   ) => {
     try {
-      const result = await unapplyBillCredits(req.params.id, req.user!.id);
+      const reasonNote = (req.body?.reason_note ?? '').trim();
+      if (!reasonNote) {
+        return res.status(400).json({ errors: ['reason_note is required for this operation'] });
+      }
+      const ctx: ForensicContext = {
+        sessionToken: req.auditSessionToken,
+        actor: {
+          id: req.user!.id,
+          name: req.user!.name,
+          email: req.user!.email,
+          role: req.user!.role,
+        },
+        reasonNote,
+      };
+      const result = await unapplyBillCredits(req.params.id, req.user!.id, db, ctx);
       if (result.errors) return res.status(400).json({ errors: result.errors });
       if (!result.bill) throw new Error('Unexpected missing bill after unapplyBillCredits');
       res.json({
@@ -331,7 +357,16 @@ router.post(
     next: NextFunction
   ) => {
     try {
-      const result = await createBill(req.body, req.user!.id);
+      const ctx: ForensicContext = {
+        sessionToken: req.auditSessionToken,
+        actor: {
+          id: req.user!.id,
+          name: req.user!.name,
+          email: req.user!.email,
+          role: req.user!.role,
+        },
+      };
+      const result = await createBill(req.body, req.user!.id, ctx);
 
       if (result.errors) {
         return res.status(400).json({ errors: result.errors });
@@ -355,7 +390,16 @@ router.put(
   ) => {
     try {
       const { id } = req.params;
-      const result = await updateBill(id, req.body, req.user!.id);
+      const ctx: ForensicContext = {
+        sessionToken: req.auditSessionToken,
+        actor: {
+          id: req.user!.id,
+          name: req.user!.name,
+          email: req.user!.email,
+          role: req.user!.role,
+        },
+      };
+      const result = await updateBill(id, req.body, req.user!.id, ctx);
 
       if (result.errors) {
         return res.status(400).json({ errors: result.errors });
@@ -379,7 +423,16 @@ router.post(
   ) => {
     try {
       const { id } = req.params;
-      const result = await payBill(id, req.body, req.user!.id);
+      const ctx: ForensicContext = {
+        sessionToken: req.auditSessionToken,
+        actor: {
+          id: req.user!.id,
+          name: req.user!.name,
+          email: req.user!.email,
+          role: req.user!.role,
+        },
+      };
+      const result = await payBill(id, req.body, req.user!.id, ctx);
 
       if (result.errors) {
         return res.status(400).json({
@@ -400,13 +453,27 @@ router.post(
   '/:id/void',
   requireRole('admin'),
   async (
-    req: Request<{ id: string }>,
+    req: Request<{ id: string }, BillMutationResponse | ApiValidationErrorResponse, VoidBillBody>,
     res: Response<BillMutationResponse | ApiValidationErrorResponse>,
     next: NextFunction
   ) => {
     try {
       const { id } = req.params;
-      const result = await voidBill(id, req.user!.id);
+      const reasonNote = (req.body?.reason_note ?? '').trim();
+      if (!reasonNote) {
+        return res.status(400).json({ errors: ['reason_note is required for this operation'] });
+      }
+      const ctx: ForensicContext = {
+        sessionToken: req.auditSessionToken,
+        actor: {
+          id: req.user!.id,
+          name: req.user!.name,
+          email: req.user!.email,
+          role: req.user!.role,
+        },
+        reasonNote,
+      };
+      const result = await voidBill(id, req.user!.id, ctx);
 
       if (result.errors) {
         return res.status(400).json({ errors: result.errors });

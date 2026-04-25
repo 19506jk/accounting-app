@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import client from './client'
 
-import type { FiscalPeriod } from '@shared/contracts'
+import type { FiscalPeriod, ReopenFiscalPeriodBody } from '@shared/contracts'
 
 export function useFiscalPeriods() {
   return useQuery<FiscalPeriod[]>({
@@ -17,8 +17,10 @@ export function useReopenFiscalPeriod() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (id: number) => {
-      await client.delete(`/fiscal-periods/${id}/reopen`)
+    mutationFn: async ({ id, reason_note }: { id: number; reason_note: string }) => {
+      await client.delete(`/fiscal-periods/${id}/reopen`, {
+        data: { reason_note } satisfies ReopenFiscalPeriodBody,
+      })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fiscal-periods'] })

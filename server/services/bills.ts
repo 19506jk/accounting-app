@@ -9,6 +9,7 @@ import type {
   UpdateBillInput,
 } from '@shared/contracts';
 import type { BillRow, TransactionRow } from '../types/db';
+import { computeDiff, type ForensicContext, writeForensicEntry } from './auditLog.js';
 import {
   normalizeDateOnly,
 } from '../utils/date.js';
@@ -76,6 +77,14 @@ interface BillLineItemComparisonRow {
   tax_rate_id: number | null;
 }
 
+interface BillLineItemRowSnapshot {
+  expense_account_id: number;
+  amount: Numeric;
+  rounding_adjustment: Numeric;
+  description: string | null;
+  tax_rate_id: number | null;
+}
+
 const dec = (value: Numeric | null | undefined) => new Decimal(value ?? 0);
 
 async function createBillLineItems(
@@ -97,7 +106,39 @@ async function createBillLineItems(
   return trx('bill_line_items').insert(lineItemRecords).returning('*');
 }
 
-async function createBill(payload: CreateBillInput, userId: number): Promise<BillMutationResult> {
+function billSnapshot(row: BillRow) {
+  return {
+    id: row.id,
+    bill_number: row.bill_number,
+    date: normalizeDateOnly(row.date),
+    due_date: row.due_date ? normalizeDateOnly(row.due_date) : null,
+    description: row.description,
+    amount: row.amount,
+    status: row.status,
+    paid_at: row.paid_at ? String(row.paid_at) : null,
+  };
+}
+
+function lineItemSnapshots(rows: BillLineItemRowSnapshot[]) {
+  return rows.map((row) => ({
+    expense_account_id: row.expense_account_id,
+    amount: row.amount,
+    rounding_adjustment: row.rounding_adjustment,
+    description: row.description,
+    tax_rate_id: row.tax_rate_id,
+  }));
+}
+
+async function journalEntrySnapshotsForBillTransaction(transactionId: number | null, trx: Knex.Transaction) {
+  if (!transactionId) return [] as Array<{ account_id: number; debit: Numeric; credit: Numeric }>;
+  const rows = await trx('journal_entries')
+    .where({ transaction_id: transactionId })
+    .orderBy('id', 'asc')
+    .select('account_id', 'debit', 'credit') as Array<{ account_id: number; debit: Numeric; credit: Numeric }>;
+  return rows;
+}
+
+async function createBill(payload: CreateBillInput, userId: number, ctx?: ForensicContext): Promise<BillMutationResult> {
   const errors = validateBillData(payload);
   if (errors.length) return { errors };
 
@@ -181,9 +222,9 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
       .where({ id: bill.id })
       .update({ created_transaction_id: transaction.id });
 
-    await createBillLineItems(bill.id, payload.line_items, trx);
+    const insertedLineItems = await createBillLineItems(bill.id, payload.line_items, trx) as BillLineItemRowSnapshot[];
     
-    await createMultiLineJournalEntries(
+    const insertedJournalEntries = await createMultiLineJournalEntries(
       transaction.id,
       payload.line_items,
       payload.fund_id,
@@ -194,6 +235,23 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
       trx
     );
 
+    if (ctx) {
+      await writeForensicEntry(trx, ctx, {
+        entity_type: 'bill',
+        entity_id: bill.id,
+        entity_label: bill.bill_number || `Bill #${bill.id}`,
+        action: 'create',
+        payload: {
+          new: {
+            bill: billSnapshot(bill),
+            line_items: lineItemSnapshots(insertedLineItems),
+            journal_entries: (insertedJournalEntries as Array<{ account_id: number; debit: Numeric; credit: Numeric }>)
+              .map((row) => ({ account_id: row.account_id, debit: row.debit, credit: row.credit })),
+          },
+        },
+      });
+    }
+
     return { bill, transaction };
   });
 
@@ -201,7 +259,7 @@ async function createBill(payload: CreateBillInput, userId: number): Promise<Bil
   return { bill: billWithLineItems, transaction: result.transaction };
 }
 
-async function updateBill(id: string, payload: UpdateBillInput, userId: number): Promise<BillMutationResult> {
+async function updateBill(id: string, payload: UpdateBillInput, userId: number, ctx?: ForensicContext): Promise<BillMutationResult> {
   let bill = await db('bills').where({ id }).first() as BillRow | undefined;
   if (!bill) {
     return { errors: ['Bill not found'] };
@@ -271,12 +329,12 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
 
   let hasPartialPayments = dec(bill.amount_paid).gt(0);
   let hasLineItemChanges = false;
-  if (payload.line_items !== undefined) {
-    const existingLineItems = await db('bill_line_items')
-      .where({ bill_id: id })
-      .orderBy('id', 'asc')
-      .select('expense_account_id', 'amount', 'rounding_adjustment', 'description', 'tax_rate_id') as BillLineItemComparisonRow[];
+  const existingLineItems = await db('bill_line_items')
+    .where({ bill_id: id })
+    .orderBy('id', 'asc')
+    .select('expense_account_id', 'amount', 'rounding_adjustment', 'description', 'tax_rate_id') as BillLineItemComparisonRow[];
 
+  if (payload.line_items !== undefined) {
     const normaliseExistingLineItem = (line: BillLineItemComparisonRow) => ({
       expense_account_id: Number(line.expense_account_id),
       amount: dec(line.amount).toFixed(2),
@@ -311,7 +369,7 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
   }
 
   if (hasAppliedCredits && payload.confirm_unapply_credits) {
-    const unapplied = await unapplyBillCredits(id, userId);
+    const unapplied = await unapplyBillCredits(id, userId, db, ctx);
     if (unapplied.errors) return { errors: unapplied.errors };
     bill = await db('bills').where({ id }).first() as BillRow | undefined;
     if (!bill) return { errors: ['Bill not found'] };
@@ -335,11 +393,22 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
   const isSettledAfterUpdate = isSettledOutstanding(nextOutstanding);
 
   await db.transaction(async (trx: Knex.Transaction) => {
-    if (!bill.created_transaction_id) {
+    const beforeBill = await trx('bills')
+      .where({ id })
+      .forUpdate()
+      .first() as BillRow | undefined;
+    if (!beforeBill) {
+      throw Object.assign(new Error('Bill not found'), { status: 404 });
+    }
+
+    const sourceTransactionId = beforeBill.created_transaction_id;
+    const beforeJournalEntries = await journalEntrySnapshotsForBillTransaction(sourceTransactionId, trx);
+
+    if (!sourceTransactionId) {
       throw Object.assign(new Error('Bill has no linked transaction'), { status: 422 });
     }
     const existingBillTx = await trx('transactions')
-      .where({ id: bill.created_transaction_id })
+      .where({ id: sourceTransactionId })
       .select('date')
       .first() as Pick<TransactionRow, 'date'> | undefined;
     if (!existingBillTx) {
@@ -359,32 +428,30 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
         await createBillLineItems(id, newLineItems, trx);
       }
 
-      if (bill.created_transaction_id) {
-        await trx('journal_entries')
-          .where({ transaction_id: bill.created_transaction_id })
-          .delete();
+      await trx('journal_entries')
+        .where({ transaction_id: sourceTransactionId })
+        .delete();
 
-        const apAccount = await trx('accounts')
-          .where({ code: AP_ACCOUNT_CODE })
-          .first() as AccountRow | undefined;
-        if (!apAccount) throw new Error(`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`);
+      const apAccount = await trx('accounts')
+        .where({ code: AP_ACCOUNT_CODE })
+        .first() as AccountRow | undefined;
+      if (!apAccount) throw new Error(`Accounts Payable account (${AP_ACCOUNT_CODE}) not found`);
 
-        const contact = await trx('contacts')
-          .where({ id: payload.contact_id || bill.contact_id })
-          .first() as ContactRow | undefined;
-        if (!contact) throw new Error('Vendor not found');
+      const contact = await trx('contacts')
+        .where({ id: payload.contact_id || bill.contact_id })
+        .first() as ContactRow | undefined;
+      if (!contact) throw new Error('Vendor not found');
 
-        await createMultiLineJournalEntries(
-          bill.created_transaction_id,
-          newLineItems,
-          payload.fund_id || bill.fund_id,
-          apAccount.id,
-          payload.contact_id !== undefined ? payload.contact_id : bill.contact_id,
-          contact.name,
-          bill.bill_number || '',
-          trx
-        );
-      }
+      await createMultiLineJournalEntries(
+        sourceTransactionId,
+        newLineItems,
+        payload.fund_id || bill.fund_id,
+        apAccount.id,
+        payload.contact_id !== undefined ? payload.contact_id : bill.contact_id,
+        contact.name,
+        bill.bill_number || '',
+        trx
+      );
     }
 
     const updateData = {
@@ -407,6 +474,40 @@ async function updateBill(id: string, payload: UpdateBillInput, userId: number):
       .where({ id })
       .update(updateData)
       .returning('*');
+
+    if (ctx) {
+      const afterBill = await trx('bills').where({ id }).first() as BillRow | undefined;
+      if (!afterBill) throw new Error('Failed to load updated bill');
+      const afterLineItems = await trx('bill_line_items')
+        .where({ bill_id: id })
+        .orderBy('id', 'asc')
+        .select('expense_account_id', 'amount', 'rounding_adjustment', 'description', 'tax_rate_id') as BillLineItemComparisonRow[];
+      const afterJournalEntries = await journalEntrySnapshotsForBillTransaction(afterBill.created_transaction_id, trx);
+
+      const beforeHeader = billSnapshot(beforeBill);
+      const afterHeader = billSnapshot(afterBill);
+      const diff = computeDiff(beforeHeader, afterHeader);
+
+      await writeForensicEntry(trx, ctx, {
+        entity_type: 'bill',
+        entity_id: id,
+        entity_label: afterBill.bill_number || `Bill #${afterBill.id}`,
+        action: 'update',
+        payload: {
+          old: {
+            bill: beforeHeader,
+            line_items: lineItemSnapshots(existingLineItems),
+            journal_entries: beforeJournalEntries,
+          },
+          new: {
+            bill: afterHeader,
+            line_items: lineItemSnapshots(afterLineItems),
+            journal_entries: afterJournalEntries,
+          },
+          fields_changed: diff.fields_changed,
+        },
+      });
+    }
   });
 
   const billWithLineItems = await getBillWithLineItems(id);
@@ -556,13 +657,31 @@ async function payBillInTransaction(
   return { bill: billWithLineItems, transaction, bank_journal_entry_id: bankEntry.id };
 }
 
-async function payBill(id: string, paymentData: PayBillInput, userId: number): Promise<BillMutationResult> {
-  const result = await db.transaction((trx: Knex.Transaction) => payBillInTransaction(id, paymentData, userId, trx));
+async function payBill(id: string, paymentData: PayBillInput, userId: number, ctx?: ForensicContext): Promise<BillMutationResult> {
+  const result = await db.transaction(async (trx: Knex.Transaction) => {
+    const settled = await payBillInTransaction(id, paymentData, userId, trx);
+    if (ctx && !settled.errors && settled.bill) {
+      await writeForensicEntry(trx, ctx, {
+        entity_type: 'bill',
+        entity_id: id,
+        entity_label: settled.bill.bill_number || `Bill #${settled.bill.id}`,
+        action: 'pay',
+        payload: {
+          new: {
+            amount_paid: settled.bill.amount_paid,
+            transaction_id: settled.bill.transaction_id,
+            paid_at: settled.bill.paid_at,
+          },
+        },
+      });
+    }
+    return settled;
+  });
   if (result.errors) return { errors: result.errors, outstanding: result.outstanding };
   return { bill: result.bill, transaction: result.transaction };
 }
 
-async function voidBill(id: string, userId: number): Promise<BillMutationResult> {
+async function voidBill(id: string, userId: number, ctx?: ForensicContext): Promise<BillMutationResult> {
   const bill = await getBillWithLineItems(id);
   if (!bill) {
     return { errors: ['Bill not found'] };
@@ -581,6 +700,10 @@ async function voidBill(id: string, userId: number): Promise<BillMutationResult>
   }
 
   const result = await db.transaction(async (trx: Knex.Transaction) => {
+    const beforeBill = await trx('bills').where({ id }).first() as BillRow | undefined;
+    if (!beforeBill) throw new Error('Bill not found');
+    const beforeJournalEntries = await journalEntrySnapshotsForBillTransaction(beforeBill.created_transaction_id, trx);
+
     // Set is_voided flag on the original transaction
     if (bill.created_transaction_id) {
       const existingBillTransaction = await trx('transactions')
@@ -606,6 +729,21 @@ async function voidBill(id: string, userId: number): Promise<BillMutationResult>
       })
       .returning('*') as BillRow[];
     if (!updatedBill) throw new Error('Failed to void bill');
+
+    if (ctx) {
+      await writeForensicEntry(trx, ctx, {
+        entity_type: 'bill',
+        entity_id: id,
+        entity_label: beforeBill.bill_number || `Bill #${beforeBill.id}`,
+        action: 'void',
+        payload: {
+          old: {
+            bill: billSnapshot(beforeBill),
+            journal_entries: beforeJournalEntries,
+          },
+        },
+      });
+    }
 
     return { bill: updatedBill };
   });

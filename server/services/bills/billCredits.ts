@@ -8,6 +8,7 @@ import type {
   BillDetail,
 } from '@shared/contracts';
 import type { BillCreditApplicationRow, BillRow, TransactionRow } from '../../types/db';
+import { type ForensicContext, writeForensicEntry } from '../auditLog.js';
 import {
   getChurchToday,
   isValidDateOnly,
@@ -113,7 +114,8 @@ export async function getAvailableCreditsForBill(
 export async function unapplyBillCredits(
   id: string,
   userId: number,
-  executor: Knex = db
+  executor: Knex = db,
+  ctx?: ForensicContext
 ): Promise<{ bill?: BillDetail | null; errors?: string[]; unapplied_count?: number }> {
   const result = await executor.transaction(async (trx: Knex.Transaction) => {
     const targetBill = await trx('bills')
@@ -206,6 +208,23 @@ export async function unapplyBillCredits(
       });
 
     const bill = await getBillWithLineItems(id, trx);
+    if (ctx && bill && applications.length > 0) {
+      await writeForensicEntry(trx, ctx, {
+        entity_type: 'bill',
+        entity_id: id,
+        entity_label: bill.bill_number || `Bill #${bill.id}`,
+        action: 'unapply_credit',
+        payload: {
+          new: {
+            target_bill_id: targetBill.id,
+            applications: applications.map((app) => ({
+              credit_bill_id: app.credit_bill_id,
+              amount: app.amount,
+            })),
+          },
+        },
+      });
+    }
     return { bill, unapplied_count: applications.length };
   });
 
@@ -216,7 +235,8 @@ export async function applyBillCredits(
   id: string,
   payload: ApplyBillCreditsInput,
   userId: number,
-  executor: Knex = db
+  executor: Knex = db,
+  ctx?: ForensicContext
 ): Promise<{ bill?: BillDetail | null; errors?: string[]; applications?: BillCreditApplication[]; transaction?: TransactionRow | null }> {
   if (!payload.applications || !Array.isArray(payload.applications) || payload.applications.length === 0) {
     return { errors: ['applications is required'] };
@@ -419,6 +439,23 @@ export async function applyBillCredits(
       ) as ApplicationJoinedRow[];
 
     const bill = await getBillWithLineItems(id, trx);
+    if (ctx && bill) {
+      await writeForensicEntry(trx, ctx, {
+        entity_type: 'bill',
+        entity_id: id,
+        entity_label: bill.bill_number || `Bill #${bill.id}`,
+        action: 'apply_credit',
+        payload: {
+          new: {
+            target_bill_id: target.id,
+            applications: appRows.map((app) => ({
+              credit_bill_id: app.credit_bill_id,
+              amount: app.amount,
+            })),
+          },
+        },
+      });
+    }
     return {
       bill,
       applications: normaliseApplications(detailedApps),

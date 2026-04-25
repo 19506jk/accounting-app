@@ -1,21 +1,38 @@
-# Project Context
+<!-- code-review-graph MCP tools -->
+## MCP Tools: code-review-graph
 
-This is a javascript project using raw-http.
+**IMPORTANT: This project has a knowledge graph. ALWAYS use the
+code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
+the codebase.** The graph is faster, cheaper (fewer tokens), and gives
+you structural context (callers, dependents, test coverage) that file
+scanning cannot.
 
-Middleware includes: custom, auth, cors.
+### When to use graph tools FIRST
 
-High-impact files (most imported, changes here affect many other files):
-- client/src/api/client.ts (imported by 14 files)
-- server/db/index.js (imported by 13 files)
-- server/middleware/auth.ts (imported by 11 files)
-- client/src/components/ui/Toast.jsx (imported by 10 files)
-- client/src/components/ui/Card.jsx (imported by 10 files)
-- client/src/components/ui/Button.jsx (imported by 10 files)
-- client/src/context/AuthContext.tsx (imported by 9 files)
-- client/src/components/ui/Input.jsx (imported by 9 files)
+- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
+- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
+- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
+- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
+- **Architecture questions**: `get_architecture_overview` + `list_communities`
 
-Required environment variables (no defaults):
-- CLIENT_ORIGIN (server/index.ts)
+Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 
-Read .codesight/wiki/index.md for orientation (WHERE things live). Then read actual source files before implementing. Wiki articles are navigation aids, not implementation guides.
-Read .codesight/CODESIGHT.md for the complete AI context map including all routes, schema, components, libraries, config, middleware, and dependency graph.
+### Key Tools
+
+| Tool | Use when |
+|------|----------|
+| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
+| `get_review_context` | Need source snippets for review — token-efficient |
+| `get_impact_radius` | Understanding blast radius of a change |
+| `get_affected_flows` | Finding which execution paths are impacted |
+| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
+| `semantic_search_nodes` | Finding functions/classes by name or keyword |
+| `get_architecture_overview` | Understanding high-level codebase structure |
+| `refactor_tool` | Planning renames, finding dead code |
+
+### Workflow
+
+1. The graph auto-updates on file changes (via hooks).
+2. Use `detect_changes` for code review.
+3. Use `get_affected_flows` to understand impact.
+4. Use `query_graph` pattern="tests_for" to check coverage.

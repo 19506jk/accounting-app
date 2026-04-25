@@ -7,6 +7,7 @@ interface AuthJwtPayload extends jwt.JwtPayload {
   id: number;
   email: string;
   role: Role;
+  name?: string;
 }
 
 function auth(req: Request, res: Response, next: NextFunction) {
@@ -28,7 +29,7 @@ function auth(req: Request, res: Response, next: NextFunction) {
       id: payload.id,
       email: payload.email,
       role: payload.role,
-      name: '',
+      name: payload.name || payload.email,
       avatar_url: null,
     };
 

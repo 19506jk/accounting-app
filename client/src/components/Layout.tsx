@@ -19,6 +19,7 @@ const NAV_LINKS = [
 
 const ADMIN_LINKS = [
   { to: '/donation-receipts', label: '🧾 Donation Receipts' },
+  { to: '/audit-log', label: 'Audit Log' },
   { to: '/settings', label: '⚙️ Settings' },
   { to: '/users',    label: '👤 Users' },
 ];

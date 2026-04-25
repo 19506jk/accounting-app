@@ -22,6 +22,7 @@ interface JwtSignPayload {
   id: number;
   email: string;
   role: Role;
+  name: string;
 }
 
 type GoogleAuthReq = Request<{}, GoogleAuthResponse | { error: string }, GoogleAuthRequest>;
@@ -112,7 +113,7 @@ router.post('/google', async (req: GoogleAuthReq, res: Response, next: NextFunct
     });
 
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role } as JwtSignPayload,
+      { id: user.id, email: user.email, role: user.role, name: user.name } as JwtSignPayload,
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );

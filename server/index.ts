@@ -22,6 +22,8 @@ import fiscalPeriodRoutes from './routes/fiscalPeriods.js';
 import donationReceiptRoutes from './routes/donationReceipts.js';
 import bankTransactionRoutes from './routes/bankTransactions.js';
 import bankMatchingRulesRoutes from './routes/bankMatchingRules.js';
+import auditLogRoutes from './routes/auditLog.js';
+import { accessLog } from './middleware/accessLog.js';
 import { initializeChurchTimeZoneCache } from './services/churchTimeZone.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -52,6 +54,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+app.use(accessLog);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -59,6 +62,7 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/audit-log', auditLogRoutes);
 app.use('/api/funds', fundRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/contacts', contactRoutes);

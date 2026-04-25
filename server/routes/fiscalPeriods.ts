@@ -11,10 +11,12 @@ import type {
   HardClosePreflightResult,
   HardCloseProFormaLine,
   HardCloseUnreconciledAccount,
+  ReopenFiscalPeriodBody,
 } from '@shared/contracts';
 import { getChurchToday, normalizeDateOnly } from '../utils/date.js';
 import { getChurchTimeZone } from '../services/churchTimeZone.js';
 import { acquireHardCloseLock } from '../utils/hardCloseGuard.js';
+import { writeForensicEntry } from '../services/auditLog.js';
 
 const db = require('../db') as Knex;
 const auth = require('../middleware/auth.js');
@@ -406,6 +408,27 @@ router.post(
           .returning('*') as FiscalPeriodRow[];
         if (!period) throw new Error('Failed to create fiscal period');
 
+        await writeForensicEntry(trx, {
+          sessionToken: req.auditSessionToken,
+          actor: {
+            id: req.user!.id,
+            name: req.user!.name,
+            email: req.user!.email,
+            role: req.user!.role,
+          },
+        }, {
+          entity_type: 'fiscal_period',
+          entity_id: period.id,
+          entity_label: `FY${period.fiscal_year} (${normalizeDateOnly(period.period_start)} to ${normalizeDateOnly(period.period_end)})`,
+          action: 'close',
+          payload: {
+            new: {
+              fiscal_year: period.fiscal_year,
+              closing_transaction_id: transaction.id,
+            },
+          },
+        });
+
         return {
           fiscal_period: toFiscalPeriod(period),
           closing_transaction_id: transaction.id,
@@ -438,8 +461,16 @@ router.get(
 
 router.delete(
   '/:id/reopen',
-  async (req: Request<{ id: string }>, res: Response<{ message: string } | ApiErrorResponse>, next: NextFunction) => {
+  async (
+    req: Request<{ id: string }, { message: string } | ApiErrorResponse, ReopenFiscalPeriodBody>,
+    res: Response<{ message: string } | ApiErrorResponse>,
+    next: NextFunction
+  ) => {
     try {
+      const reasonNote = (req.body?.reason_note ?? '').trim();
+      if (!reasonNote) {
+        return res.status(400).json({ error: 'reason_note is required for this operation' });
+      }
       await db.transaction(async (trx) => {
         await acquireHardCloseLock(trx);
         const period = await trx('fiscal_periods')
@@ -469,6 +500,31 @@ router.delete(
         await trx('fiscal_periods')
           .where({ id: req.params.id })
           .update({ closing_transaction_id: null });
+
+        await writeForensicEntry(trx, {
+          sessionToken: req.auditSessionToken,
+          actor: {
+            id: req.user!.id,
+            name: req.user!.name,
+            email: req.user!.email,
+            role: req.user!.role,
+          },
+          reasonNote,
+        }, {
+          entity_type: 'fiscal_period',
+          entity_id: period.id,
+          entity_label: `FY${period.fiscal_year} (${normalizeDateOnly(period.period_start)} to ${normalizeDateOnly(period.period_end)})`,
+          action: 'reopen',
+          payload: {
+            old: {
+              fiscal_year: period.fiscal_year,
+              closing_transaction_id: period.closing_transaction_id,
+            },
+            new: {
+              closing_transaction_id: null,
+            },
+          },
+        });
         await trx('fiscal_periods')
           .where({ id: req.params.id })
           .delete();
