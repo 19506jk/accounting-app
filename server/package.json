@@ -19,8 +19,10 @@
     "seed": "npm run knex -- seed:run",
     "seed:dev": "npm run knex -- seed:run --env development",
     "seed:test": "NODE_ENV=test npm run knex -- seed:run --env test",
+    "dev:test": "NODE_ENV=test tsx watch index.ts",
     "db:reset": "npm run migrate:rollback -- --all && npm run migrate && npm run seed",
     "db:reset-dev": "npm run migrate:rollback -- --all --env development && npm run migrate:dev && npm run seed:dev",
+    "db:reset:test": "NODE_ENV=test npm run knex -- migrate:rollback --all --env test && npm run migrate:test && npm run seed:test",
     "test": "NODE_ENV=test vitest run",
     "test:watch": "NODE_ENV=test vitest",
     "test:coverage": "NODE_ENV=test vitest run --coverage"
