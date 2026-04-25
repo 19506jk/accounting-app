@@ -30,10 +30,16 @@
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/browser-playwright": "^4.1.4",
     "@vitest/coverage-v8": "^4.1.4",
+    "msw": "^2.13.6",
     "playwright": "^1.54.2",
     "typescript": "^5.9.2",
     "vite": "^8.0.8",
     "vitest": "^4.1.4",
     "vitest-browser-react": "^1.0.1"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }
