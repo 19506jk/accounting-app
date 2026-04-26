@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { describe, expect, it } from 'vitest';
 
-import { getErrorMessage } from './errors';
+import { getErrorMessage } from '../errors';
 
 describe('getErrorMessage', () => {
   it('uses API error message when present', () => {
@@ -38,5 +38,14 @@ describe('getErrorMessage', () => {
     );
 
     expect(getErrorMessage(error, 'Something went wrong')).toBe('Date is required, Amount is required');
+  });
+
+  it('falls back to axios message when response has no structured errors', () => {
+    const error = new axios.AxiosError('Network Error');
+    expect(getErrorMessage(error, 'Something went wrong')).toBe('Network Error');
+  });
+
+  it('returns fallback for non-axios errors', () => {
+    expect(getErrorMessage(new Error('Boom'), 'Fallback message')).toBe('Fallback message');
   });
 });

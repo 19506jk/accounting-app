@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 
-import RoleGuard from './RoleGuard';
+import RoleGuard from '../RoleGuard';
 
 const authState = vi.hoisted(() => ({
   user: null as { role: 'admin' | 'treasurer' | 'viewer' } | null,
 }));
 
-vi.mock('../context/AuthContext', () => ({
+vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({
     user: authState.user,
   }),
