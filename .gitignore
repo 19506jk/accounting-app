@@ -9,5 +9,7 @@ server/coverage/
 client/coverage/
 .vitest-attachments/
 **/__screenshots__/
+.codex
+
 # Added by code-review-graph
 .code-review-graph/

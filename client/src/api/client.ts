@@ -27,7 +27,11 @@ client.interceptors.response.use(
       isRedirecting = true
       localStorage.removeItem('church_token')
       localStorage.removeItem('church_user')
-      window.location.href = '/login'
+      if (import.meta.env.MODE === 'test') {
+        window.history.replaceState({}, '', '/login')
+      } else {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }

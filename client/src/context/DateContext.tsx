@@ -5,7 +5,6 @@ import {
   DEFAULT_CHURCH_TIMEZONE,
   isValidTimeZone,
   setChurchTimeZone,
-  getChurchTimeZone,
 } from '../utils/date'
 
 interface DateContextValue {
@@ -18,19 +17,17 @@ export function DateProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isInitialLoading } = useAuth()
   const shouldLoadSettings = isAuthenticated && !isInitialLoading
   const { data: settings } = useSettings(shouldLoadSettings)
+  const churchTimeZone = isValidTimeZone(settings?.church_timezone)
+    ? settings.church_timezone
+    : DEFAULT_CHURCH_TIMEZONE
 
   useEffect(() => {
-    const configured = settings?.church_timezone
-    if (isValidTimeZone(configured)) {
-      setChurchTimeZone(configured)
-      return
-    }
-    setChurchTimeZone(DEFAULT_CHURCH_TIMEZONE)
-  }, [settings?.church_timezone])
+    setChurchTimeZone(churchTimeZone)
+  }, [churchTimeZone])
 
   const value = useMemo<DateContextValue>(() => ({
-    churchTimeZone: getChurchTimeZone(),
-  }), [settings?.church_timezone])
+    churchTimeZone,
+  }), [churchTimeZone])
 
   return <DateContext.Provider value={value}>{children}</DateContext.Provider>
 }
