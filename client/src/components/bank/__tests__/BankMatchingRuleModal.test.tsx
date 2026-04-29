@@ -1,46 +1,34 @@
-import { describe, expect, it, vi } from 'vitest';
-import { render } from 'vitest-browser-react';
-import { userEvent } from 'vitest/browser';
+import { describe, expect, it } from 'vitest'
+import { vi } from 'vitest'
+import { userEvent } from 'vitest/browser'
+import { http, HttpResponse } from 'msw'
 
-import BankMatchingRuleModal from '../BankMatchingRuleModal';
-
-const updateMutateAsync = vi.fn(async () => ({}));
-const createMutateAsync = vi.fn(async () => ({}));
-const simulateMutateAsync = vi.fn(async () => ({ matches: [], conflicts: [] }));
-const addToast = vi.fn();
-
-vi.mock('../../../api/useBankMatchingRules', () => ({
-  useCreateBankMatchingRule: () => ({ mutateAsync: createMutateAsync, isPending: false }),
-  useUpdateBankMatchingRule: () => ({ mutateAsync: updateMutateAsync, isPending: false }),
-  useSimulateBankMatchingRule: () => ({ mutateAsync: simulateMutateAsync, isPending: false, data: null }),
-}));
-vi.mock('../../../api/useAccounts', () => ({
-  useAccounts: () => ({ data: [{ id: 2, code: '1000', name: 'Cash', type: 'ASSET', is_active: true }] }),
-}));
-vi.mock('../../../api/useFunds', () => ({
-  useFunds: () => ({ data: [{ id: 1, name: 'General', is_active: true }] }),
-}));
-vi.mock('../../../api/useContacts', () => ({
-  useContacts: ({ type }: { type: 'DONOR' | 'PAYEE' }) => ({ data: [{ id: type === 'DONOR' ? 11 : 12, name: 'Contact', is_active: true }] }),
-}));
-vi.mock('../../../api/useTaxRates', () => ({
-  useTaxRates: () => ({ data: [{ id: 5, name: 'GST', rate: 0.05 }] }),
-}));
-vi.mock('../../ui/Toast', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../ui/Toast')>();
-  return {
-    ...actual,
-    useToast: () => ({ addToast }),
-  };
-});
+import { renderWithProviders } from '../../../test/renderWithProviders'
+import { worker } from '../../../test/msw/browser'
+import BankMatchingRuleModal from '../BankMatchingRuleModal'
 
 describe('BankMatchingRuleModal', () => {
   it('submits updated rule payload', async () => {
-    updateMutateAsync.mockClear();
-    const onClose = vi.fn();
-    const screen = await render(
+    let payload: unknown = null
+    let path = ''
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({ accounts: [{ id: 2, code: '1000', name: 'Cash', type: 'ASSET', is_active: true }] })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/contacts', ({ request }) => {
+        const type = new URL(request.url).searchParams.get('type')
+        return HttpResponse.json({ contacts: [{ id: type === 'DONOR' ? 11 : 12, name: 'Contact', is_active: true }] })
+      }),
+      http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [{ id: 5, name: 'GST', rate: 0.05, is_active: true }] })),
+      http.put('/api/bank-matching-rules/:id', async ({ request, params }) => {
+        path = `/api/bank-matching-rules/${params.id}`
+        payload = await request.json()
+        return HttpResponse.json({ rule: { id: Number(params.id) } })
+      }),
+    )
+
+    const screen = await renderWithProviders(
       <BankMatchingRuleModal
-        onClose={onClose}
+        onClose={() => {}}
         rule={{
           id: 9,
           name: 'Match donations',
@@ -54,38 +42,41 @@ describe('BankMatchingRuleModal', () => {
           offset_account_id: 2,
           contact_id: null,
           splits: [],
-        } as any}
-      />
-    );
+        } as never}
+      />,
+    )
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save Rule' }));
-    expect(updateMutateAsync).toHaveBeenCalledTimes(1);
-    expect(updateMutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 9,
-        payload: expect.objectContaining({
-          name: 'Match donations',
-          match_pattern: 'etransfer',
-          offset_account_id: 2,
-        }),
-      })
-    );
-  });
+    await userEvent.click(screen.getByRole('button', { name: 'Save Rule' }))
+    await vi.waitFor(() => {
+      expect(path).toBe('/api/bank-matching-rules/9')
+      expect(payload).toEqual(expect.objectContaining({
+        name: 'Match donations',
+        match_pattern: 'etransfer',
+        offset_account_id: 2,
+      }))
+    })
+  })
 
   it('adds and removes split rows', async () => {
-    const screen = await render(<BankMatchingRuleModal onClose={vi.fn()} />);
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({ accounts: [{ id: 2, code: '1000', name: 'Cash', type: 'ASSET', is_active: true }] })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/contacts', () => HttpResponse.json({ contacts: [{ id: 11, name: 'Contact', is_active: true }] })),
+      http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [{ id: 5, name: 'GST', rate: 0.05, is_active: true }] })),
+    )
 
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Use splits' }));
-    await expect.element(screen.getByRole('button', { name: 'Add split row' })).toBeVisible();
+    const screen = await renderWithProviders(<BankMatchingRuleModal onClose={() => {}} />)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add split row' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Use splits' }))
+    await expect.element(screen.getByRole('button', { name: 'Add split row' })).toBeVisible()
+    await userEvent.click(screen.getByRole('button', { name: 'Add split row' }))
+
     const removeButtons = () =>
       Array.from(screen.container.querySelectorAll('button'))
-        .filter((button) => button.textContent?.includes('Remove row'));
+        .filter((button) => button.textContent?.includes('Remove row'))
 
-    expect(removeButtons().length).toBeGreaterThan(1);
-
-    await userEvent.click(removeButtons()[0]!);
-    expect(removeButtons().length).toBe(1);
-  });
-});
+    expect(removeButtons().length).toBeGreaterThan(1)
+    await userEvent.click(removeButtons()[0]!)
+    expect(removeButtons().length).toBe(1)
+  })
+})

@@ -1,61 +1,41 @@
-import { describe, expect, it, vi } from 'vitest';
-import { userEvent } from 'vitest/browser';
+import { describe, expect, it, vi } from 'vitest'
+import { userEvent } from 'vitest/browser'
+import { http, HttpResponse } from 'msw'
 
-import { renderWithProviders } from '../../../test/renderWithProviders';
-
-const createFromBankRowMutateAsync = vi.fn(async () => ({}));
-const simulateMutateAsync = vi.fn(async () => ({ matches: [], conflicts: [] }));
-const simulateReset = vi.fn();
-
-vi.mock('../../../api/useBankTransactions', () => ({
-  useCreateFromBankRow: () => ({ mutateAsync: createFromBankRowMutateAsync, isPending: false }),
-}));
-
-vi.mock('../../../api/useBankMatchingRules', () => ({
-  useSimulateBankMatchingRule: () => ({
-    mutateAsync: simulateMutateAsync,
-    isPending: false,
-    data: null,
-    reset: simulateReset,
-  }),
-}));
-
-vi.mock('../../../api/useAccounts', () => ({
-  useAccounts: () => ({
-    data: [
-      { id: 1, code: '1000', name: 'Main Bank', type: 'ASSET', is_active: true },
-      { id: 2, code: '2050', name: 'Donations Clearing', type: 'ASSET', is_active: true },
-      { id: 3, code: '6100', name: 'Office Expense', type: 'EXPENSE', is_active: true },
-    ],
-  }),
-}));
-
-vi.mock('../../../api/useFunds', () => ({
-  useFunds: () => ({ data: [{ id: 1, name: 'General', is_active: true }] }),
-}));
-
-vi.mock('../../../api/useContacts', () => ({
-  useContacts: ({ type }: { type: 'DONOR' | 'PAYEE' }) => ({
-    data: [{ id: type === 'DONOR' ? 11 : 12, name: type === 'DONOR' ? 'Alice Donor' : 'Bob Payee', is_active: true }],
-  }),
-}));
-
-vi.mock('../../../api/useSettings', () => ({
-  useSettings: () => ({ data: { etransfer_deposit_offset_account_id: '2' } }),
-}));
-
-vi.mock('../../../pages/importCsv/SplitTransactionModal', () => ({
-  default: () => null,
-}));
-
-const { default: CreateFromBankRowModal } = await import('../CreateFromBankRowModal');
+import { renderWithProviders } from '../../../test/renderWithProviders'
+import { worker } from '../../../test/msw/browser'
+import CreateFromBankRowModal from '../CreateFromBankRowModal'
 
 describe('CreateFromBankRowModal', () => {
   it('submits the expected create payload for deposits', async () => {
-    createFromBankRowMutateAsync.mockClear();
+    let requestBody: unknown = null
+    let requestPath = ''
+    const onClose = vi.fn()
+    const onSuccess = vi.fn()
 
-    const onClose = vi.fn();
-    const onSuccess = vi.fn();
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({
+        accounts: [
+          { id: 1, code: '1000', name: 'Main Bank', type: 'ASSET', is_active: true },
+          { id: 2, code: '2050', name: 'Donations Clearing', type: 'ASSET', is_active: true },
+          { id: 3, code: '6100', name: 'Office Expense', type: 'EXPENSE', is_active: true },
+        ],
+      })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/settings', () => HttpResponse.json({ values: { etransfer_deposit_offset_account_id: '2' } })),
+      http.get('/api/contacts', ({ request }) => {
+        const type = new URL(request.url).searchParams.get('type')
+        return HttpResponse.json({
+          contacts: [{ id: type === 'DONOR' ? 11 : 12, name: type === 'DONOR' ? 'Alice Donor' : 'Bob Payee', is_active: true }],
+        })
+      }),
+      http.post('/api/bank-transactions/:id/create', async ({ request, params }) => {
+        requestBody = await request.json()
+        requestPath = `/api/bank-transactions/${params.id}/create`
+        return HttpResponse.json({ item: { id: Number(params.id) } })
+      }),
+    )
+
     const screen = await renderWithProviders(
       <CreateFromBankRowModal
         bankTransaction={{
@@ -78,32 +58,50 @@ describe('CreateFromBankRowModal', () => {
             contact_id: 11,
             splits: undefined,
           },
-        } as any}
+        } as never}
         onClose={onClose}
         onSuccess={onSuccess}
-      />
-    );
+      />,
+    )
 
-    await userEvent.fill(screen.getByLabelText('Reference Number'), 'REF-UPDATED');
-    await userEvent.click(screen.getByRole('button', { name: 'Create Journal Entry' }));
+    await userEvent.fill(screen.getByLabelText('Reference Number'), 'REF-UPDATED')
+    await userEvent.click(screen.getByRole('button', { name: 'Create Journal Entry' }))
 
-    expect(createFromBankRowMutateAsync).toHaveBeenCalledWith({
-      id: 77,
-      payload: expect.objectContaining({
+    await vi.waitFor(() => {
+      expect(requestPath).toBe('/api/bank-transactions/77/create')
+      expect(requestBody).toEqual({
         date: '2026-03-10',
         description: 'Sunday donation',
         reference_no: 'REF-UPDATED',
         amount: 120,
         type: 'deposit',
+        train_from_feed: false,
         offset_account_id: 2,
         contact_id: 11,
-      }),
-    });
-    expect(onSuccess).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
+      })
+      expect(onSuccess).toHaveBeenCalledTimes(1)
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+  })
 
   it('shows payee selection for withdrawals', async () => {
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({
+        accounts: [
+          { id: 1, code: '1000', name: 'Main Bank', type: 'ASSET', is_active: true },
+          { id: 3, code: '6100', name: 'Office Expense', type: 'EXPENSE', is_active: true },
+        ],
+      })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/settings', () => HttpResponse.json({ values: {} })),
+      http.get('/api/contacts', ({ request }) => {
+        const type = new URL(request.url).searchParams.get('type')
+        return HttpResponse.json({
+          contacts: [{ id: type === 'DONOR' ? 11 : 12, name: type === 'DONOR' ? 'Alice Donor' : 'Bob Payee', is_active: true }],
+        })
+      }),
+    )
+
     const screen = await renderWithProviders(
       <CreateFromBankRowModal
         bankTransaction={{
@@ -119,13 +117,13 @@ describe('CreateFromBankRowModal', () => {
           bank_transaction_id: 'BTX-2',
           fund_id: 1,
           create_proposal: null,
-        } as any}
+        } as never}
         onClose={vi.fn()}
         onSuccess={vi.fn()}
-      />
-    );
+      />,
+    )
 
-    await expect.element(screen.getByText('Payee')).toBeVisible();
-    expect(screen.container.textContent || '').not.toContain('Optional contact');
-  });
-});
+    await expect.element(screen.getByText('Payee')).toBeVisible()
+    expect(screen.container.textContent || '').not.toContain('Optional contact')
+  })
+})
