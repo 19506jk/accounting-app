@@ -14,11 +14,12 @@ import type { AuthUser } from '@shared/contracts'
 interface RenderOptions {
   auth?: AuthUser
   initialEntries?: string[]
+  queryClient?: QueryClient
 }
 
 export function renderWithProviders(
   ui: React.ReactNode,
-  { auth, initialEntries = ['/'] }: RenderOptions = {}
+  { auth, initialEntries = ['/'], queryClient }: RenderOptions = {}
 ) {
   if (auth) {
     localStorage.setItem('church_token', 'test-token')
@@ -30,7 +31,7 @@ export function renderWithProviders(
     )
   }
 
-  const queryClient = new QueryClient({
+  const resolvedQueryClient = queryClient || new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity },
       mutations: { retry: false },
@@ -38,7 +39,7 @@ export function renderWithProviders(
   })
 
   return render(
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={resolvedQueryClient}>
       <GoogleOAuthProvider clientId='test-client-id'>
         <MemoryRouter initialEntries={initialEntries}>
           <AuthProvider>
