@@ -8,7 +8,7 @@ import { useFiscalPeriods, useReopenFiscalPeriod } from '../useFiscalPeriods'
 
 function FiscalPeriodsProbe() {
   const { data } = useFiscalPeriods()
-  return <div>{data?.[0]?.label || 'no-periods'}</div>
+  return <div>{data?.[0] ? `FY ${data[0].fiscal_year}` : 'no-periods'}</div>
 }
 
 function ReopenFiscalPeriodProbe() {
@@ -29,7 +29,7 @@ describe('useFiscalPeriods', () => {
       http.get('/api/fiscal-periods', () => {
         return HttpResponse.json({
           fiscal_periods: [
-            { id: 7, label: 'FY 2025', start_date: '2025-01-01', end_date: '2025-12-31', is_closed: true },
+            { id: 7, fiscal_year: 2025, period_start: '2025-01-01', period_end: '2025-12-31', status: 'HARD_CLOSED', closing_transaction_id: null, closed_by: null, closed_at: '2025-12-31T00:00:00.000Z' },
           ],
         })
       })

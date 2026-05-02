@@ -17,8 +17,9 @@ export function DateProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isInitialLoading } = useAuth()
   const shouldLoadSettings = isAuthenticated && !isInitialLoading
   const { data: settings } = useSettings(shouldLoadSettings)
-  const churchTimeZone = isValidTimeZone(settings?.church_timezone)
-    ? settings.church_timezone
+  const configuredChurchTimeZone = settings?.church_timezone
+  const churchTimeZone = configuredChurchTimeZone && isValidTimeZone(configuredChurchTimeZone)
+    ? configuredChurchTimeZone
     : DEFAULT_CHURCH_TIMEZONE
 
   useEffect(() => {

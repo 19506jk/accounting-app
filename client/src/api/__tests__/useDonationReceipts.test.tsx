@@ -19,22 +19,22 @@ function AccountsProbe({ enabled = true }: { enabled?: boolean }) {
 
 function TemplateProbe({ enabled = true }: { enabled?: boolean }) {
   const { data } = useDonationReceiptTemplate(enabled)
-  return <div>{(data as { template_name?: string } | undefined)?.template_name || 'none'}</div>
+  return <div>{data?.template.markdown_body || 'none'}</div>
 }
 
 function SaveTemplateProbe() {
   const mutation = useSaveDonationReceiptTemplate()
-  return <button type='button' onClick={() => mutation.mutate({ template_name: 'Default Template' })}>Save template</button>
+  return <button type='button' onClick={() => mutation.mutate({ markdown_body: 'Default Template' })}>Save template</button>
 }
 
 function PreviewProbe() {
   const mutation = usePreviewDonationReceipt()
-  return <button type='button' onClick={() => mutation.mutate({ contact_id: 3, fiscal_year: 2025 })}>Preview receipt</button>
+  return <button type='button' onClick={() => mutation.mutate({ fiscal_year: 2025, account_ids: [3] })}>Preview receipt</button>
 }
 
 function GeneratePdfProbe() {
   const mutation = useGenerateDonationReceiptPdf()
-  return <button type='button' onClick={() => mutation.mutate({ contact_id: 3, fiscal_year: 2025 })}>Generate receipt pdf</button>
+  return <button type='button' onClick={() => mutation.mutate({ fiscal_year: 2025, account_ids: [3] })}>Generate receipt pdf</button>
 }
 
 describe('useDonationReceiptAccounts', () => {
@@ -63,7 +63,7 @@ describe('useDonationReceiptAccounts', () => {
 
 describe('useDonationReceiptTemplate', () => {
   it('fetches receipt template', async () => {
-    worker.use(http.get('/api/donation-receipts/template', () => HttpResponse.json({ template_name: 'Tpl A' })))
+    worker.use(http.get('/api/donation-receipts/template', () => HttpResponse.json({ template: { markdown_body: 'Tpl A', updated_at: null }, variables: [] })))
     const screen = await renderWithProviders(<TemplateProbe />)
     await expect.element(screen.getByText('Tpl A')).toBeVisible()
   })
@@ -72,7 +72,7 @@ describe('useDonationReceiptTemplate', () => {
     let requested = false
     worker.use(http.get('/api/donation-receipts/template', () => {
       requested = true
-      return HttpResponse.json({ template_name: 'Tpl A' })
+      return HttpResponse.json({ template: { markdown_body: 'Tpl A', updated_at: null }, variables: [] })
     }))
     const screen = await renderWithProviders(<TemplateProbe enabled={false} />)
     await expect.element(screen.getByText('none')).toBeVisible()
@@ -87,12 +87,12 @@ describe('useSaveDonationReceiptTemplate', () => {
     let body: unknown = null
     worker.use(http.put('/api/donation-receipts/template', async ({ request }) => {
       body = await request.json()
-      return HttpResponse.json({ template_name: 'Default Template' })
+      return HttpResponse.json({ template: { markdown_body: 'Default Template', updated_at: null }, variables: [] })
     }))
     const screen = await renderWithProviders(<SaveTemplateProbe />, { queryClient })
     await screen.getByRole('button', { name: 'Save template' }).click()
     await vi.waitFor(() => {
-      expect(body).toEqual({ template_name: 'Default Template' })
+      expect(body).toEqual({ markdown_body: 'Default Template' })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['donation-receipts', 'template'] })
     })
   })
@@ -108,7 +108,7 @@ describe('usePreviewDonationReceipt', () => {
     const screen = await renderWithProviders(<PreviewProbe />)
     await screen.getByRole('button', { name: 'Preview receipt' }).click()
     await vi.waitFor(() => {
-      expect(body).toEqual({ contact_id: 3, fiscal_year: 2025 })
+      expect(body).toEqual({ fiscal_year: 2025, account_ids: [3] })
     })
   })
 })
@@ -123,7 +123,7 @@ describe('useGenerateDonationReceiptPdf', () => {
     const screen = await renderWithProviders(<GeneratePdfProbe />)
     await screen.getByRole('button', { name: 'Generate receipt pdf' }).click()
     await vi.waitFor(() => {
-      expect(body).toEqual({ contact_id: 3, fiscal_year: 2025 })
+      expect(body).toEqual({ fiscal_year: 2025, account_ids: [3] })
     })
   })
 })

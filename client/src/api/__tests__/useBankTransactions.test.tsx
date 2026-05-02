@@ -24,7 +24,7 @@ import {
 } from '../useBankTransactions'
 
 function BankTransactionsProbe({ enabled = true }: { enabled?: boolean }) {
-  const { data } = useBankTransactions({ status: ['new', 'review'], amount_min: 10 }, { enabled })
+  const { data } = useBankTransactions({ status: ['imported', 'needs_review'] }, { enabled })
   return <div>{String(data?.length ?? 0)}</div>
 }
 
@@ -40,7 +40,7 @@ function ImportProbe() {
 
 function ReviewProbe() {
   const mutation = useReviewBankTransaction()
-  return <button type='button' onClick={() => mutation.mutate({ id: 4, decision: 'approve' })}>Review</button>
+  return <button type='button' onClick={() => mutation.mutate({ id: 4, decision: 'confirmed_new' })}>Review</button>
 }
 
 function ScanProbe() {
@@ -50,17 +50,17 @@ function ScanProbe() {
 
 function ReserveProbe() {
   const mutation = useReserve()
-  return <button type='button' onClick={() => mutation.mutate({ id: 4, payload: { candidate_id: 3 } as never })}>Reserve</button>
+  return <button type='button' onClick={() => mutation.mutate({ id: 4, payload: { journal_entry_id: 3 } })}>Reserve</button>
 }
 
 function ConfirmProbe() {
   const mutation = useConfirmMatch()
-  return <button type='button' onClick={() => mutation.mutate({ id: 4, payload: { candidate_id: 3 } as never })}>Confirm</button>
+  return <button type='button' onClick={() => mutation.mutate({ id: 4, payload: { journal_entry_id: 3 } })}>Confirm</button>
 }
 
 function RejectProbe() {
   const mutation = useRejectCandidate()
-  return <button type='button' onClick={() => mutation.mutate({ id: 4, payload: { reason: 'nope' } as never })}>Reject</button>
+  return <button type='button' onClick={() => mutation.mutate({ id: 4, payload: { journal_entry_id: 3 } })}>Reject</button>
 }
 
 function ReleaseReservationProbe() {
@@ -90,7 +90,7 @@ function UnignoreProbe() {
 
 function CreateFromRowProbe() {
   const mutation = useCreateFromBankRow()
-  return <button type='button' onClick={() => mutation.mutate({ id: 4, payload: { mode: 'deposit' } as never })}>Create from row</button>
+  return <button type='button' onClick={() => mutation.mutate({ id: 4, payload: { date: '2025-01-01', description: 'Imported deposit', amount: 50, type: 'deposit' } })}>Create from row</button>
 }
 
 function ApproveMatchProbe() {
@@ -117,8 +117,7 @@ describe('useBankTransactions', () => {
     const screen = await renderWithProviders(<BankTransactionsProbe />)
     await expect.element(screen.getByText('0')).toBeVisible()
     await vi.waitFor(() => {
-      expect(url).toContain('status=new%2Creview')
-      expect(url).toContain('amount_min=10')
+      expect(url).toContain('status=imported%2Cneeds_review')
     })
   })
 
@@ -180,7 +179,7 @@ describe('mutation hooks', () => {
     await screen.getByRole('button', { name: 'Review' }).click()
     await vi.waitFor(() => {
       expect(path).toBe('/api/bank-transactions/4/review')
-      expect(body).toEqual({ decision: 'approve' })
+      expect(body).toEqual({ decision: 'confirmed_new' })
       expectInvalidatedBankTransactions(invalidateSpy)
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['bank-uploads'] })
     })

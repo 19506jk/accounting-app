@@ -7,13 +7,13 @@ import { worker } from '../../test/msw/browser'
 import { useAccounts, useCreateAccount, useDeleteAccount, useUpdateAccount } from '../useAccounts'
 
 function UseAccountsProbe({ includeInactive = false }: { includeInactive?: boolean }) {
-  const { data } = useAccounts({ include_inactive: includeInactive, type: 'asset' })
+  const { data } = useAccounts({ include_inactive: includeInactive, type: 'ASSET' })
   return <div>{data?.[0]?.name || 'none'}</div>
 }
 
 function CreateAccountProbe() {
   const mutation = useCreateAccount()
-  return <button type='button' onClick={() => mutation.mutate({ code: '1001', name: 'Petty Cash', type: 'asset' })}>Create account</button>
+  return <button type='button' onClick={() => mutation.mutate({ code: '1001', name: 'Petty Cash', type: 'ASSET' })}>Create account</button>
 }
 
 function UpdateAccountProbe() {
@@ -32,12 +32,12 @@ describe('useAccounts', () => {
     worker.use(
       http.get('/api/accounts', ({ request }) => {
         url = request.url
-        return HttpResponse.json({ accounts: [{ id: 1, code: '1000', name: 'Cash', type: 'asset', is_active: true }] })
+        return HttpResponse.json({ accounts: [{ id: 1, code: '1000', name: 'Cash', type: 'ASSET', account_class: 'ASSET', normal_balance: 'DEBIT', parent_id: null, is_active: true }] })
       }),
     )
     const screen = await renderWithProviders(<UseAccountsProbe includeInactive />)
     await expect.element(screen.getByText('Cash')).toBeVisible()
-    expect(url).toContain('type=asset')
+    expect(url).toContain('type=ASSET')
     expect(url).toContain('include_inactive=true')
   })
 })
@@ -49,12 +49,12 @@ describe('useCreateAccount', () => {
     let body: unknown = null
     worker.use(http.post('/api/accounts', async ({ request }) => {
       body = await request.json()
-      return HttpResponse.json({ account: { id: 12, code: '1001', name: 'Petty Cash', type: 'asset', is_active: true } })
+      return HttpResponse.json({ account: { id: 12, code: '1001', name: 'Petty Cash', type: 'ASSET', account_class: 'ASSET', normal_balance: 'DEBIT', parent_id: null, is_active: true } })
     }))
     const screen = await renderWithProviders(<CreateAccountProbe />, { queryClient })
     await screen.getByRole('button', { name: 'Create account' }).click()
     await vi.waitFor(() => {
-      expect(body).toEqual({ code: '1001', name: 'Petty Cash', type: 'asset' })
+      expect(body).toEqual({ code: '1001', name: 'Petty Cash', type: 'ASSET' })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['accounts'], exact: false })
     })
   })
@@ -69,7 +69,7 @@ describe('useUpdateAccount', () => {
     worker.use(http.put('/api/accounts/:id', async ({ request, params }) => {
       path = `/api/accounts/${params.id}`
       body = await request.json()
-      return HttpResponse.json({ account: { id: 12, code: '1001', name: 'Updated Cash', type: 'asset', is_active: true } })
+      return HttpResponse.json({ account: { id: 12, code: '1001', name: 'Updated Cash', type: 'ASSET', account_class: 'ASSET', normal_balance: 'DEBIT', parent_id: null, is_active: true } })
     }))
     const screen = await renderWithProviders(<UpdateAccountProbe />, { queryClient })
     await screen.getByRole('button', { name: 'Update account' }).click()

@@ -28,7 +28,7 @@ function ContactProbe({ id, enabled = true }: { id: number | null; enabled?: boo
 
 function CreateContactProbe() {
   const mutation = useCreateContact()
-  return <button type='button' onClick={() => mutation.mutate({ name: 'Ana', type: 'individual' })}>Create contact</button>
+  return <button type='button' onClick={() => mutation.mutate({ name: 'Ana', type: 'DONOR', contact_class: 'INDIVIDUAL' })}>Create contact</button>
 }
 
 function UpdateContactProbe() {
@@ -106,7 +106,7 @@ describe('useCreateContact', () => {
     const screen = await renderWithProviders(<CreateContactProbe />, { queryClient })
     await screen.getByRole('button', { name: 'Create contact' }).click()
     await vi.waitFor(() => {
-      expect(body).toEqual({ name: 'Ana', type: 'individual' })
+      expect(body).toEqual({ name: 'Ana', type: 'DONOR', contact_class: 'INDIVIDUAL' })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['contacts'] })
     })
   })

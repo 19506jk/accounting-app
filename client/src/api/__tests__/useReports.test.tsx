@@ -33,7 +33,7 @@ function TrialBalanceProbe() {
 }
 
 function DonorSummaryProbe() {
-  const { data } = useDonorSummaryReport({ from: '2025-01-01', to: '2025-01-31', account_ids: [1, 2] })
+  const { data } = useDonorSummaryReport({ from: '2025-01-01', to: '2025-01-31', account_ids: '1,2' })
   return <div>{(data as { marker?: string } | undefined)?.marker || 'none'}</div>
 }
 

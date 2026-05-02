@@ -15,7 +15,7 @@ import {
 
 function TransactionsProbe() {
   const { data } = useTransactions({ account_id: 10, from: '2025-01-01' })
-  return <div>{String(data?.rows?.length ?? 0)}</div>
+  return <div>{String(data?.transactions?.length ?? 0)}</div>
 }
 
 function TransactionProbe({ id }: { id: number | null }) {
@@ -25,7 +25,7 @@ function TransactionProbe({ id }: { id: number | null }) {
 
 function CreateTransactionProbe() {
   const mutation = useCreateTransaction()
-  return <button type='button' onClick={() => mutation.mutate({ date: '2025-01-01', description: 'Offering', lines: [] })}>Create tx</button>
+  return <button type='button' onClick={() => mutation.mutate({ date: '2025-01-01', description: 'Offering', entries: [] })}>Create tx</button>
 }
 
 function UpdateTransactionProbe() {
@@ -40,7 +40,7 @@ function DeleteTransactionProbe() {
 
 function BillMatchesProbe() {
   const mutation = useGetBillMatches()
-  return <button type='button' onClick={() => mutation.mutate({ rows: [] })}>Get bill matches</button>
+  return <button type='button' onClick={() => mutation.mutate({ bank_account_id: 10, rows: [] })}>Get bill matches</button>
 }
 
 describe('useTransactions', () => {
@@ -48,7 +48,7 @@ describe('useTransactions', () => {
     let url = ''
     worker.use(http.get('/api/transactions', ({ request }) => {
       url = request.url
-      return HttpResponse.json({ rows: [], summary: {} })
+      return HttpResponse.json({ transactions: [], total: 0, limit: 50, offset: 0 })
     }))
     const screen = await renderWithProviders(<TransactionsProbe />)
     await expect.element(screen.getByText('0')).toBeVisible()
@@ -90,7 +90,7 @@ describe('useCreateTransaction', () => {
     const screen = await renderWithProviders(<CreateTransactionProbe />, { queryClient })
     await screen.getByRole('button', { name: 'Create tx' }).click()
     await vi.waitFor(() => {
-      expect(body).toEqual({ date: '2025-01-01', description: 'Offering', lines: [] })
+      expect(body).toEqual({ date: '2025-01-01', description: 'Offering', entries: [] })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['transactions'] })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['reports'] })
     })
@@ -147,7 +147,7 @@ describe('useGetBillMatches', () => {
     const screen = await renderWithProviders(<BillMatchesProbe />)
     await screen.getByRole('button', { name: 'Get bill matches' }).click()
     await vi.waitFor(() => {
-      expect(body).toEqual({ rows: [] })
+      expect(body).toEqual({ bank_account_id: 10, rows: [] })
     })
   })
 })
