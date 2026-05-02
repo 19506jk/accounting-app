@@ -13,6 +13,8 @@ import { fmt, getBillOutstanding } from './billHelpers';
 import type { BillDetail, BillSummary } from '@shared/contracts';
 import type { OptionValue } from '../../components/ui/types';
 
+const EMPTY_CREDITS: NonNullable<ReturnType<typeof useAvailableBillCredits>['data']>['credits'] = [];
+
 interface PaymentState {
   payment_date: string;
   amount: number | '';
@@ -36,6 +38,13 @@ function fromCents(cents: number) {
   return cents / 100;
 }
 
+function areAmountMapsEqual(left: Record<string, string>, right: Record<string, string>) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
 export default function PaymentModal({ bill, isOpen, onClose, onPaid }: PaymentModalProps) {
   const { addToast } = useToast();
   const payBill = usePayBill();
@@ -50,7 +59,7 @@ export default function PaymentModal({ bill, isOpen, onClose, onPaid }: PaymentM
   const payableOutstanding = Math.max(outstanding, 0);
   const payableOutstandingCents = toCents(payableOutstanding);
   const outstandingColor = outstanding > 0 ? '#dc2626' : outstanding < 0 ? '#1d4ed8' : '#15803d';
-  const credits = creditData?.credits || [];
+  const credits = creditData?.credits ?? EMPTY_CREDITS;
 
   const [payment, setPayment] = useState<PaymentState>({
     payment_date: getChurchToday(),
@@ -75,17 +84,22 @@ export default function PaymentModal({ bill, isOpen, onClose, onPaid }: PaymentM
       credits.forEach((credit) => {
         next[credit.bill_id] = prev[credit.bill_id] ?? '';
       });
-      return next;
+      return areAmountMapsEqual(prev, next) ? prev : next;
     });
   }, [credits, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
-    setPayment((prev) => ({
-      ...prev,
-      payment_date: prev.payment_date || getChurchToday(),
-      amount: payableOutstandingCents > 0 ? fromCents(payableOutstandingCents) : 0,
-    }));
+    setPayment((prev) => {
+      const nextPaymentDate = prev.payment_date || getChurchToday();
+      const nextAmount = payableOutstandingCents > 0 ? fromCents(payableOutstandingCents) : 0;
+      if (prev.payment_date === nextPaymentDate && prev.amount === nextAmount) return prev;
+      return {
+        ...prev,
+        payment_date: nextPaymentDate,
+        amount: nextAmount,
+      };
+    });
   }, [isOpen, payableOutstandingCents]);
 
   const lines = useMemo(() => {
@@ -377,8 +391,9 @@ export default function PaymentModal({ bill, isOpen, onClose, onPaid }: PaymentM
               />
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginBottom: '1rem' }}>
-                <label style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>Memo</label>
+                <label htmlFor="payment_memo" style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>Memo</label>
                 <textarea
+                  id="payment_memo"
                   value={payment.memo}
                   onChange={(event) => setPayment((prev) => ({ ...prev, memo: event.target.value }))}
                   rows={2}

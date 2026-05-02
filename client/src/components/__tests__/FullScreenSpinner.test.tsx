@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-react';
 
-import FullScreenSpinner from './FullScreenSpinner';
+import FullScreenSpinner from '../FullScreenSpinner';
 
 describe('FullScreenSpinner', () => {
   it('renders the loading state', async () => {

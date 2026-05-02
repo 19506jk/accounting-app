@@ -121,6 +121,7 @@ export default function ExpenseBreakdown({
                 </td>
                 <td style={{ padding: '0.5rem' }}>
                   <Input
+                    aria-label={`Amount (before tax) line ${idx + 1}`}
                     type="number"
                     step="0.01"
                     value={line.amount}
@@ -139,6 +140,7 @@ export default function ExpenseBreakdown({
                 </td>
                 <td style={{ padding: '0.5rem' }}>
                   <Input
+                    aria-label={`Rounding line ${idx + 1}`}
                     type="number"
                     step="0.01"
                     min="-0.10"

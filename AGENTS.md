@@ -20,19 +20,44 @@ npm run preview  # Preview production build
 
 ```bash
 npm run dev              # Start with nodemon (auto-reload)
+npm run dev:test         # Start against test DB (used by Playwright)
 npm run start            # Production start
 npm run migrate          # Run pending migrations
 npm run migrate:status   # List migration status
 npm run migrate:rollback # Rollback last migration
 npm run seed             # Run seed files
 npm run db:reset         # Full DB reset: rollback all + migrate + seed
+npm run db:reset:test    # Same but targets the test DB (NODE_ENV=test)
 ```
 
-### Running Single Tests
+### Running Tests
 
-**No test framework configured.** To add tests:
-- Client: Add Vitest (`npm install -D vitest @testing-library/react`)
-- Server: Add Jest (`npm install -D jest`) or use Node's native test runner
+**Client** (`/client`) — Vitest + Browser Mode (headless Chromium via Playwright):
+
+```bash
+npm run test              # Run all unit tests once
+npm run test:watch        # Watch mode (add --browser.headless=false to see browser)
+npm run test:coverage     # Coverage report (thresholds enforced)
+npm run e2e               # Playwright E2E against real test backend
+npm run e2e:ui            # Playwright UI mode
+npm run e2e:report        # Show last E2E HTML report
+```
+
+**Server** (`/server`) — Vitest:
+
+```bash
+npm run test              # Run all server tests once
+npm run test:watch        # Watch mode
+npm run test:coverage     # Coverage report
+```
+
+### Client Test Conventions
+
+- **Co-locate** tests with source: `Foo.tsx` ↔ `Foo.test.tsx` in the same directory.
+- **Component tests** use `renderWithProviders` from `src/test/renderWithProviders.tsx` — do not call `vitest-browser-react`'s `render` directly except for trivial leaf components with no providers.
+- **API calls** are intercepted by MSW — do not `vi.mock` axios or individual API modules. Add per-test overrides with `worker.use(http.get(...))`.
+- **Selectors**: prefer `getByRole` / `getByText` / `getByLabelText`; avoid `data-testid` so unit and E2E selectors stay aligned.
+- **E2E** lives in `client/e2e/` and runs against a real test backend (`npm run dev:test`) with a freshly seeded test DB. Auth is bypassed via a signed JWT written to `storageState` in `e2e/global-setup.ts` — no Google OAuth in tests.
 
 ## Code Style Guidelines
 
@@ -77,12 +102,17 @@ const db      = require('../db');
 **Client:**
 ```
 src/
-  api/          - API client setup
+  api/          - Axios client + per-resource query hooks
   components/   - Reusable UI components
-  context/      - React context providers
+  context/      - React context providers (Auth, Date, Toast)
   pages/        - Route-level components
-  main.jsx      - Entry point
-  App.jsx       - Root component with routes
+  test/         - renderWithProviders, MSW handlers/worker, vitest setup
+  main.tsx      - Entry point
+  App.tsx       - Root component with routes
+e2e/
+  tests/        - Playwright specs (*.anon.spec.ts = anonymous, rest = authenticated)
+  global-setup.ts - DB reset + JWT auth fixture
+  playwright.config.ts
 ```
 
 **Server:**
@@ -92,7 +122,7 @@ server/
   middleware/   - Express middleware (auth)
   routes/       - Route handlers (one per resource)
   services/     - Business logic layer
-  index.js      - Express app entry
+  index.ts      - Express app entry
   knexfile.js   - Knex configuration
 ```
 
