@@ -389,4 +389,114 @@ describe('reportExports', () => {
     expect(detailRows.flat()).toContain('Reconciliation Detail')
     expect(detailRows.flat()).toContain('Beginning Balance')
   })
+
+  it('exports liability reconciliation report with fallback date/time and charge labels', async () => {
+    const { exportReconciliationReport, writeFile, xlsx } = await loadSubject()
+    const report: ReconciliationReport = {
+      account_name: 'Credit Card',
+      account_code: '2200',
+      account_type: 'LIABILITY',
+      is_closed: false,
+      status: 'BALANCED',
+      statement_period_start: '2026-03-01',
+      statement_period_end: '2026/03/31',
+      reconciliation_date: 'not-a-date',
+      reconciler_name: 'Admin',
+      opening_balance: 300,
+      cleared_in: 25,
+      cleared_out: 80,
+      statement_ending_balance: 245,
+      in_transit: 10,
+      outstanding_out: 5,
+      adjusted_bank_balance: 250,
+      book_balance: 250,
+      difference: 0,
+      cleared_in_items: [],
+      cleared_out_items: [
+        {
+          date: '2026-03-12',
+          reference_no: '',
+          payee: '',
+          description: 'Card charge',
+          memo: null,
+          amount: 80,
+          fund_name: 'General',
+        },
+      ],
+      in_transit_items: [],
+      outstanding_out_items: [],
+      fund_activity: [],
+    }
+
+    exportReconciliationReport(report)
+
+    expect(writeFile).toHaveBeenCalledWith(expect.any(Object), 'reconciliation_report_2200_2026/03/31.xlsx')
+    const workbook = writeFile.mock.calls[0]?.[0] as WorkBook
+    const summaryRows = sheetRows(xlsx, workbook, 'Summary')
+    const detailRows = sheetRows(xlsx, workbook, 'Detail')
+
+    expect(summaryRows).toContainEqual(['2200 Credit Card', '', '', '', ''])
+    expect(summaryRows).toContainEqual(['Reconciliation Summary', '', '', '', '2026/03/31'])
+    expect(summaryRows.flat()).toContain('Charges - 1 items')
+    expect(summaryRows.flat()).toContain('Receipts - 0 items')
+    expect(detailRows.flat()).toContain('Charge')
+    expect(detailRows).toContainEqual(['', '', '', '', 'Charge', '2026-03-12', '-', '', 'x', -80, 220])
+  })
+
+  it('exports reconciliation detail rows for outstanding and in-transit items', async () => {
+    const { exportReconciliationReport, writeFile, xlsx } = await loadSubject()
+    const report: ReconciliationReport = {
+      account_name: 'Checking',
+      account_code: '1000',
+      account_type: 'ASSET',
+      is_closed: false,
+      status: 'BALANCED',
+      statement_period_start: '2026-03-01',
+      statement_period_end: '2026-03-31',
+      reconciliation_date: '2026-04-01T14:30:00.000Z',
+      reconciler_name: 'Admin',
+      opening_balance: 1000,
+      cleared_in: 0,
+      cleared_out: 0,
+      statement_ending_balance: 1000,
+      in_transit: 40,
+      outstanding_out: 25,
+      adjusted_bank_balance: 1015,
+      book_balance: 1015,
+      difference: 0,
+      cleared_in_items: [],
+      cleared_out_items: [],
+      in_transit_items: [
+        {
+          date: '2026-03-20',
+          reference_no: 'DEP-1',
+          payee: 'Donor',
+          description: 'Deposit in transit',
+          memo: null,
+          amount: 40,
+          fund_name: 'General',
+        },
+      ],
+      outstanding_out_items: [
+        {
+          date: '2026-03-18',
+          reference_no: 'CHK-2',
+          payee: 'Vendor',
+          description: 'Outstanding cheque',
+          memo: null,
+          amount: 25,
+          fund_name: 'General',
+        },
+      ],
+      fund_activity: [],
+    }
+
+    exportReconciliationReport(report)
+
+    const workbook = writeFile.mock.calls[0]?.[0] as WorkBook
+    const detailRows = sheetRows(xlsx, workbook, 'Detail')
+
+    expect(detailRows).toContainEqual(['', '', '', '', 'Cheque', '2026-03-18', 'CHK-2', 'Vendor', '', -25, 975])
+    expect(detailRows).toContainEqual(['', '', '', '', 'Deposit', '2026-03-20', 'DEP-1', 'Donor', '', 40, 1015])
+  })
 })

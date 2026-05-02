@@ -31,7 +31,18 @@ const bill = {
   line_items: [],
 }
 
-function mockPaymentModalRequests() {
+function mockPaymentModalRequests(options?: {
+  billResponse?: typeof bill
+  credits?: Array<{
+    bill_id: number
+    bill_number: string
+    date: string
+    description: string
+    available_amount: number
+  }>
+}) {
+  const billResponse = options?.billResponse ?? bill
+  const credits = options?.credits ?? []
   worker.use(
     http.get('/api/accounts', () => HttpResponse.json({
       accounts: [
@@ -48,12 +59,12 @@ function mockPaymentModalRequests() {
       ],
     })),
     http.get('/api/bills/:id', () => HttpResponse.json({
-      bill,
+      bill: billResponse,
     })),
     http.get('/api/bills/:id/available-credits', () => HttpResponse.json({
-      credits: [],
-      target_bill_id: bill.id,
-      target_outstanding: bill.amount - bill.amount_paid,
+      credits,
+      target_bill_id: billResponse.id,
+      target_outstanding: billResponse.amount - billResponse.amount_paid,
     }))
   )
 }
@@ -170,6 +181,114 @@ describe('PaymentModal', () => {
       expect(onPaid).toHaveBeenCalledTimes(1)
       expect(onClose).toHaveBeenCalledTimes(1)
       await expect.element(screen.getByText('Partial payment recorded.')).toBeVisible()
+    })
+  })
+
+  it('shows settled state and hides payment controls when outstanding is non-positive', async () => {
+    mockPaymentModalRequests({
+      billResponse: {
+        ...bill,
+        amount_paid: 100,
+        status: 'PAID',
+      },
+    })
+
+    const screen = await renderWithProviders(
+      <PaymentModal
+        bill={bill as never}
+        isOpen
+        onClose={vi.fn()}
+      />
+    )
+
+    await expect.element(screen.getByText('Bill Settled')).toBeVisible()
+    await expect.element(screen.getByRole('button', { name: 'Close' })).toBeVisible()
+    await expect.element(screen.getByText('No cash payment is required.')).toBeVisible()
+  })
+
+  it('applies available credits and shows the applied indicator', async () => {
+    const onPaid = vi.fn()
+    let applyBody: unknown = null
+    mockPaymentModalRequests({
+      credits: [
+        {
+          bill_id: 31,
+          bill_number: 'B-090',
+          date: '2026-03-15',
+          description: 'Overpayment credit',
+          available_amount: 40,
+        },
+      ],
+    })
+    worker.use(
+      http.post('/api/bills/:id/apply-credits', async ({ request }) => {
+        applyBody = await request.json()
+        return HttpResponse.json({
+          bill: {
+            ...bill,
+            amount_paid: 40,
+            status: 'UNPAID',
+          },
+          transaction: { id: 1234 },
+        })
+      }),
+    )
+
+    const screen = await renderWithProviders(
+      <PaymentModal
+        bill={bill as never}
+        isOpen
+        onClose={vi.fn()}
+        onPaid={onPaid}
+      />
+    )
+
+    await userEvent.fill(screen.getByPlaceholder('0.00'), '20')
+    await userEvent.click(screen.getByRole('button', { name: 'Apply Credits' }))
+
+    await vi.waitFor(async () => {
+      expect(applyBody).toEqual({
+        applications: [{ credit_bill_id: 31, amount: 20 }],
+      })
+      expect(onPaid).toHaveBeenCalledTimes(1)
+      await expect.element(screen.getByText('Credits applied successfully. This has been posted to the ledger.')).toBeVisible()
+      await expect.element(screen.getByText('Tx #1234')).toBeVisible()
+    })
+  })
+
+  it('shows a no-payable-balance error when refetch finds the bill already settled', async () => {
+    let billFetchCount = 0
+    mockPaymentModalRequests()
+    worker.use(
+      http.get('/api/bills/:id', () => {
+        billFetchCount += 1
+        if (billFetchCount === 1) {
+          return HttpResponse.json({ bill })
+        }
+        return HttpResponse.json({
+          bill: {
+            ...bill,
+            amount_paid: 100,
+            status: 'PAID',
+          },
+        })
+      }),
+    )
+
+    const screen = await renderWithProviders(
+      <PaymentModal
+        bill={bill as never}
+        isOpen
+        onClose={vi.fn()}
+      />
+    )
+
+    await expect.element(screen.getByRole('button', { name: 'Pay Bill' })).toBeVisible()
+    await selectBankAccount(screen)
+    await userEvent.click(screen.getByRole('button', { name: 'Pay Bill' }))
+
+    await vi.waitFor(async () => {
+      await expect.element(screen.getByText('This bill has no payable balance.')).toBeVisible()
     })
   })
 })

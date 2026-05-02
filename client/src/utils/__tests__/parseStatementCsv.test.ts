@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import * as XLSX from 'xlsx'
 
-import { parseStatementCsv } from '../parseStatementCsv'
-
 function buildStatementFile(rows: Array<Record<string, string>>, name: string) {
   const worksheet = XLSX.utils.json_to_sheet(rows)
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1')
   const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
   return new File([bytes], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+}
+
+async function runParser(file: File) {
+  const actualModulePath = '../parseStatementCsv?actual'
+  const { parseStatementCsv } = await import(actualModulePath)
+  return parseStatementCsv(file)
 }
 
 describe('parseStatementCsv', () => {
@@ -27,7 +31,7 @@ describe('parseStatementCsv', () => {
       },
     ], 'statement.xlsx')
 
-    const result = await parseStatementCsv(file)
+    const result = await runParser(file)
 
     expect(result.rows).toHaveLength(1)
     expect(result.metadata).toHaveLength(1)
@@ -50,7 +54,7 @@ describe('parseStatementCsv', () => {
       },
     ], 'statement-no-method.xlsx')
 
-    const result = await parseStatementCsv(file)
+    const result = await runParser(file)
     expect(result.metadata[0]?.payment_method).toBe('')
   })
 
@@ -66,7 +70,7 @@ describe('parseStatementCsv', () => {
       },
     ], 'statement-withdrawal.xlsx')
 
-    const result = await parseStatementCsv(file)
+    const result = await runParser(file)
 
     expect(result.rows[0]).toEqual(expect.objectContaining({
       date: '2026-04-03',
@@ -86,7 +90,7 @@ describe('parseStatementCsv', () => {
       },
     ], 'statement-deposit.xlsx')
 
-    const result = await parseStatementCsv(file)
+    const result = await runParser(file)
 
     expect(result.rows[0]).toEqual(expect.objectContaining({
       date: '2026-04-04',
@@ -105,7 +109,7 @@ describe('parseStatementCsv', () => {
       },
     ], 'statement-ambiguous.xlsx')
 
-    const result = await parseStatementCsv(file)
+    const result = await runParser(file)
 
     expect(result.rows).toHaveLength(0)
     expect(result.warnings).toEqual([
@@ -121,7 +125,7 @@ describe('parseStatementCsv', () => {
       },
     ], 'statement-missing-date.xlsx')
 
-    await expect(parseStatementCsv(file)).rejects.toThrow("Required column 'Posted Date' not found")
+    await expect(runParser(file)).rejects.toThrow("Required column 'Posted Date' not found")
   })
 
   it('throws for invalid posted date formats', async () => {
@@ -134,6 +138,19 @@ describe('parseStatementCsv', () => {
       },
     ], 'statement-invalid-date.xlsx')
 
-    await expect(parseStatementCsv(file)).rejects.toThrow("Row 2: invalid date '2026-04-01'. Expected YYYYMMDD")
+    await expect(runParser(file)).rejects.toThrow("Row 2: invalid date '2026-04-01'. Expected YYYYMMDD")
+  })
+
+  it('throws for invalid calendar dates', async () => {
+    const file = buildStatementFile([
+      {
+        'Posted Date': '20260230',
+        Description: 'Impossible date',
+        Debit: '',
+        Credit: '25',
+      },
+    ], 'statement-invalid-calendar-date.xlsx')
+
+    await expect(runParser(file)).rejects.toThrow("Row 2: invalid calendar date '20260230'")
   })
 })
