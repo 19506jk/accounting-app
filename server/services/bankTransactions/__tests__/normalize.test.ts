@@ -36,4 +36,22 @@ describe('buildFingerprint', () => {
     expect(base).not.toBe(differentAmount);
     expect(base).not.toBe(differentDate);
   });
+
+  it('disambiguates by refId when provided', () => {
+    const base = buildFingerprint('interac e transfer', 100, '2026-05-07');
+    const withRef = buildFingerprint('interac e transfer', 100, '2026-05-07', 'REF-001');
+    const withSameRef = buildFingerprint('interac e transfer', 100, '2026-05-07', 'REF-001');
+    const withDiffRef = buildFingerprint('interac e transfer', 100, '2026-05-07', 'REF-002');
+
+    expect(withRef).not.toBe(base);
+    expect(withRef).toBe(withSameRef);
+    expect(withRef).not.toBe(withDiffRef);
+  });
+
+  it('produces the same hash with null refId as with no refId', () => {
+    const noArg = buildFingerprint('coffee shop', 10.5, '2026-04-01');
+    const nullArg = buildFingerprint('coffee shop', 10.5, '2026-04-01', null);
+
+    expect(noArg).toBe(nullArg);
+  });
 });

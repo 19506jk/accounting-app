@@ -312,13 +312,19 @@ router.post(
           throw Object.assign(new Error(`Row ${rowNumber}: invalid bank_effective_date`), { statusCode: 400 });
         }
 
-        const normalizedDescription = normalizeDescription(rawDescription);
-        const fingerprint = buildFingerprint(normalizedDescription, amount, bankPostedDate);
         const bankTransactionId = row?.bank_transaction_id ? String(row.bank_transaction_id).trim() : null;
+        const paymentMethod = row?.payment_method ? String(row.payment_method).trim() : null;
+        const normalizedDescription = normalizeDescription(rawDescription);
+        const isInterac = paymentMethod?.toLowerCase().includes('interac') ?? false;
+        const fingerprint = buildFingerprint(
+          normalizedDescription,
+          amount,
+          bankPostedDate,
+          isInterac ? bankTransactionId : null,
+        );
         const senderName = row?.sender_name ? String(row.sender_name).trim() : null;
         const senderEmail = row?.sender_email ? String(row.sender_email).trim() : null;
         const bankDescription2 = row?.bank_description_2 ? String(row.bank_description_2).trim() : null;
-        const paymentMethod = row?.payment_method ? String(row.payment_method).trim() : null;
 
         return {
           row_index: index,

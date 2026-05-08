@@ -8,7 +8,13 @@ export function normalizeDescription(raw: string) {
     .trim();
 }
 
-export function buildFingerprint(normalizedDesc: string, amount: number, date: string) {
+export function buildFingerprint(
+  normalizedDesc: string,
+  amount: number,
+  date: string,
+  refId?: string | null,
+) {
   const formattedAmount = Number(amount).toFixed(2);
-  return createHash('sha256').update(`${normalizedDesc}|${formattedAmount}|${date}`).digest('hex');
+  const disambiguator = refId ? `|ref:${refId.toLowerCase().trim()}` : '';
+  return createHash('sha256').update(`${normalizedDesc}|${formattedAmount}|${date}${disambiguator}`).digest('hex');
 }
