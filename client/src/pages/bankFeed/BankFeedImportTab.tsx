@@ -18,6 +18,7 @@ interface BankFeedImportTabProps {
   fundOptions: SelectOption[]
   postImportNeedsReview: number
   setPostImportNeedsReview: React.Dispatch<React.SetStateAction<number>>
+  onGoToReview: () => void
 }
 
 export default function BankFeedImportTab({
@@ -26,6 +27,7 @@ export default function BankFeedImportTab({
   fundOptions,
   postImportNeedsReview,
   setPostImportNeedsReview,
+  onGoToReview,
 }: BankFeedImportTabProps) {
   const { addToast } = useToast()
   const { data: uploads = [] } = useBankUploads({ enabled: isActive })
@@ -203,8 +205,11 @@ export default function BankFeedImportTab({
               </div>
             )}
             {postImportNeedsReview > 0 && (
-              <div style={{ fontSize: '0.82rem', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '0.6rem 0.75rem' }}>
-                {postImportNeedsReview} row(s) from this upload require review. Switch to the Review Queue tab.
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', fontSize: '0.82rem', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '0.6rem 0.75rem' }}>
+                <span>{postImportNeedsReview} row(s) from this upload require review.</span>
+                <Button variant="secondary" onClick={onGoToReview}>
+                  Go to Review Queue
+                </Button>
               </div>
             )}
           </div>

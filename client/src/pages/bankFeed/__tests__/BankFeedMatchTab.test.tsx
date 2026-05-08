@@ -709,6 +709,97 @@ describe('BankFeedMatchTab', () => {
     })
   })
 
+  it('Scan All dispatches scans sequentially and disables per-row Find Matches while running', async () => {
+    const scanOrder: number[] = []
+
+    const baseTx = {
+      upload_id: 1,
+      account_id: 1,
+      fund_id: 1,
+      bank_effective_date: null,
+      sender_name: null,
+      sender_email: null,
+      bank_description_2: null,
+      payment_method: null,
+      journal_entry_id: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      review_decision: null,
+      lifecycle_status: 'open',
+      match_status: 'none',
+      creation_status: 'none',
+      review_status: 'pending',
+      match_source: null,
+      creation_source: null,
+      suggested_match_id: null,
+      matched_journal_entry_id: null,
+      disposition: 'none',
+      create_proposal: null,
+      create_proposal_rule_id: null,
+      create_proposal_rule_name: null,
+      create_proposal_created_at: null,
+    }
+
+    worker.use(
+      http.get('/api/bank-transactions', () => HttpResponse.json({
+        items: [
+          {
+            ...baseTx,
+            id: 121,
+            row_index: 1,
+            bank_transaction_id: 'BT-121',
+            bank_posted_date: '2026-04-20',
+            raw_description: 'SCAN ALL ROW ONE',
+            normalized_description: 'SCAN ALL ROW ONE',
+            amount: 10,
+            status: 'imported',
+            imported_at: '2026-04-20T00:00:00.000Z',
+            last_modified_at: '2026-04-20T00:00:00.000Z',
+          },
+          {
+            ...baseTx,
+            id: 122,
+            row_index: 2,
+            bank_transaction_id: 'BT-122',
+            bank_posted_date: '2026-04-20',
+            raw_description: 'SCAN ALL ROW TWO',
+            normalized_description: 'SCAN ALL ROW TWO',
+            amount: 20,
+            status: 'imported',
+            imported_at: '2026-04-20T00:00:00.000Z',
+            last_modified_at: '2026-04-20T00:00:00.000Z',
+          },
+        ],
+      })),
+      http.post('/api/bank-transactions/121/scan', async () => {
+        scanOrder.push(121)
+        await new Promise((r) => setTimeout(r, 80))
+        return HttpResponse.json({ auto_confirmed: null, candidates: [] })
+      }),
+      http.post('/api/bank-transactions/122/scan', () => {
+        scanOrder.push(122)
+        return HttpResponse.json({ auto_confirmed: null, candidates: [] })
+      }),
+    )
+
+    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    await expect.element(screen.getByText('Match Queue (2)')).toBeVisible()
+
+    const scanAllButton = screen.getByRole('button', { name: 'Scan All' })
+    await userEvent.click(scanAllButton)
+
+    // While first scan is in flight: Scan All is loading and per-row buttons are locked out
+    await expect.element(scanAllButton).toBeDisabled()
+    const findMatchesButton = screen.getByRole('button', { name: 'Find Matches' })
+    await expect.element(findMatchesButton.first()).toBeDisabled()
+    await expect.element(findMatchesButton.nth(1)).toBeDisabled()
+
+    // Both scans complete and fired in order (121 then 122)
+    await vi.waitFor(() => {
+      expect(scanOrder).toEqual([121, 122])
+    }, { timeout: 3000 })
+  })
+
   it('shows a toast when bill suggestion loading fails for create queue rows', async () => {
     worker.use(
       http.get('/api/bank-transactions', () => HttpResponse.json({

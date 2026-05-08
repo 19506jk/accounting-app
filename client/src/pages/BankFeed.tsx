@@ -79,6 +79,7 @@ export default function BankFeed() {
           fundOptions={fundOptions}
           postImportNeedsReview={postImportNeedsReview}
           setPostImportNeedsReview={setPostImportNeedsReview}
+          onGoToReview={() => setActiveTab('review')}
         />
       </PersistentTabPanel>
       <PersistentTabPanel isActive={activeTab === 'review'}>

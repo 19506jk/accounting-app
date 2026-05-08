@@ -20,6 +20,7 @@ describe('BankFeedImportTab', () => {
         fundOptions={[{ value: 1, label: 'General' }]}
         postImportNeedsReview={0}
         setPostImportNeedsReview={vi.fn()}
+        onGoToReview={vi.fn()}
       />
     )
 
@@ -62,6 +63,7 @@ describe('BankFeedImportTab', () => {
         fundOptions={[]}
         postImportNeedsReview={0}
         setPostImportNeedsReview={vi.fn()}
+        onGoToReview={vi.fn()}
       />
     )
 
@@ -143,6 +145,7 @@ describe('BankFeedImportTab', () => {
         ]}
         postImportNeedsReview={0}
         setPostImportNeedsReview={setPostImportNeedsReview}
+        onGoToReview={vi.fn()}
       />
     )
 

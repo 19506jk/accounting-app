@@ -66,6 +66,7 @@ function useBankFeedMatchTab(isActive: boolean) {
   const unignoreMutation = useUnignoreBankTransaction()
   const approveMutation = useApproveMatch()
   const overrideMutation = useOverrideMatch()
+  const [isScanningAll, setIsScanningAll] = useState(false)
   const [scanningId, setScanningId] = useState<number | null>(null)
   const [reservingKey, setReservingKey] = useState<string | null>(null)
   const [rejectingKey, setRejectingKey] = useState<string | null>(null)
@@ -230,6 +231,16 @@ function useBankFeedMatchTab(isActive: boolean) {
     } finally {
       setScanningId(null)
     }
+  }
+
+  async function handleScanAll() {
+    const unscanned = matchQueueItems.filter((item) => !scanResults[item.id])
+    if (unscanned.length === 0) return
+    setIsScanningAll(true)
+    for (const item of unscanned) {
+      await handleScan(item.id)
+    }
+    setIsScanningAll(false)
   }
 
   async function handleReserveAndConfirm(bankTransactionId: number, candidate: MatchCandidate) {
@@ -422,6 +433,7 @@ function useBankFeedMatchTab(isActive: boolean) {
     isLoadingMatchItems,
     scanResults,
     billSuggestionsByRow,
+    isScanningAll,
     scanningId,
     reservingKey,
     rejectingKey,
@@ -441,6 +453,7 @@ function useBankFeedMatchTab(isActive: boolean) {
     setCreateModalTarget,
     dismissAutoConfirmedCard,
     handleScan,
+    handleScanAll,
     handleReserveAndConfirm,
     handleRejectCandidate,
     handleReleaseReservation,
@@ -695,6 +708,7 @@ function MatchCandidateCard({
 function MatchQueueRow({
   item,
   candidates,
+  isScanningAll,
   scanningId,
   releasingId,
   rejectingKey,
@@ -706,6 +720,7 @@ function MatchQueueRow({
 }: {
   item: BankTransaction
   candidates: MatchCandidate[]
+  isScanningAll: boolean
   scanningId: number | null
   releasingId: number | null
   rejectingKey: string | null
@@ -730,6 +745,7 @@ function MatchQueueRow({
             variant="secondary"
             onClick={() => onScan(item.id)}
             isLoading={scanningId === item.id}
+            disabled={isScanningAll}
           >
             Find Matches
           </Button>
@@ -903,7 +919,19 @@ export default function BankFeedMatchTab({ isActive }: { isActive: boolean }) {
             />
           ))}
 
-          <SectionHeading>Match Queue ({state.matchQueueItems.length})</SectionHeading>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <SectionHeading>Match Queue ({state.matchQueueItems.length})</SectionHeading>
+            {state.matchQueueItems.length > 0 && (
+              <Button
+                variant="secondary"
+                onClick={state.handleScanAll}
+                isLoading={state.isScanningAll}
+                disabled={state.isScanningAll}
+              >
+                Scan All
+              </Button>
+            )}
+          </div>
           {state.isLoadingMatchItems && (
             <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Loading match queue...</div>
           )}
@@ -915,6 +943,7 @@ export default function BankFeedMatchTab({ isActive }: { isActive: boolean }) {
               key={item.id}
               item={item}
               candidates={state.scanResults[item.id] || []}
+              isScanningAll={state.isScanningAll}
               scanningId={state.scanningId}
               releasingId={state.releasingId}
               rejectingKey={state.rejectingKey}
