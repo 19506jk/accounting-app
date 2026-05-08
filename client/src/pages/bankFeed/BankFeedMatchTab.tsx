@@ -41,6 +41,11 @@ interface AutoConfirmedResult {
   confirmedAt: number
 }
 
+type ScanSuccessOutcome =
+  | { type: 'autoConfirmed' }
+  | { type: 'noMatches' }
+  | { type: 'candidatesFound'; candidateCount: number }
+
 type ReasonAction = 'hold' | 'ignore'
 
 interface CreateBillMatchRow extends BillMatchRowWithAccount {
@@ -191,40 +196,52 @@ function useBankFeedMatchTab(isActive: boolean) {
     }
   }, [isActive, createBillMatchKey, getBillMatches.mutateAsync])
 
+  async function runScan(id: number): Promise<ScanSuccessOutcome> {
+    const queueSnapshot = matchItems.find((item) => item.id === id) || null
+    const result = await scanMutation.mutateAsync(id)
+    const autoConfirmed = result.auto_confirmed
+    if (autoConfirmed) {
+      setScanResults((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      setAutoConfirmedResults((prev) => {
+        const existing = prev[id]
+        const bankPostedDate = queueSnapshot?.bank_posted_date || existing?.bankPostedDate || ''
+        const amount = queueSnapshot?.amount ?? existing?.amount ?? 0
+        const rawDescription = queueSnapshot?.raw_description || existing?.rawDescription || ''
+        return {
+          ...prev,
+          [id]: {
+            bankTransactionId: id,
+            bankPostedDate,
+            amount,
+            rawDescription,
+            candidate: autoConfirmed,
+            confirmedAt: Date.now(),
+          },
+        }
+      })
+      return { type: 'autoConfirmed' }
+    }
+
+    if (result.candidates.length === 0) {
+      return { type: 'noMatches' }
+    }
+
+    setScanResults((prev) => ({ ...prev, [id]: result.candidates }))
+    return { type: 'candidatesFound', candidateCount: result.candidates.length }
+  }
+
   async function handleScan(id: number) {
     setScanningId(id)
-    const queueSnapshot = matchItems.find((item) => item.id === id) || null
     try {
-      const result = await scanMutation.mutateAsync(id)
-      const autoConfirmed = result.auto_confirmed
-      if (autoConfirmed) {
-        setScanResults((prev) => {
-          const next = { ...prev }
-          delete next[id]
-          return next
-        })
-        setAutoConfirmedResults((prev) => {
-          const existing = prev[id]
-          const bankPostedDate = queueSnapshot?.bank_posted_date || existing?.bankPostedDate || ''
-          const amount = queueSnapshot?.amount ?? existing?.amount ?? 0
-          const rawDescription = queueSnapshot?.raw_description || existing?.rawDescription || ''
-          return {
-            ...prev,
-            [id]: {
-              bankTransactionId: id,
-              bankPostedDate,
-              amount,
-              rawDescription,
-              candidate: autoConfirmed,
-              confirmedAt: Date.now(),
-            },
-          }
-        })
-      } else if (result.candidates.length === 0) {
+      const outcome = await runScan(id)
+      if (outcome.type === 'noMatches') {
         addToast('No matches found. Moved to Create Queue.', 'success')
-      } else {
-        setScanResults((prev) => ({ ...prev, [id]: result.candidates }))
-        addToast(`Found ${result.candidates.length} candidate(s).`, 'success')
+      } else if (outcome.type === 'candidatesFound') {
+        addToast(`Found ${outcome.candidateCount} candidate(s).`, 'success')
       }
     } catch (err) {
       addToast(getErrorMessage(err, 'Failed to scan candidates.'), 'error')
@@ -237,10 +254,45 @@ function useBankFeedMatchTab(isActive: boolean) {
     const unscanned = matchQueueItems.filter((item) => !scanResults[item.id])
     if (unscanned.length === 0) return
     setIsScanningAll(true)
-    for (const item of unscanned) {
-      await handleScan(item.id)
+    const summary = {
+      autoConfirmed: 0,
+      candidatesFound: 0,
+      noMatches: 0,
+      failed: 0,
     }
-    setIsScanningAll(false)
+
+    try {
+      for (const item of unscanned) {
+        setScanningId(item.id)
+        try {
+          const outcome = await runScan(item.id)
+          summary[outcome.type] += 1
+        } catch {
+          summary.failed += 1
+        } finally {
+          setScanningId(null)
+        }
+      }
+
+      const segments = [`${unscanned.length} row${unscanned.length === 1 ? '' : 's'} scanned`]
+      if (summary.autoConfirmed > 0) {
+        segments.push(`${summary.autoConfirmed} auto-confirmed`)
+      }
+      if (summary.candidatesFound > 0) {
+        segments.push(`${summary.candidatesFound} with candidates`)
+      }
+      if (summary.noMatches > 0) {
+        segments.push(`${summary.noMatches} moved to Create Queue`)
+      }
+      if (summary.failed > 0) {
+        segments.push(`${summary.failed} failed`)
+      }
+
+      addToast(`Scan complete: ${segments.join(', ')}.`, summary.failed > 0 ? 'error' : 'success')
+    } finally {
+      setScanningId(null)
+      setIsScanningAll(false)
+    }
   }
 
   async function handleReserveAndConfirm(bankTransactionId: number, candidate: MatchCandidate) {

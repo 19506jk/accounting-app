@@ -796,8 +796,207 @@ describe('BankFeedMatchTab', () => {
 
     // Both scans complete and fired in order (121 then 122)
     await vi.waitFor(() => {
+      const text = screen.container.textContent || ''
       expect(scanOrder).toEqual([121, 122])
+      expect(text).toContain('Scan complete: 2 rows scanned, 2 moved to Create Queue.')
+      expect(text).not.toContain('No matches found. Moved to Create Queue.')
+      expect(text).not.toContain('Failed to scan candidates.')
     }, { timeout: 3000 })
+  })
+
+  it('shows one summary toast after Scan All completes with mixed results', async () => {
+    const baseTx = {
+      upload_id: 1,
+      account_id: 1,
+      fund_id: 1,
+      bank_effective_date: null,
+      sender_name: null,
+      sender_email: null,
+      bank_description_2: null,
+      payment_method: null,
+      journal_entry_id: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      review_decision: null,
+      lifecycle_status: 'open',
+      match_status: 'none',
+      creation_status: 'none',
+      review_status: 'pending',
+      match_source: null,
+      creation_source: null,
+      suggested_match_id: null,
+      matched_journal_entry_id: null,
+      disposition: 'none',
+      create_proposal: null,
+      create_proposal_rule_id: null,
+      create_proposal_rule_name: null,
+      create_proposal_created_at: null,
+      status: 'imported',
+      imported_at: '2026-04-20T00:00:00.000Z',
+      last_modified_at: '2026-04-20T00:00:00.000Z',
+    }
+
+    worker.use(
+      http.get('/api/bank-transactions', () => HttpResponse.json({
+        items: [
+          {
+            ...baseTx,
+            id: 131,
+            row_index: 1,
+            bank_transaction_id: 'BT-131',
+            bank_posted_date: '2026-04-20',
+            raw_description: 'SCAN NO MATCH',
+            normalized_description: 'SCAN NO MATCH',
+            amount: 10,
+          },
+          {
+            ...baseTx,
+            id: 132,
+            row_index: 2,
+            bank_transaction_id: 'BT-132',
+            bank_posted_date: '2026-04-20',
+            raw_description: 'SCAN CANDIDATE',
+            normalized_description: 'SCAN CANDIDATE',
+            amount: 20,
+          },
+          {
+            ...baseTx,
+            id: 133,
+            row_index: 3,
+            bank_transaction_id: 'BT-133',
+            bank_posted_date: '2026-04-20',
+            raw_description: 'SCAN AUTO',
+            normalized_description: 'SCAN AUTO',
+            amount: 30,
+          },
+          {
+            ...baseTx,
+            id: 134,
+            row_index: 4,
+            bank_transaction_id: 'BT-134',
+            bank_posted_date: '2026-04-20',
+            raw_description: 'SCAN ERROR',
+            normalized_description: 'SCAN ERROR',
+            amount: 40,
+          },
+        ],
+      })),
+      http.post('/api/bank-transactions/131/scan', () => HttpResponse.json({
+        auto_confirmed: null,
+        candidates: [],
+      })),
+      http.post('/api/bank-transactions/132/scan', () => HttpResponse.json({
+        auto_confirmed: null,
+        candidates: [
+          {
+            journal_entry_id: 932,
+            transaction_id: 5002,
+            date: '2026-04-19',
+            description: 'Candidate from batch',
+            reference_no: null,
+            amount: 20,
+            direction: 'credit',
+            score_total: 0.88,
+            score_ref: 0.5,
+            score_date: 0.9,
+            score_desc: 0.8,
+            auto_confirm_eligible: false,
+          },
+        ],
+      })),
+      http.post('/api/bank-transactions/133/scan', () => HttpResponse.json({
+        auto_confirmed: {
+          journal_entry_id: 933,
+          transaction_id: 5003,
+          date: '2026-04-19',
+          description: 'Auto confirmed from batch',
+          reference_no: null,
+          amount: 30,
+          direction: 'credit',
+          score_total: 0.98,
+          score_ref: 1,
+          score_date: 1,
+          score_desc: 0.94,
+          auto_confirm_eligible: true,
+        },
+        candidates: [],
+      })),
+      http.post('/api/bank-transactions/134/scan', () => HttpResponse.json({ error: 'boom' }, { status: 500 })),
+    )
+
+    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    await expect.element(screen.getByText('Match Queue (4)')).toBeVisible()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Scan All' }))
+
+    await vi.waitFor(() => {
+      const text = screen.container.textContent || ''
+      expect(text).toContain('Scan complete: 4 rows scanned, 1 auto-confirmed, 1 with candidates, 1 moved to Create Queue, 1 failed.')
+      expect(text).not.toContain('No matches found. Moved to Create Queue.')
+      expect(text).not.toContain('Found 1 candidate(s).')
+      expect(text).not.toContain('Failed to scan candidates.')
+    })
+
+    await expect.element(screen.getByText('Auto-confirmed match')).toBeVisible()
+    await expect.element(screen.getByText('JE #932 • Score 0.88')).toBeVisible()
+  })
+
+  it('shows a per-row error toast when single-row Find Matches fails', async () => {
+    worker.use(
+      http.get('/api/bank-transactions', () => HttpResponse.json({
+        items: [
+          {
+            id: 141,
+            upload_id: 1,
+            account_id: 1,
+            fund_id: 1,
+            row_index: 5,
+            bank_transaction_id: 'BT-141',
+            bank_posted_date: '2026-04-21',
+            bank_effective_date: null,
+            raw_description: 'SINGLE ROW ERROR',
+            sender_name: null,
+            sender_email: null,
+            bank_description_2: null,
+            payment_method: null,
+            normalized_description: 'SINGLE ROW ERROR',
+            amount: 55,
+            status: 'imported',
+            journal_entry_id: null,
+            reviewed_by: null,
+            reviewed_at: null,
+            review_decision: null,
+            imported_at: '2026-04-21T00:00:00.000Z',
+            last_modified_at: '2026-04-21T00:00:00.000Z',
+            lifecycle_status: 'open',
+            match_status: 'none',
+            creation_status: 'none',
+            review_status: 'pending',
+            match_source: null,
+            creation_source: null,
+            suggested_match_id: null,
+            matched_journal_entry_id: null,
+            disposition: 'none',
+            create_proposal: null,
+            create_proposal_rule_id: null,
+            create_proposal_rule_name: null,
+            create_proposal_created_at: null,
+          },
+        ],
+      })),
+      http.post('/api/bank-transactions/141/scan', () => HttpResponse.json({ error: 'single row boom' }, { status: 500 })),
+    )
+
+    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    await expect.element(screen.getByText('Match Queue (1)')).toBeVisible()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Find Matches' }))
+
+    await vi.waitFor(() => {
+      const text = screen.container.textContent || ''
+      expect(text).toContain('single row boom')
+      expect(text).not.toContain('Scan complete:')
+    })
   })
 
   it('shows a toast when bill suggestion loading fails for create queue rows', async () => {
