@@ -153,8 +153,13 @@ export default function CreateFromBankRowModal({
 
   const donorOptions = useMemo<SelectOption[]>(
     () => [
-      { value: '', label: 'None' },
-      ...donorContacts.filter((c) => c.is_active).map((c) => ({ value: c.id, label: c.name })),
+      { value: '', label: 'Anonymous' },
+      ...donorContacts
+        .filter((c) => c.is_active)
+        .map((c) => ({
+          value: c.id,
+          label: c.donor_id ? `${c.donor_id} — ${c.name}` : c.name,
+        })),
     ],
     [donorContacts]
   )
@@ -252,7 +257,7 @@ export default function CreateFromBankRowModal({
             <Input label="Date" value={row.date} disabled />
             <Input label="Amount" value={row.amount.toFixed(2)} disabled />
           </div>
-          <Input label="Description" value={row.description} disabled />
+          <Input label="Description" value={row.description} />
           <Input
             label="Reference Number"
             value={row.reference_no || ''}

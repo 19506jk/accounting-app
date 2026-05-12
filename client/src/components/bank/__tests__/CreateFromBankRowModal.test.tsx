@@ -26,7 +26,12 @@ describe('CreateFromBankRowModal', () => {
       http.get('/api/contacts', ({ request }) => {
         const type = new URL(request.url).searchParams.get('type')
         return HttpResponse.json({
-          contacts: [{ id: type === 'DONOR' ? 11 : 12, name: type === 'DONOR' ? 'Alice Donor' : 'Bob Payee', is_active: true }],
+          contacts: [{
+            id: type === 'DONOR' ? 11 : 12,
+            donor_id: type === 'DONOR' ? 'D-100' : null,
+            name: type === 'DONOR' ? 'Alice Donor' : 'Bob Payee',
+            is_active: true,
+          }],
         })
       }),
       http.post('/api/bank-transactions/:id/create', async ({ request, params }) => {
@@ -94,10 +99,16 @@ describe('CreateFromBankRowModal', () => {
       })),
       http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
       http.get('/api/settings', () => HttpResponse.json({ values: {} })),
+      http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [] })),
       http.get('/api/contacts', ({ request }) => {
         const type = new URL(request.url).searchParams.get('type')
         return HttpResponse.json({
-          contacts: [{ id: type === 'DONOR' ? 11 : 12, name: type === 'DONOR' ? 'Alice Donor' : 'Bob Payee', is_active: true }],
+          contacts: [{
+            id: type === 'DONOR' ? 11 : 12,
+            donor_id: type === 'DONOR' ? 'D-100' : null,
+            name: type === 'DONOR' ? 'Alice Donor' : 'Bob Payee',
+            is_active: true,
+          }],
         })
       }),
     )
@@ -125,5 +136,56 @@ describe('CreateFromBankRowModal', () => {
 
     await expect.element(screen.getByText('Payee')).toBeVisible()
     expect(screen.container.textContent || '').not.toContain('Optional contact')
+  })
+
+  it('shows donor ids in split deposit donor options', async () => {
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({
+        accounts: [
+          { id: 1, code: '1000', name: 'Main Bank', type: 'ASSET', is_active: true },
+          { id: 2, code: '2050', name: 'Donations Clearing', type: 'ASSET', is_active: true },
+        ],
+      })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/settings', () => HttpResponse.json({ values: {} })),
+      http.get('/api/contacts', ({ request }) => {
+        const type = new URL(request.url).searchParams.get('type')
+        return HttpResponse.json({
+          contacts: [{
+            id: type === 'DONOR' ? 11 : 12,
+            donor_id: type === 'DONOR' ? 'D-100' : null,
+            name: type === 'DONOR' ? 'Alice Donor' : 'Bob Payee',
+            is_active: true,
+          }],
+        })
+      }),
+    )
+
+    const screen = await renderWithProviders(
+      <CreateFromBankRowModal
+        bankTransaction={{
+          id: 79,
+          account_id: 1,
+          amount: 120,
+          bank_posted_date: '2026-03-12',
+          raw_description: 'Sunday donation',
+          bank_description_2: '',
+          payment_method: 'DEPOSIT',
+          sender_email: null,
+          sender_name: null,
+          bank_transaction_id: 'BTX-3',
+          fund_id: 1,
+          create_proposal: null,
+        } as never}
+        onClose={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Configure Splits' }))
+    const comboboxes = screen.container.querySelectorAll('[data-combobox]')
+    await userEvent.click(comboboxes[4] as HTMLElement)
+
+    await expect.element(screen.getByText('D-100 — Alice Donor')).toBeVisible()
   })
 })
