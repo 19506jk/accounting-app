@@ -420,6 +420,138 @@ async function importBankRow({
 }
 
 describe('direct DB bank-transactions Phase 3 integration checks', () => {
+  it('returns delayed exact-reference candidates from fallback and keeps them manual', async () => {
+    const fixture = await createFixture();
+    await createCandidateEntry({
+      fixture,
+      date: '2026-05-01',
+      referenceNo: `CHK-${fixture.suffix}`,
+      description: 'Rogers Communications',
+      amount: 200,
+    });
+
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-fallback-delayed-${fixture.suffix}.csv`,
+      description: 'Rogers Communications',
+      amount: 200,
+      bankTransactionId: `chk${fixture.suffix}`,
+      date: '2026-05-31',
+    });
+
+    const scan = await requestRoute({
+      probePath: `/${bankTransactionId}/scan`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+
+    expect(scan.status).toBe(200);
+    expect(scan.body.auto_confirmed).toBeNull();
+    expect(scan.body.candidates).toHaveLength(1);
+    expect(scan.body.candidates[0]).toEqual(expect.objectContaining({
+      score_ref: 100,
+      score_date: 70,
+      auto_confirm_eligible: false,
+    }));
+
+    const updated = await db('bank_transactions')
+      .where({ id: bankTransactionId })
+      .first() as { match_status: string; suggested_match_id: number | null } | undefined;
+    expect(updated).toBeDefined();
+    expect(updated?.match_status).toBe('suggested');
+    expect(updated?.suggested_match_id).toBe(scan.body.candidates[0].journal_entry_id);
+
+    const exhaustedEvent = await db('bank_transaction_events')
+      .where({ bank_transaction_id: bankTransactionId, event_type: 'match_exhausted' })
+      .first();
+    expect(exhaustedEvent).toBeUndefined();
+  });
+
+  it('does not auto-confirm 8-day fallback candidates even when score is high', async () => {
+    const fixture = await createFixture();
+    await createCandidateEntry({
+      fixture,
+      date: '2026-06-01',
+      referenceNo: `CHK-${fixture.suffix}`,
+      description: 'Rogers Internet Payment',
+      amount: 140,
+    });
+
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-fallback-8day-${fixture.suffix}.csv`,
+      description: 'Rogers Internet Payment',
+      amount: 140,
+      bankTransactionId: `CHK${fixture.suffix}`,
+      date: '2026-06-09',
+    });
+
+    const scan = await requestRoute({
+      probePath: `/${bankTransactionId}/scan`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+
+    expect(scan.status).toBe(200);
+    expect(scan.body.auto_confirmed).toBeNull();
+    expect(scan.body.candidates[0]).toEqual(expect.objectContaining({
+      score_ref: 100,
+      score_date: 92,
+      auto_confirm_eligible: false,
+    }));
+
+    const updated = await db('bank_transactions')
+      .where({ id: bankTransactionId })
+      .first() as { match_status: string; matched_journal_entry_id: number | null } | undefined;
+    expect(updated?.match_status).toBe('suggested');
+    expect(updated?.matched_journal_entry_id).toBeNull();
+  });
+
+  it('does not run fallback matching when bank_transaction_id is null', async () => {
+    const fixture = await createFixture();
+    await createCandidateEntry({
+      fixture,
+      date: '2026-05-01',
+      referenceNo: `NULLREF-${fixture.suffix}`,
+      description: 'Null Ref Candidate',
+      amount: 175,
+    });
+
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-null-ref-${fixture.suffix}.csv`,
+      description: 'Null Ref Candidate',
+      amount: 175,
+      bankTransactionId: `TEMP-${fixture.suffix}`,
+      date: '2026-05-31',
+    });
+
+    await db('bank_transactions')
+      .where({ id: bankTransactionId })
+      .update({ bank_transaction_id: null });
+
+    const scan = await requestRoute({
+      probePath: `/${bankTransactionId}/scan`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+
+    expect(scan.status).toBe(200);
+    expect(scan.body).toEqual(expect.objectContaining({
+      bank_transaction_id: bankTransactionId,
+      candidates: [],
+      auto_confirmed: null,
+    }));
+
+    const updated = await db('bank_transactions')
+      .where({ id: bankTransactionId })
+      .first() as { match_status: string } | undefined;
+    expect(updated?.match_status).toBe('rejected');
+  });
+
   it('marks scan as rejected with match_exhausted event when no candidates exist', async () => {
     const fixture = await createFixture();
     const bankTransactionId = await importBankRow({

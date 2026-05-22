@@ -27,6 +27,10 @@ type CandidateRow = {
   credit: string | number;
 };
 
+type MatcherCandidateRow = CandidateRow & {
+  is_fallback: boolean;
+};
+
 type EventActor = 'user' | 'system' | 'admin';
 
 function toNumber(value: string | number | null | undefined) {
@@ -248,53 +252,105 @@ export async function runMatcher(
 
   const amount = toNumber(bankTx.amount);
   const absAmount = Math.abs(amount).toFixed(2);
-  const fromDate = addDays(toDateOnly(bankTx.bank_posted_date), -7);
-  const toDate = addDays(toDateOnly(bankTx.bank_posted_date), 7);
+  const bankDate = toDateOnly(bankTx.bank_posted_date);
 
-  const query = trx('journal_entries as je')
-    .join('transactions as t', 't.id', 'je.transaction_id')
-    .where('je.account_id', bankTx.account_id)
-    .where('je.is_reconciled', false)
-    .where('t.is_voided', false)
-    .whereBetween('t.date', [fromDate, toDate])
-    .whereNotExists(
-      trx('bank_transactions as bt2')
-        .select(trx.raw('1'))
-        .whereRaw('bt2.matched_journal_entry_id = je.id')
-        .andWhereRaw("bt2.lifecycle_status <> 'archived'")
-        .andWhere('bt2.match_status', 'confirmed')
-    )
-    .whereNotExists(
-      trx('reconciliation_reservations as r')
-        .select(trx.raw('1'))
-        .whereRaw('r.journal_entry_id = je.id')
-        .andWhere('r.bank_transaction_id', '<>', bankTransactionId)
-        .andWhere('r.expires_at', '>', trx.fn.now())
-    )
-    .whereNotExists(
-      trx('bank_transaction_rejections as btr')
-        .select(trx.raw('1'))
-        .whereRaw('btr.journal_entry_id = je.id')
-        .andWhere('btr.bank_transaction_id', bankTransactionId)
-    )
-    .select(
-      'je.id as journal_entry_id',
-      'je.transaction_id',
-      't.date',
-      't.description',
-      't.reference_no',
-      'je.debit',
-      'je.credit'
-    )
-    .limit(50);
+  const buildCandidateQuery = (fromDate: string, toDate: string, limit = 50) => {
+    const query = trx('journal_entries as je')
+      .join('transactions as t', 't.id', 'je.transaction_id')
+      .where('je.account_id', bankTx.account_id)
+      .where('je.is_reconciled', false)
+      .where('t.is_voided', false)
+      .whereBetween('t.date', [fromDate, toDate])
+      .whereNotExists(
+        trx('bank_transactions as bt2')
+          .select(trx.raw('1'))
+          .whereRaw('bt2.matched_journal_entry_id = je.id')
+          .andWhereRaw("bt2.lifecycle_status <> 'archived'")
+          .andWhere('bt2.match_status', 'confirmed')
+      )
+      .whereNotExists(
+        trx('reconciliation_reservations as r')
+          .select(trx.raw('1'))
+          .whereRaw('r.journal_entry_id = je.id')
+          .andWhere('r.bank_transaction_id', '<>', bankTransactionId)
+          .andWhere('r.expires_at', '>', trx.fn.now())
+      )
+      .whereNotExists(
+        trx('bank_transaction_rejections as btr')
+          .select(trx.raw('1'))
+          .whereRaw('btr.journal_entry_id = je.id')
+          .andWhere('btr.bank_transaction_id', bankTransactionId)
+      )
+      .select(
+        'je.id as journal_entry_id',
+        'je.transaction_id',
+        't.date',
+        't.description',
+        't.reference_no',
+        'je.debit',
+        'je.credit'
+      );
 
-  if (amount > 0) {
-    query.andWhereRaw('CAST(je.debit AS DECIMAL(15,2)) = ?', [absAmount]);
-  } else {
-    query.andWhereRaw('CAST(je.credit AS DECIMAL(15,2)) = ?', [absAmount]);
+    if (limit > 0) {
+      query.limit(limit);
+    }
+
+    if (amount > 0) {
+      query.andWhereRaw('CAST(je.debit AS DECIMAL(15,2)) = ?', [absAmount]);
+    } else {
+      query.andWhereRaw('CAST(je.credit AS DECIMAL(15,2)) = ?', [absAmount]);
+    }
+
+    return query;
+  };
+
+  const normalRows = await buildCandidateQuery(
+    addDays(bankDate, -7),
+    addDays(bankDate, 7),
+    50
+  ) as CandidateRow[];
+
+  const normalIds = [...new Set(normalRows.map((row) => row.journal_entry_id))];
+  const normalizedBankRef = normalizeRef(bankTx.bank_transaction_id ?? '');
+  let fallbackRows: CandidateRow[] = [];
+
+  if (normalizedBankRef) {
+    const fallbackQuery = buildCandidateQuery(
+      addDays(bankDate, -180),
+      addDays(bankDate, 180),
+      0
+    );
+
+    if (normalIds.length > 0) {
+      fallbackQuery.whereNotIn('je.id', normalIds);
+    }
+
+    const fetchedFallbackRows = await fallbackQuery as CandidateRow[];
+    fallbackRows = fetchedFallbackRows
+      .filter((row) => normalizeRef(row.reference_no ?? '') === normalizedBankRef)
+      .slice(0, 50);
   }
 
-  const rows = await query as CandidateRow[];
+  const seenJournalEntryIds = new Set<number>();
+  const rows: MatcherCandidateRow[] = [];
+  for (const row of normalRows) {
+    if (seenJournalEntryIds.has(row.journal_entry_id)) continue;
+    seenJournalEntryIds.add(row.journal_entry_id);
+    rows.push({
+      ...row,
+      is_fallback: false,
+    });
+  }
+  for (const row of fallbackRows) {
+    if (seenJournalEntryIds.has(row.journal_entry_id)) continue;
+    seenJournalEntryIds.add(row.journal_entry_id);
+    rows.push({
+      ...row,
+      is_fallback: true,
+    });
+  }
+  const fallbackJournalEntryIds = new Set(rows.filter((row) => row.is_fallback).map((row) => row.journal_entry_id));
+
   if (rows.length === 0) {
     const ruleResult = await evaluateBankTransactionRule(bankTransactionId, trx);
 
@@ -373,7 +429,13 @@ export async function runMatcher(
   const scored = rows.map((row) => {
     const rowDate = toDateOnly(row.date);
     const sRef = scoreRef(bankTx.bank_transaction_id, row.reference_no);
-    const sDate = scoreDate(toDateOnly(bankTx.bank_posted_date), rowDate);
+    let sDate = scoreDate(bankDate, rowDate);
+    if (row.is_fallback) {
+      const dateGap = Math.abs(daysBetween(bankDate, rowDate));
+      if (dateGap > 7) {
+        sDate = Math.max(0, 100 - dateGap);
+      }
+    }
     const sDesc = scoreDesc(bankTx.normalized_description, row.description);
     const total = scoreTotal(sRef, sDate, sDesc);
     return {
@@ -404,7 +466,9 @@ export async function runMatcher(
   const margin = second ? top.score_total - second.score_total : 100;
   const refProof = top.score_ref === 100 && top.score_total >= 95 && margin >= 10;
   const perfectDateDescProof = top.score_date === 100 && top.score_desc >= 85 && margin >= 10;
-  const autoConfirmEligible = refProof || perfectDateDescProof;
+  const autoConfirmEligible = fallbackJournalEntryIds.has(top.journal_entry_id)
+    ? false
+    : (refProof || perfectDateDescProof);
   top.auto_confirm_eligible = autoConfirmEligible;
 
   await trx('bank_transactions')
