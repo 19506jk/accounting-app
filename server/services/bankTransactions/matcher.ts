@@ -23,6 +23,7 @@ type CandidateRow = {
   date: string;
   description: string;
   reference_no: string | null;
+  payment_method: string | null;
   debit: string | number;
   credit: string | number;
 };
@@ -30,6 +31,8 @@ type CandidateRow = {
 type MatcherCandidateRow = CandidateRow & {
   is_fallback: boolean;
 };
+
+type ScoredCandidate = MatchCandidate & { _payment_method: string | null };
 
 type EventActor = 'user' | 'system' | 'admin';
 
@@ -287,6 +290,7 @@ export async function runMatcher(
         't.date',
         't.description',
         't.reference_no',
+        't.payment_method',
         'je.debit',
         'je.credit'
       );
@@ -451,7 +455,8 @@ export async function runMatcher(
       score_date: sDate,
       score_desc: sDesc,
       auto_confirm_eligible: false,
-    } as MatchCandidate;
+      _payment_method: row.payment_method,
+    } as ScoredCandidate;
   }).sort((a, b) => b.score_total - a.score_total);
 
   const top = scored[0];
@@ -469,7 +474,14 @@ export async function runMatcher(
   const autoConfirmEligible = fallbackJournalEntryIds.has(top.journal_entry_id)
     ? false
     : (refProof || perfectDateDescProof);
-  top.auto_confirm_eligible = autoConfirmEligible;
+
+  if (autoConfirmEligible) {
+    const bankIsEtransfer = bankTx.payment_method?.toLowerCase().includes('interac') ?? false;
+    const txMethod = (top as ScoredCandidate)._payment_method;
+    top.auto_confirm_eligible = !(bankIsEtransfer && txMethod && txMethod !== 'e-transfer');
+  } else {
+    top.auto_confirm_eligible = false;
+  }
 
   await trx('bank_transactions')
     .where({ id: bankTransactionId })
@@ -500,16 +512,17 @@ export async function runMatcher(
   });
 
   let autoConfirmed: MatchCandidate | null = null;
-  if (autoConfirmEligible) {
+  if (top.auto_confirm_eligible) {
     const confirmed = await confirmMatch(bankTransactionId, top.journal_entry_id, 'system', userId, trx);
     if (confirmed) {
-      autoConfirmed = top;
+      const { _payment_method: _, ...topPublic } = top;
+      autoConfirmed = topPublic;
     }
   }
 
   return {
     bank_transaction_id: bankTransactionId,
-    candidates: scored,
+    candidates: scored.map(({ _payment_method: _, ...rest }) => rest as MatchCandidate),
     auto_confirmed: autoConfirmed,
   };
 }

@@ -34,12 +34,15 @@ function serviceError(message: string, status: number, validationErrors?: string
   });
 }
 
+const VALID_PAYMENT_METHODS = new Set(['cash', 'cheque', 'e-transfer']);
+
 function transactionSnapshot(row: TransactionRow) {
   return {
     id: row.id,
     date: normalizeDateOnly(row.date),
     description: row.description,
     reference_no: row.reference_no,
+    payment_method: row.payment_method ?? null,
     fund_id: row.fund_id,
   };
 }
@@ -59,6 +62,10 @@ function entrySnapshots(entries: JournalEntryRow[]) {
 async function validateTransaction(body: CreateTransactionInput, dbOrTrx: DbHandle = db): Promise<string[]> {
   const errors: string[] = [];
   const { date, description, entries } = body;
+
+  if (body.payment_method != null && !VALID_PAYMENT_METHODS.has(body.payment_method)) {
+    errors.push('payment_method must be one of: cash, cheque, e-transfer');
+  }
 
   if (!date) errors.push('date is required');
   if (!description?.trim()) errors.push('description is required');
@@ -165,6 +172,7 @@ async function getTransactionDetailById(id: string | number, dbOrTrx: DbHandle =
       't.date',
       't.description',
       't.reference_no',
+      't.payment_method',
       't.fund_id',
       't.created_at',
       't.is_voided',
@@ -212,7 +220,7 @@ async function getTransactionDetailById(id: string | number, dbOrTrx: DbHandle =
 }
 
 async function createTransaction(payload: CreateTransactionInput, userId: number, ctx: ForensicContext): Promise<TransactionCreateResult> {
-  const { date, description, reference_no, entries } = payload || {};
+  const { date, description, reference_no, payment_method, entries } = payload || {};
   const errors = await validateTransaction(payload);
   if (errors.length) throw serviceError('Validation failed', 400, errors);
 
@@ -227,6 +235,7 @@ async function createTransaction(payload: CreateTransactionInput, userId: number
         date,
         description: description.trim(),
         reference_no: reference_no?.trim() || null,
+        payment_method: payment_method ?? null,
         fund_id: firstEntry.fund_id,
         created_by: userId,
         created_at: trx.fn.now(),
@@ -280,7 +289,7 @@ async function createTransaction(payload: CreateTransactionInput, userId: number
 }
 
 async function updateTransaction(id: string, payload: UpdateTransactionInput, ctx: ForensicContext): Promise<TransactionDetail> {
-  const { date, description, reference_no, entries } = payload || {};
+  const { date, description, reference_no, payment_method, entries } = payload || {};
 
   const transaction = await db('transactions').where({ id }).first() as TransactionRow | undefined;
   if (!transaction) throw serviceError('Transaction not found', 404);
@@ -301,6 +310,11 @@ async function updateTransaction(id: string, payload: UpdateTransactionInput, ct
   const nextDate = date || normalizeDateOnly(transaction.date);
   const nextDescription = description?.trim() || transaction.description;
   const nextReferenceNo = reference_no !== undefined ? reference_no?.trim() || null : transaction.reference_no;
+  const nextPaymentMethod = payment_method !== undefined ? payment_method ?? null : transaction.payment_method;
+
+  if (nextPaymentMethod != null && !VALID_PAYMENT_METHODS.has(nextPaymentMethod)) {
+    throw serviceError('payment_method must be one of: cash, cheque, e-transfer', 400);
+  }
 
   await db.transaction(async (trx: Knex.Transaction) => {
     const beforeTx = await trx('transactions')
@@ -411,6 +425,7 @@ async function updateTransaction(id: string, payload: UpdateTransactionInput, ct
         date: nextDate,
         description: nextDescription,
         reference_no: nextReferenceNo,
+        payment_method: nextPaymentMethod,
         fund_id: nextFundId,
         updated_at: trx.fn.now(),
       })

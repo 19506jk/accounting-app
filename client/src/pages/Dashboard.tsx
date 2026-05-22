@@ -51,7 +51,10 @@ const TXN_COLUMNS: TableColumn<TransactionListItem>[] = [
   { key: 'description', label: 'Description', wrap: true },
   { key: 'transaction_type', label: 'Type',
     render: (r) => {
-      const badge = TYPE_BADGE[r.transaction_type] ?? TYPE_BADGE.transfer;
+      const badgeKey = r.transaction_type === 'deposit' && r.payment_method
+        ? r.payment_method as keyof typeof TYPE_BADGE
+        : r.transaction_type;
+      const badge = TYPE_BADGE[badgeKey] ?? TYPE_BADGE.deposit;
       return (
         <span style={{ display: 'inline-block', padding: '0.15rem 0.5rem',
           borderRadius: '999px', fontSize: '0.72rem', fontWeight: 600,

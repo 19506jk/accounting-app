@@ -40,6 +40,7 @@ export interface TransactionRow {
   date: Date | string;
   description: string;
   reference_no: string | null;
+  payment_method: string | null;
   fund_id: number;
   is_voided: boolean;
   is_closing_entry: boolean;
@@ -101,6 +102,7 @@ export interface TransactionListRow {
   date: Date | string;
   description: string;
   reference_no: string | null;
+  payment_method: string | null;
   contact_name: string | null;
   has_multiple_contacts: boolean | number;
   fund_id: number;

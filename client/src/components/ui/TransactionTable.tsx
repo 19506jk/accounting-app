@@ -8,9 +8,12 @@ import Table from './Table';
 import type { TableColumn } from './types';
 
 export const TYPE_BADGE = {
-  deposit:    { label: 'Deposit',    bg: '#dcfce7', color: '#15803d' },
-  withdrawal: { label: 'Withdrawal', bg: '#fef2f2', color: '#b91c1c' },
-  transfer:   { label: 'Transfer',   bg: '#f1f5f9', color: '#475569' },
+  deposit:      { label: 'Deposit',    bg: '#dcfce7', color: '#15803d' },
+  cash:         { label: 'Cash',       bg: '#dcfce7', color: '#15803d' },
+  cheque:       { label: 'Cheque',     bg: '#dcfce7', color: '#15803d' },
+  'e-transfer': { label: 'E-Transfer', bg: '#dcfce7', color: '#15803d' },
+  withdrawal:   { label: 'Withdrawal', bg: '#fef2f2', color: '#b91c1c' },
+  transfer:     { label: 'Transfer',   bg: '#f1f5f9', color: '#475569' },
 } as const;
 
 const INACTIVE_BADGE = { label: 'Inactive', bg: '#f1f5f9', color: '#64748b' };
@@ -129,7 +132,10 @@ export default function TransactionTable({
       ) },
     { key: 'transaction_type', label: 'Type',
       render: (r) => {
-        const badge = TYPE_BADGE[r.transaction_type];
+        const badgeKey = r.transaction_type === 'deposit' && r.payment_method
+          ? r.payment_method as keyof typeof TYPE_BADGE
+          : r.transaction_type;
+        const badge = TYPE_BADGE[badgeKey] ?? TYPE_BADGE.deposit;
         return (
           <span style={{ display: 'inline-block', padding: '0.15rem 0.5rem',
             borderRadius: '999px', fontSize: '0.72rem', fontWeight: 600,

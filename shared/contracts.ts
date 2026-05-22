@@ -158,6 +158,7 @@ export interface CreateTransactionInput {
   date: string;
   description: string;
   reference_no?: string;
+  payment_method?: 'cash' | 'cheque' | 'e-transfer' | null;
   entries: TransactionEntryInput[];
 }
 
@@ -165,6 +166,7 @@ export interface UpdateTransactionInput {
   date?: string;
   description?: string;
   reference_no?: string | null;
+  payment_method?: 'cash' | 'cheque' | 'e-transfer' | null;
   entries?: TransactionEntryInput[];
 }
 
@@ -539,6 +541,7 @@ export interface TransactionListItem {
   date: string;
   description: string;
   reference_no: string | null;
+  payment_method: string | null;
   contact_name: string | null;
   has_multiple_contacts: boolean;
   fund_id: number;
@@ -570,6 +573,7 @@ export interface TransactionDetail {
   date: string;
   description: string;
   reference_no: string | null;
+  payment_method: string | null;
   fund_id: number;
   created_at: string;
   created_by_name?: string | null;

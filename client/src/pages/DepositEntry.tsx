@@ -8,6 +8,7 @@ import { useToast }     from '../components/ui/Toast';
 import Button      from '../components/ui/Button';
 import Input       from '../components/ui/Input';
 import Combobox    from '../components/ui/Combobox';
+import Select      from '../components/ui/Select';
 import { getChurchToday } from '../utils/date';
 import { getErrorMessage } from '../utils/errors';
 import type { CreateTransactionInput } from '@shared/contracts';
@@ -23,6 +24,7 @@ interface DepositHeader {
   reference_no: string;
   total_amount: string;
   bank_account_id: OptionValue | '';
+  payment_method: 'cash' | 'cheque' | 'e-transfer';
 }
 
 interface DepositLine {
@@ -64,13 +66,20 @@ export default function DepositEntry() {
 
   const defaultIncomeAccountId = incomeAccounts.length > 0 ? incomeAccounts[0]?.value ?? '' : '';
 
+  const paymentMethodOptions = [
+    { value: 'cash',       label: 'Cash' },
+    { value: 'cheque',     label: 'Cheque' },
+    { value: 'e-transfer', label: 'E-Transfer' },
+  ];
+
   // -- State --
   const [header, setHeader] = useState<DepositHeader>({
     date: today,
     description: '',
     reference_no: '',
     total_amount: '',
-    bank_account_id: ''
+    bank_account_id: '',
+    payment_method: 'cash',
   });
 
   const [lines, setLines] = useState<DepositLine[]>([{ ...EMPTY_LINE, account_id: defaultIncomeAccountId }]);
@@ -174,10 +183,11 @@ export default function DepositEntry() {
     }));
 
     const payload: CreateTransactionInput = {
-      date:         header.date,
-      description:  header.description,
-      reference_no: header.reference_no || undefined,
-      entries:      [...debitEntries, ...creditEntries],
+      date:           header.date,
+      description:    header.description,
+      reference_no:   header.reference_no || undefined,
+      payment_method: header.payment_method || null,
+      entries:        [...debitEntries, ...creditEntries],
     };
 
     try {
@@ -209,6 +219,10 @@ export default function DepositEntry() {
 
           <Input label="Reference No" value={header.reference_no}
             onChange={(e) => setHeader({ ...header, reference_no: e.target.value })} placeholder="DEP-001" />
+
+          <Select label="Deposit Type" value={header.payment_method}
+            onChange={(e) => setHeader({ ...header, payment_method: e.target.value as DepositHeader['payment_method'] })}
+            options={paymentMethodOptions} />
 
           <Input label="Total Deposit Amount" required type="number" min="0" step="0.01" value={header.total_amount}
             onChange={(e) => setHeader({ ...header, total_amount: e.target.value })}
