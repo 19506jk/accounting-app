@@ -13,9 +13,25 @@ const row = {
   contact_name: null,
   has_multiple_contacts: false,
   reference_no: null,
+  payment_method: null,
   total_amount: 123.45,
   is_voided: false,
 } as unknown as TransactionListItem;
+
+function depositRow(payment_method: string | null): TransactionListItem {
+  return {
+    id: 99,
+    date: '2026-05-01',
+    description: 'Sunday offering',
+    transaction_type: 'deposit',
+    contact_name: null,
+    has_multiple_contacts: false,
+    reference_no: null,
+    payment_method,
+    total_amount: 500,
+    is_voided: false,
+  } as unknown as TransactionListItem;
+}
 
 describe('TransactionTable', () => {
   it('renders empty state when no rows are present', async () => {
@@ -39,5 +55,21 @@ describe('TransactionTable', () => {
 
     expect(onDelete).toHaveBeenCalledTimes(1);
     expect(onDelete.mock.calls[0]?.[1]).toBe(11);
+  });
+
+  describe('deposit type badges', () => {
+    it.each([
+      ['cash',       'Cash'],
+      ['cheque',     'Cheque'],
+      ['e-transfer', 'E-Transfer'],
+    ])('renders %s deposit with badge label "%s"', async (paymentMethod, expectedLabel) => {
+      const screen = await render(<TransactionTable rows={[depositRow(paymentMethod)]} />);
+      await expect.element(screen.getByText(expectedLabel)).toBeVisible();
+    });
+
+    it('falls back to "Deposit" badge when payment_method is null', async () => {
+      const screen = await render(<TransactionTable rows={[depositRow(null)]} />);
+      await expect.element(screen.getByText('Deposit')).toBeVisible();
+    });
   });
 });
