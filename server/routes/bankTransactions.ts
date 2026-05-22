@@ -312,9 +312,13 @@ router.post(
           throw Object.assign(new Error(`Row ${rowNumber}: invalid bank_effective_date`), { statusCode: 400 });
         }
 
-        const bankTransactionId = row?.bank_transaction_id ? String(row.bank_transaction_id).trim() : null;
+        let bankTransactionId = row?.bank_transaction_id ? String(row.bank_transaction_id).trim() : null;
         const paymentMethod = row?.payment_method ? String(row.payment_method).trim() : null;
         const normalizedDescription = normalizeDescription(rawDescription);
+        if (!bankTransactionId) {
+          const chequeMatch = normalizedDescription.match(/\bchequ?e (\d+)/);
+          if (chequeMatch) bankTransactionId = chequeMatch[1];
+        }
         const isInterac = paymentMethod?.toLowerCase().includes('interac') ?? false;
         const fingerprint = buildFingerprint(
           normalizedDescription,
@@ -359,9 +363,11 @@ router.post(
         const incomingFingerprints = Array.from(new Set(preparedRows.map((row) => row.fingerprint)));
 
         const existingIds = incomingIds.length > 0
-          ? await trx('bank_transactions')
-            .whereIn('bank_transaction_id', incomingIds)
-            .pluck('bank_transaction_id') as string[]
+          ? await trx('bank_transactions as bt')
+            .join('bank_uploads as bu', 'bu.id', 'bt.upload_id')
+            .where('bu.account_id', account_id)
+            .whereIn('bt.bank_transaction_id', incomingIds)
+            .pluck('bt.bank_transaction_id') as string[]
           : [];
 
         const existingFingerprints = incomingFingerprints.length > 0

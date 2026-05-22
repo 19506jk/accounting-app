@@ -433,6 +433,46 @@ describe('direct DB bank-transactions integration checks', () => {
     });
   });
 
+  it('extracts cheque number from description into bank_transaction_id when field is absent', async () => {
+    const fixture = await createFixture();
+
+    const response = await requestRoute({
+      probePath: '/import',
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        account_id: fixture.bankAccountId,
+        fund_id: fixture.fundId,
+        filename: `cheque-extract-${fixture.suffix}.csv`,
+        rows: [
+          { bank_posted_date: '2026-04-13', raw_description: 'Cheque 640', amount: -54.07 },
+          { bank_posted_date: '2026-04-14', raw_description: 'CHEQUE 0001', amount: -100 },
+          { bank_posted_date: '2026-04-15', raw_description: 'no number here', amount: -25 },
+          {
+            bank_posted_date: '2026-04-16',
+            raw_description: 'Cheque 999',
+            amount: -75,
+            bank_transaction_id: 'EXPLICIT-REF',
+          },
+        ],
+      },
+    });
+
+    expect(response.status).toBe(201);
+    createdUploadIds.push(response.body.upload_id as number);
+
+    const rows = await db('bank_transactions')
+      .where({ upload_id: response.body.upload_id })
+      .orderBy('row_index', 'asc') as Array<{ bank_transaction_id: string | null }>;
+
+    expect(rows).toHaveLength(4);
+    expect(rows[0]?.bank_transaction_id).toBe('640');
+    expect(rows[1]?.bank_transaction_id).toBe('0001');
+    expect(rows[2]?.bank_transaction_id).toBeNull();
+    expect(rows[3]?.bank_transaction_id).toBe('EXPLICIT-REF');
+  });
+
   it('applies review decision once and returns 409 for subsequent reviews', async () => {
     const fixture = await createFixture();
 
