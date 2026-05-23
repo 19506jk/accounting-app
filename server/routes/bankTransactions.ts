@@ -317,7 +317,7 @@ router.post(
         const normalizedDescription = normalizeDescription(rawDescription);
         if (!bankTransactionId) {
           const chequeMatch = normalizedDescription.match(/\bchequ?e (\d+)/);
-          if (chequeMatch) bankTransactionId = chequeMatch[1];
+          if (chequeMatch) bankTransactionId = chequeMatch[1] ?? null;
         }
         const isInterac = paymentMethod?.toLowerCase().includes('interac') ?? false;
         const fingerprint = buildFingerprint(

@@ -152,6 +152,7 @@ describe('runMatcher payment_method veto', () => {
         updated_at: db.fn.now(),
       })
       .returning('*') as Array<{ id: number }>;
+    if (!je) throw new Error('Failed to create journal entry');
     await db('journal_entries').insert({
       transaction_id: tx.id,
       account_id: fx.incomeAccountId,
