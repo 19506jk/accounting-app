@@ -380,7 +380,7 @@ function TransactionForm({ onClose, onSaved }: TransactionFormProps) {
 }
 
 // ── Edit Transaction Form ────────────────────────────────────────────────────
-function TransactionEditForm({ transaction, onClose, onSaved }: TransactionEditFormProps) {
+export function TransactionEditForm({ transaction, onClose, onSaved }: TransactionEditFormProps) {
   const { addToast } = useToast();
   const { data: accounts } = useAccounts();
   const { data: funds     } = useFunds();
@@ -388,9 +388,10 @@ function TransactionEditForm({ transaction, onClose, onSaved }: TransactionEditF
   const updateTx = useUpdateTransaction();
 
   const [form, setForm] = useState({
-    date:         toDateOnly(String(transaction.date || '')),
-    description:  transaction.description ?? '',
-    reference_no: transaction.reference_no ?? '',
+    date:           toDateOnly(String(transaction.date || '')),
+    description:    transaction.description ?? '',
+    reference_no:   transaction.reference_no ?? '',
+    payment_method: (transaction.payment_method ?? '') as 'cash' | 'cheque' | 'e-transfer' | '',
   });
 
   const [entries, setEntries] = useState<JournalEntryState[]>(
@@ -437,6 +438,9 @@ function TransactionEditForm({ transaction, onClose, onSaved }: TransactionEditF
       date:         form.date,
       description:  form.description,
       reference_no: nextReferenceNo || null,
+      ...(transaction.transaction_type === 'deposit' && {
+        payment_method: form.payment_method || null,
+      }),
       entries: entries.map((e) => ({
         account_id: Number(e.account_id),
         fund_id:    Number(e.fund_id),
@@ -471,6 +475,20 @@ function TransactionEditForm({ transaction, onClose, onSaved }: TransactionEditF
             style={{ flex: '1 1 160px', minWidth: '160px' }}
             onChange={(e) => setForm((f) => ({ ...f, reference_no: e.target.value }))}
             placeholder="DEP-001" />
+          {transaction.transaction_type === 'deposit' && (
+            <Select
+              label="Deposit Type"
+              value={form.payment_method}
+              onChange={(e) => setForm((f) => ({ ...f, payment_method: e.target.value as typeof f.payment_method }))}
+              options={[
+                { value: '',           label: '—' },
+                { value: 'cash',       label: 'Cash' },
+                { value: 'cheque',     label: 'Cheque' },
+                { value: 'e-transfer', label: 'E-Transfer' },
+              ]}
+              style={{ flex: '1 1 160px', minWidth: '160px' }}
+            />
+          )}
         </div>
 
         <div className="tx-journal-section">

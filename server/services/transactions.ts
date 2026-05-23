@@ -206,8 +206,14 @@ async function getTransactionDetailById(id: string | number, dbOrTrx: DbHandle =
 
   const totalAmount = entries.reduce((sum, e) => sum.plus(dec(e.debit)), dec(0));
 
+  const hasIncomeCredit = entries.some((e) => e.account_type === 'INCOME' && e.credit > 0);
+  const hasExpenseDebit = entries.some((e) => e.account_type === 'EXPENSE' && e.debit > 0);
+  const transaction_type: TransactionDetail['transaction_type'] =
+    hasIncomeCredit ? 'deposit' : hasExpenseDebit ? 'withdrawal' : 'transfer';
+
   return {
     ...transaction,
+    transaction_type,
     date: normalizeDateOnly(transaction.date),
     created_at: String(transaction.created_at),
     total_amount: parseFloat(totalAmount.toFixed(2)),

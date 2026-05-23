@@ -574,6 +574,7 @@ export interface TransactionDetail {
   description: string;
   reference_no: string | null;
   payment_method: string | null;
+  transaction_type?: 'deposit' | 'withdrawal' | 'transfer';
   fund_id: number;
   created_at: string;
   created_by_name?: string | null;
