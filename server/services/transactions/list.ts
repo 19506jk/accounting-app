@@ -9,18 +9,20 @@ import type {
   TransactionListRow,
 } from '../../types/db';
 import { normalizeDateOnly, parseDateOnlyStrict } from '../../utils/date.js';
+import { buildCreditPaymentMethodAggregate } from './paymentMethodAggregate.js';
 
 const db = require('../../db') as Knex;
 
 type TransactionType = NonNullable<TransactionsQuery['transaction_type']>;
 
-type TransactionPageRow = Omit<TransactionListRow, 'contact_name' | 'has_multiple_contacts' | 'total_amount'>;
+type TransactionPageRow = Omit<TransactionListRow, 'contact_name' | 'has_multiple_contacts' | 'payment_method' | 'total_amount'>;
 
 type TransactionAggregateRow = {
   transaction_id: number;
   total_amount: string | number | null;
   contact_count: string | number | null;
   contact_name: string | null;
+  payment_method: string | null;
   has_income_credit: string | number | null;
   has_expense_debit: string | number | null;
 };
@@ -168,7 +170,6 @@ async function listTransactions(query: TransactionsQuery): Promise<TransactionsL
       't.date',
       't.description',
       't.reference_no',
-      't.payment_method',
       't.fund_id',
       't.created_at',
       't.is_voided',
@@ -192,6 +193,7 @@ async function listTransactions(query: TransactionsQuery): Promise<TransactionsL
         db.raw('COALESCE(SUM(je.debit), 0) AS total_amount'),
         db.raw('COUNT(DISTINCT je.contact_id) AS contact_count'),
         db.raw('MAX(c.name) AS contact_name'),
+        buildCreditPaymentMethodAggregate(db, 'je'),
         db.raw(`MAX(CASE WHEN a.type = 'INCOME' AND je.credit > 0 THEN 1 ELSE 0 END) AS has_income_credit`),
         db.raw(`MAX(CASE WHEN a.type = 'EXPENSE' AND je.debit > 0 THEN 1 ELSE 0 END) AS has_expense_debit`),
       ])
@@ -216,7 +218,7 @@ async function listTransactions(query: TransactionsQuery): Promise<TransactionsL
       date: normalizeDateOnly(t.date),
       created_at: String(t.created_at),
       is_voided: Boolean(t.is_voided),
-      payment_method: t.payment_method ?? null,
+      payment_method: aggregate?.payment_method ?? null,
       total_amount: parseFloat(String(aggregate?.total_amount || 0)),
       contact_name: contactCount === 1 ? aggregate?.contact_name || null : null,
       has_multiple_contacts: contactCount > 1,

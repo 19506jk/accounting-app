@@ -26,6 +26,7 @@ import type { FundStatus } from '../components/ui/SummaryBar';
 import type { OptionValue, SelectOption } from '../components/ui/types';
 import type { TransactionTemplate } from '../api/useTransactionTemplates';
 import type { TemplateDropdownTemplate } from '../components/TemplateDropdown';
+import { PAYMENT_METHOD_OPTIONS_WITH_EMPTY } from './paymentMethodOptions';
 
 const dec = (v: Decimal.Value | null | undefined) => new Decimal(v || 0);
 
@@ -34,6 +35,7 @@ interface JournalEntryState {
   fund_id: OptionValue | '';
   debit: string;
   credit: string;
+  payment_method: 'cash' | 'cheque' | 'e-transfer' | '';
   contact_id: OptionValue | '';
   memo: string;
 }
@@ -55,8 +57,13 @@ interface TransactionEditFormProps extends TransactionFormProps {
 
 type TransactionTypeFilter = '' | TransactionListItem['transaction_type'];
 
-const EMPTY_ENTRY: JournalEntryState = { account_id: '', fund_id: '', debit: '', credit: '', contact_id: '', memo: '' };
+const EMPTY_ENTRY: JournalEntryState = { account_id: '', fund_id: '', debit: '', credit: '', payment_method: '', contact_id: '', memo: '' };
 const JOURNAL_GRID_TEMPLATE = 'minmax(250px, 2fr) minmax(150px, 1fr) 110px 110px minmax(220px, 1.2fr) minmax(280px, 1.6fr) 28px';
+const JOURNAL_GRID_TEMPLATE_WITH_METHOD = 'minmax(220px, 1.8fr) minmax(140px, 1fr) 110px 110px 132px minmax(200px, 1.2fr) minmax(240px, 1.4fr) 28px';
+
+function isCreditEntry(entry: { credit: number | string | null | undefined }) {
+  return dec(entry.credit || 0).gt(0)
+}
 
 // ── Shared Journal Entry Form Fields ────────────────────────────────────────
 // Used by both TransactionForm (create) and TransactionEditForm (edit)
@@ -66,6 +73,7 @@ function JournalEntryLines({
   accountOptions,
   fundOptions,
   contactOptions,
+  showPaymentMethod = false,
   defaultFundId = '',
 }: {
   entries: JournalEntryState[];
@@ -73,8 +81,11 @@ function JournalEntryLines({
   accountOptions: SelectOption[];
   fundOptions: SelectOption[];
   contactOptions: SelectOption[];
+  showPaymentMethod?: boolean;
   defaultFundId?: OptionValue | '';
 }) {
+  const gridTemplateColumns = showPaymentMethod ? JOURNAL_GRID_TEMPLATE_WITH_METHOD : JOURNAL_GRID_TEMPLATE;
+
   function setEntry<K extends keyof JournalEntryState>(i: number, key: K, val: JournalEntryState[K]) {
     setEntries((prev) => {
       const next = [...prev];
@@ -101,17 +112,18 @@ function JournalEntryLines({
 
       <div className="journal-scroll-container">
         <div className="journal-table">
-          <div className="journal-grid journal-grid-header" style={{ gridTemplateColumns: JOURNAL_GRID_TEMPLATE }}>
+          <div className="journal-grid journal-grid-header" style={{ gridTemplateColumns }}>
             <span>Account</span><span>Fund</span>
             <span style={{ textAlign: 'right' }}>Debit</span>
             <span style={{ textAlign: 'right' }}>Credit</span>
+            {showPaymentMethod && <span>Method</span>}
             <span>Donor / Payee</span>
             <span>Description</span>
             <span />
           </div>
 
           {entries.map((e, i) => (
-            <div key={i} className="journal-grid journal-grid-row" style={{ gridTemplateColumns: JOURNAL_GRID_TEMPLATE }}>
+            <div key={i} className="journal-grid journal-grid-row" style={{ gridTemplateColumns }}>
               <Combobox options={accountOptions} value={e.account_id}
                 onChange={(v) => setEntry(i, 'account_id', v)} placeholder="Account…" />
               <Combobox options={fundOptions} value={e.fund_id}
@@ -126,7 +138,7 @@ function JournalEntryLines({
                     next[i] = { ...current, debit: value };
 
                     if (value) {
-                      next[i] = { ...next[i], credit: '' };
+                      next[i] = { ...next[i], credit: '', payment_method: '' };
                     }
 
                     return next;
@@ -143,6 +155,18 @@ function JournalEntryLines({
                 placeholder="0.00"
                 style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
                   borderRadius: '6px', fontSize: '0.8rem', textAlign: 'right', width: '100%', boxSizing: 'border-box' }} />
+              {showPaymentMethod && (
+                isCreditEntry(e) ? (
+                  <Select
+                    aria-label={`Payment Method ${i + 1}`}
+                    value={e.payment_method}
+                    onChange={(ev) => setEntry(i, 'payment_method', ev.target.value as JournalEntryState['payment_method'])}
+                    options={PAYMENT_METHOD_OPTIONS_WITH_EMPTY}
+                  />
+                ) : (
+                  <div aria-hidden="true" />
+                )
+              )}
               <Combobox options={contactOptions} value={e.contact_id}
                 onChange={(v) => setEntry(i, 'contact_id', v)} placeholder="Anonymous" />
               <input type="text" value={e.memo}
@@ -249,6 +273,7 @@ function TransactionForm({ onClose, onSaved }: TransactionFormProps) {
       template.rows.map<JournalEntryState>((row) => ({
         account_id: accountValueById.get(String(row.account_id)) || '',
         fund_id: fundValueById.get(String(row.fund_id)) || (defaultFundId || ''),
+        payment_method: '',
         contact_id: contactValueById.get(String(row.contact_id)) || '',
         memo: row.memo || '',
         debit: '',
@@ -327,6 +352,7 @@ function TransactionForm({ onClose, onSaved }: TransactionFormProps) {
             entries={entries} setEntries={setEntries}
             accountOptions={accountOptions} fundOptions={fundOptions} contactOptions={contactOptions}
             defaultFundId={defaultFundId}
+            showPaymentMethod={false}
           />
         </div>
 
@@ -391,7 +417,6 @@ export function TransactionEditForm({ transaction, onClose, onSaved }: Transacti
     date:           toDateOnly(String(transaction.date || '')),
     description:    transaction.description ?? '',
     reference_no:   transaction.reference_no ?? '',
-    payment_method: (transaction.payment_method ?? '') as 'cash' | 'cheque' | 'e-transfer' | '',
   });
 
   const [entries, setEntries] = useState<JournalEntryState[]>(
@@ -400,6 +425,7 @@ export function TransactionEditForm({ transaction, onClose, onSaved }: Transacti
       fund_id:    e.fund_id    ?? '',
       debit:      e.debit  > 0 ? String(e.debit)  : '',
       credit:     e.credit > 0 ? String(e.credit) : '',
+      payment_method: (isCreditEntry(e) ? (e.payment_method ?? '') : '') as JournalEntryState['payment_method'],
       contact_id: e.contact_id ?? '',
       memo:       e.memo ?? '',
     }))
@@ -438,14 +464,12 @@ export function TransactionEditForm({ transaction, onClose, onSaved }: Transacti
       date:         form.date,
       description:  form.description,
       reference_no: nextReferenceNo || null,
-      ...(transaction.transaction_type === 'deposit' && {
-        payment_method: form.payment_method || null,
-      }),
       entries: entries.map((e) => ({
         account_id: Number(e.account_id),
         fund_id:    Number(e.fund_id),
         debit:      parseFloat(e.debit  || '0'),
         credit:     parseFloat(e.credit || '0'),
+        payment_method: (isCreditEntry(e) ? e.payment_method : '') || null,
         contact_id: e.contact_id ? Number(e.contact_id) : null,
         memo:       e.memo || undefined,
       })),
@@ -475,26 +499,13 @@ export function TransactionEditForm({ transaction, onClose, onSaved }: Transacti
             style={{ flex: '1 1 160px', minWidth: '160px' }}
             onChange={(e) => setForm((f) => ({ ...f, reference_no: e.target.value }))}
             placeholder="DEP-001" />
-          {transaction.transaction_type === 'deposit' && (
-            <Select
-              label="Deposit Type"
-              value={form.payment_method}
-              onChange={(e) => setForm((f) => ({ ...f, payment_method: e.target.value as typeof f.payment_method }))}
-              options={[
-                { value: '',           label: '—' },
-                { value: 'cash',       label: 'Cash' },
-                { value: 'cheque',     label: 'Cheque' },
-                { value: 'e-transfer', label: 'E-Transfer' },
-              ]}
-              style={{ flex: '1 1 160px', minWidth: '160px' }}
-            />
-          )}
         </div>
 
         <div className="tx-journal-section">
           <JournalEntryLines
             entries={entries} setEntries={setEntries}
             accountOptions={accountOptions} fundOptions={fundOptions} contactOptions={contactOptions}
+            showPaymentMethod={transaction.transaction_type === 'deposit'}
           />
         </div>
 

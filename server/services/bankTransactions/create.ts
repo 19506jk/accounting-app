@@ -49,7 +49,7 @@ function ensurePositiveInteger(value: unknown, field: string, required = true) {
 }
 
 function validateAndBuildEntries(
-  payload: CreateFromBankRowInput & { bank_account_id: number; fund_id: number },
+  payload: CreateFromBankRowInput & { bank_account_id: number; fund_id: number; entry_payment_method?: 'cash' | 'cheque' | 'e-transfer' | null },
   context: BuildEntryContext
 ): BuiltTransactionEntry[] {
   const amount = dec(payload.amount).toDecimalPlaces(2);
@@ -84,6 +84,7 @@ function validateAndBuildEntries(
           fund_id: Number(splitFundId),
           debit: 0,
           credit: Number(splitAmount.toFixed(2)),
+          payment_method: payload.entry_payment_method ?? null,
           contact_id: split.contact_id ?? null,
           memo: split.memo ?? undefined,
         });
@@ -100,6 +101,7 @@ function validateAndBuildEntries(
       fund_id: payload.fund_id,
       debit: 0,
       credit: Number(amount.toFixed(2)),
+      payment_method: payload.entry_payment_method ?? null,
       contact_id: payload.contact_id ?? null,
     });
     return entries;
@@ -230,7 +232,7 @@ function hasNonZeroRounding(payload: CreateFromBankRowInput) {
 }
 
 export async function createFromBankRow(
-  payload: CreateFromBankRowInput & { bank_account_id: number; fund_id: number },
+  payload: CreateFromBankRowInput & { bank_account_id: number; fund_id: number; entry_payment_method?: 'cash' | 'cheque' | 'e-transfer' | null },
   userId: number,
   trx: Knex.Transaction,
 ): Promise<{ transaction_id: number; bank_je_id: number }> {
@@ -298,6 +300,7 @@ export async function createFromBankRow(
       contact_id: entry.contact_id ?? null,
       debit: dec(entry.debit ?? 0).toFixed(2),
       credit: dec(entry.credit ?? 0).toFixed(2),
+      payment_method: entry.payment_method ?? null,
       memo: entry.memo?.trim() || null,
       tax_rate_id: entry.tax_rate_id ?? null,
       is_reconciled: false,

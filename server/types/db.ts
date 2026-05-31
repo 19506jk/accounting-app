@@ -40,7 +40,6 @@ export interface TransactionRow {
   date: Date | string;
   description: string;
   reference_no: string | null;
-  payment_method: string | null;
   fund_id: number;
   is_voided: boolean;
   is_closing_entry: boolean;
@@ -57,6 +56,7 @@ export interface JournalEntryRow {
   contact_id: number | null;
   debit: string | number;
   credit: string | number;
+  payment_method: string | null;
   memo: string | null;
   is_reconciled: boolean;
   created_at: Date | string;
@@ -122,6 +122,7 @@ export interface TransactionEntryDetailRow {
   fund_name: string;
   debit: string | number;
   credit: string | number;
+  payment_method: string | null;
   memo: string | null;
   is_reconciled: boolean;
   contact_id: number | null;

@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import type { Knex } from 'knex';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import type { UpdateTransactionInput } from '@shared/contracts';
 
 dotenv.config();
 
@@ -129,10 +130,9 @@ describe('payment_method validation', () => {
           {
             date: '2026-05-01',
             description: 'Sunday deposit',
-            payment_method: 'wire' as 'cash',
             entries: [
               { account_id: fx.bankAccountId,   fund_id: fx.fundId, debit: 250,   credit: 0 },
-              { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0,     credit: 250 },
+              { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0,     credit: 250, payment_method: 'wire' as 'cash' },
             ],
           },
           fx.userId,
@@ -142,37 +142,294 @@ describe('payment_method validation', () => {
         message: 'Validation failed',
         statusCode: 400,
         validationErrors: expect.arrayContaining([
-          'payment_method must be one of: cash, cheque, e-transfer',
+          'Entry 2: payment_method must be one of: cash, cheque, e-transfer',
+        ]),
+      });
+    });
+
+    it('rejects payment_method on a debit entry', async () => {
+      const fx = await createMinimalFixture();
+      ctx.actor.id = fx.userId;
+
+      await expect(
+        createTransaction(
+          {
+            date: '2026-05-01',
+            description: 'Sunday deposit',
+            entries: [
+              { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: 'cash' },
+              { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cash' },
+            ],
+          },
+          fx.userId,
+          ctx
+        )
+      ).rejects.toMatchObject({
+        message: 'Validation failed',
+        statusCode: 400,
+        validationErrors: expect.arrayContaining([
+          'Entry 1: payment_method is only allowed on credit entries',
         ]),
       });
     });
   });
 
   describe('updateTransaction', () => {
-    it('rejects an invalid payment_method value on header-only update', async () => {
+    it('rejects an invalid per-entry payment_method value on update', async () => {
       const fx = await createMinimalFixture();
       ctx.actor.id = fx.userId;
 
-      // Insert a minimal transaction directly to avoid going through createTransaction
-      const [tx] = await db('transactions')
-        .insert({
+      const created = await createTransaction(
+        {
           date: '2026-05-01',
           description: 'Cash deposit',
-          payment_method: 'cash',
-          fund_id: fx.fundId,
-          created_by: fx.userId,
-          created_at: db.fn.now(),
-          updated_at: db.fn.now(),
-        })
-        .returning('*') as Array<{ id: number }>;
-      if (!tx) throw new Error('Failed to insert transaction');
-      createdTransactionIds.push(tx.id);
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cash' },
+          ],
+        },
+        fx.userId,
+        ctx
+      );
+      createdTransactionIds.push(created.id);
 
       await expect(
-        updateTransaction(String(tx.id), { payment_method: 'wire' as 'cash' }, ctx)
+        updateTransaction(String(created.id), {
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'wire' as 'cash' },
+          ],
+        }, ctx)
       ).rejects.toMatchObject({
-        message: 'payment_method must be one of: cash, cheque, e-transfer',
+        message: 'Validation failed',
         statusCode: 400,
+        validationErrors: expect.arrayContaining([
+          'Entry 2: payment_method must be one of: cash, cheque, e-transfer',
+        ]),
+      });
+    });
+
+    it('allows updating payment_method on reconciled entries while still blocking amount changes', async () => {
+      const fx = await createMinimalFixture();
+      ctx.actor.id = fx.userId;
+
+      const created = await createTransaction(
+        {
+          date: '2026-05-01',
+          description: 'Cheque deposit',
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cheque' },
+          ],
+        },
+        fx.userId,
+        ctx
+      );
+      createdTransactionIds.push(created.id);
+
+      await db('journal_entries')
+        .where({ transaction_id: created.id })
+        .update({ is_reconciled: true });
+
+      const updated = await updateTransaction(String(created.id), {
+        entries: [
+          { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null },
+          { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cash' },
+        ],
+      }, ctx);
+
+      expect(updated.entries?.[1]?.payment_method).toBe('cash');
+
+      await expect(
+        updateTransaction(String(created.id), {
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 249, credit: 0, payment_method: null },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 249, payment_method: 'cash' },
+          ],
+        }, ctx)
+      ).rejects.toMatchObject({
+        message: 'Reconciled transactions only allow contact, memo, and payment method changes',
+        statusCode: 400,
+      });
+    });
+
+    it('allows reconciled memo-only updates when payment_method is omitted', async () => {
+      const fx = await createMinimalFixture();
+      ctx.actor.id = fx.userId;
+
+      const created = await createTransaction(
+        {
+          date: '2026-05-01',
+          description: 'Reconciled memo edit',
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null, memo: 'bank row' },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cash', memo: 'old memo' },
+          ],
+        },
+        fx.userId,
+        ctx
+      );
+      createdTransactionIds.push(created.id);
+
+      await db('journal_entries')
+        .where({ transaction_id: created.id })
+        .update({ is_reconciled: true });
+
+      const updated = await updateTransaction(
+        String(created.id),
+        {
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, memo: 'bank row' },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, memo: 'new memo' },
+          ],
+        } as unknown as UpdateTransactionInput,
+        ctx
+      );
+
+      expect(updated.entries?.[1]?.memo).toBe('new memo');
+      expect(updated.entries?.[1]?.payment_method).toBe('cash');
+    });
+
+    it('requires explicit payment_method fields for credit entries when updating entries', async () => {
+      const fx = await createMinimalFixture();
+      ctx.actor.id = fx.userId;
+
+      const created = await createTransaction(
+        {
+          date: '2026-05-01',
+          description: 'Deposit update contract',
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cash' },
+          ],
+        },
+        fx.userId,
+        ctx
+      );
+      createdTransactionIds.push(created.id);
+
+      await expect(
+        updateTransaction(String(created.id), {
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250 },
+          ],
+        } as unknown as UpdateTransactionInput, ctx)
+      ).rejects.toMatchObject({
+        message: 'Validation failed',
+        statusCode: 400,
+        validationErrors: expect.arrayContaining([
+          'Entry 2: payment_method must be provided when updating entries',
+        ]),
+      });
+    });
+
+    it('returns not found before validating an invalid date on update', async () => {
+      await expect(
+        updateTransaction('999999999', {
+          date: 'not-a-date',
+        }, ctx)
+      ).rejects.toMatchObject({
+        message: 'Transaction not found',
+        statusCode: 404,
+      });
+    });
+
+    it('still validates an invalid date after finding a real transaction', async () => {
+      const fx = await createMinimalFixture();
+      ctx.actor.id = fx.userId;
+
+      const created = await createTransaction(
+        {
+          date: '2026-05-01',
+          description: 'Real transaction date validation',
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cash' },
+          ],
+        },
+        fx.userId,
+        ctx
+      );
+      createdTransactionIds.push(created.id);
+
+      await expect(
+        updateTransaction(String(created.id), {
+          date: 'not-a-date',
+        }, ctx)
+      ).rejects.toMatchObject({
+        message: 'date is not a valid date (YYYY-MM-DD)',
+        statusCode: 400,
+      });
+    });
+
+    it('returns batched transaction validation errors before missing update payment_method errors', async () => {
+      const fx = await createMinimalFixture();
+      ctx.actor.id = fx.userId;
+
+      const created = await createTransaction(
+        {
+          date: '2026-05-01',
+          description: 'Deposit validation order',
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cash' },
+          ],
+        },
+        fx.userId,
+        ctx
+      );
+      createdTransactionIds.push(created.id);
+
+      await expect(
+        updateTransaction(String(created.id), {
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: -250, credit: 0 },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cash' },
+          ],
+        } as unknown as UpdateTransactionInput, ctx)
+      ).rejects.toMatchObject({
+        message: 'Validation failed',
+        statusCode: 400,
+        validationErrors: expect.arrayContaining([
+          'Entry 1: amounts must be positive',
+        ]),
+      });
+    });
+
+    it('batches multiple missing payment_method errors on replacement updates', async () => {
+      const fx = await createMinimalFixture();
+      ctx.actor.id = fx.userId;
+
+      const created = await createTransaction(
+        {
+          date: '2026-05-01',
+          description: 'Deposit missing method batch',
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0, payment_method: null },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 250, payment_method: 'cash' },
+          ],
+        },
+        fx.userId,
+        ctx
+      );
+      createdTransactionIds.push(created.id);
+
+      await expect(
+        updateTransaction(String(created.id), {
+          entries: [
+            { account_id: fx.bankAccountId, fund_id: fx.fundId, debit: 250, credit: 0 },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 100 },
+            { account_id: fx.incomeAccountId, fund_id: fx.fundId, debit: 0, credit: 150 },
+          ],
+        } as unknown as UpdateTransactionInput, ctx)
+      ).rejects.toMatchObject({
+        message: 'Validation failed',
+        statusCode: 400,
+        validationErrors: expect.arrayContaining([
+          'Entry 2: payment_method must be provided when updating entries',
+          'Entry 3: payment_method must be provided when updating entries',
+        ]),
       });
     });
   });

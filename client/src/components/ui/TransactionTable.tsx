@@ -22,6 +22,11 @@ export function txFmt(n: number | string | null | undefined) {
   return '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
 }
 
+function formatPaymentMethodLabel(paymentMethod: string | null | undefined) {
+  if (!paymentMethod) return '—';
+  return TYPE_BADGE[paymentMethod as keyof typeof TYPE_BADGE]?.label ?? '—';
+}
+
 function TransactionDetail({ id, onEdit }: { id: number; onEdit?: (transaction: TransactionDetail) => void }) {
   const [detail, setDetail] = useState<TransactionDetail | null>(null);
 
@@ -53,6 +58,7 @@ function TransactionDetail({ id, onEdit }: { id: number; onEdit?: (transaction: 
             <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Account</th>
             <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Fund</th>
             <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Contact</th>
+            <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Method</th>
             <th style={{ textAlign: 'left',  padding: '0.25rem 0.5rem', fontWeight: 600 }}>Description</th>
             <th style={{ textAlign: 'right', padding: '0.25rem 0.5rem', fontWeight: 600 }}>Debit</th>
             <th style={{ textAlign: 'right', padding: '0.25rem 0.5rem', fontWeight: 600 }}>Credit</th>
@@ -64,6 +70,7 @@ function TransactionDetail({ id, onEdit }: { id: number; onEdit?: (transaction: 
               <td style={{ padding: '0.3rem 0.5rem' }}>{e.account_code} {e.account_name}</td>
               <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{e.fund_name}</td>
               <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{e.contact_name || '—'}</td>
+              <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{formatPaymentMethodLabel(e.payment_method)}</td>
               <td style={{ padding: '0.3rem 0.5rem', color: '#6b7280' }}>{e.memo || '—'}</td>
               <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right', color: '#15803d' }}>
                 {e.debit  > 0 ? txFmt(e.debit)  : ''}

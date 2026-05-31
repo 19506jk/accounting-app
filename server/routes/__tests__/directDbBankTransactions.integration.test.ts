@@ -364,6 +364,50 @@ describe('direct DB bank-transactions integration checks', () => {
     expect(imported.body).toMatchObject({ inserted: 2, skipped: 0, needs_review: 1 });
   });
 
+  it('keeps bare E-TRANSFER fingerprinting on the non-Interac path for compatibility', async () => {
+    const fixture = await createFixture();
+
+    const imported = await requestRoute({
+      probePath: '/import',
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        account_id: fixture.bankAccountId,
+        fund_id: fixture.fundId,
+        filename: `integration-bare-etransfer-${fixture.suffix}.csv`,
+        rows: [
+          {
+            bank_posted_date: '2026-05-07',
+            raw_description: 'E-TRANSFER Deposit',
+            amount: 100,
+            bank_transaction_id: `ETRANSFER-A-${fixture.suffix}`,
+            payment_method: 'E-TRANSFER',
+          },
+          {
+            bank_posted_date: '2026-05-07',
+            raw_description: 'E-TRANSFER Deposit',
+            amount: 100,
+            bank_transaction_id: `ETRANSFER-B-${fixture.suffix}`,
+            payment_method: 'E-TRANSFER',
+          },
+        ],
+      },
+    });
+
+    expect(imported.status).toBe(201);
+    createdUploadIds.push(imported.body.upload_id as number);
+    expect(imported.body).toMatchObject({ inserted: 2, skipped: 0, needs_review: 1 });
+
+    const persisted = await db('bank_transactions')
+      .where({ upload_id: imported.body.upload_id })
+      .orderBy('row_index', 'asc')
+      .select('status', 'fingerprint') as Array<{ status: string; fingerprint: string }>;
+
+    expect(persisted.map((row) => row.status).sort()).toEqual(['imported', 'needs_review']);
+    expect(new Set(persisted.map((row) => row.fingerprint)).size).toBe(1);
+  });
+
   it('silently skips rows already imported by bank_transaction_id', async () => {
     const fixture = await createFixture();
     const filename = `dedup-${fixture.suffix}.csv`;

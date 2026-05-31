@@ -64,6 +64,7 @@ type EntryInput = {
   fund_id: number;
   debit: number;
   credit: number;
+  payment_method?: 'cash' | 'cheque' | 'e-transfer' | null;
   contact_id?: number | null;
   memo?: string;
 };
@@ -263,6 +264,7 @@ async function createTransaction({
       contact_id: entry.contact_id ?? null,
       debit: entry.debit.toFixed(2),
       credit: entry.credit.toFixed(2),
+      payment_method: entry.payment_method ?? null,
       memo: entry.memo || null,
       is_reconciled: false,
       created_at,
@@ -375,7 +377,7 @@ describe('listTransactions integration', () => {
       created_at: '2026-04-17T12:00:00.000Z',
       entries: [
         { account_id: fixture.bankId, fund_id: fixture.fundAId, debit: 100, credit: 0, contact_id: fixture.contactAId },
-        { account_id: fixture.incomeId, fund_id: fixture.fundAId, debit: 0, credit: 100, contact_id: fixture.contactAId },
+        { account_id: fixture.incomeId, fund_id: fixture.fundAId, debit: 0, credit: 100, payment_method: 'cash', contact_id: fixture.contactAId },
       ],
     });
     const withdrawalId = await createTransaction({
@@ -410,8 +412,9 @@ describe('listTransactions integration', () => {
       created_by: fixture.userId,
       created_at: '2026-04-14T12:00:00.000Z',
       entries: [
-        { account_id: fixture.incomeId, fund_id: fixture.fundAId, debit: 0, credit: 50, contact_id: fixture.contactAId },
-        { account_id: fixture.expenseId, fund_id: fixture.fundAId, debit: 50, credit: 0, contact_id: fixture.contactAId },
+        { account_id: fixture.bankId, fund_id: fixture.fundAId, debit: 100, credit: 0, contact_id: fixture.contactAId },
+        { account_id: fixture.incomeId, fund_id: fixture.fundAId, debit: 0, credit: 50, payment_method: 'cash', contact_id: fixture.contactAId },
+        { account_id: fixture.incomeId, fund_id: fixture.fundAId, debit: 0, credit: 50, payment_method: 'cheque', contact_id: fixture.contactAId },
       ],
     });
     const noContactId = await createTransaction({
@@ -441,12 +444,14 @@ describe('listTransactions integration', () => {
 
     expect(byId.get(depositId)).toEqual(expect.objectContaining({
       total_amount: 100,
+      payment_method: 'cash',
       contact_name: expect.stringContaining('List Contact A'),
       has_multiple_contacts: false,
       is_voided: false,
       date: '2026-04-17',
       created_at: expect.any(String),
     }));
+    expect(byId.get(mixedId)?.payment_method).toBeNull();
     expect(byId.get(transferId)).toEqual(expect.objectContaining({
       total_amount: 80,
       contact_name: null,

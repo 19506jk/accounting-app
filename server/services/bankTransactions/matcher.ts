@@ -8,6 +8,8 @@ import type {
   BankTransactionRow,
   ReconciliationReservationRow,
 } from '../../types/db';
+import { isETransferPaymentMethod } from './paymentMethods.js';
+import { buildCreditPaymentMethodAggregate } from '../transactions/paymentMethodAggregate.js';
 import { normalizeDescription } from './normalize.js';
 import { acquireReservation, releaseReservation } from './reservations.js';
 import { evaluateBankTransactionRule } from './ruleEngine.js';
@@ -256,10 +258,18 @@ export async function runMatcher(
   const amount = toNumber(bankTx.amount);
   const absAmount = Math.abs(amount).toFixed(2);
   const bankDate = toDateOnly(bankTx.bank_posted_date);
-
   const buildCandidateQuery = (fromDate: string, toDate: string, limit = 50) => {
+    const paymentMethodAggregate = trx('journal_entries as je_pm')
+      .join('transactions as t_pm', 't_pm.id', 'je_pm.transaction_id')
+      .where('t_pm.is_voided', false)
+      .whereBetween('t_pm.date', [fromDate, toDate])
+      .groupBy('je_pm.transaction_id')
+      .select('je_pm.transaction_id')
+      .select(buildCreditPaymentMethodAggregate(trx, 'je_pm'));
+
     const query = trx('journal_entries as je')
       .join('transactions as t', 't.id', 'je.transaction_id')
+      .leftJoin(paymentMethodAggregate.as('pm'), 'pm.transaction_id', 'je.transaction_id')
       .where('je.account_id', bankTx.account_id)
       .where('je.is_reconciled', false)
       .where('t.is_voided', false)
@@ -290,10 +300,10 @@ export async function runMatcher(
         't.date',
         't.description',
         't.reference_no',
-        't.payment_method',
         'je.debit',
         'je.credit'
-      );
+      )
+      .select('pm.payment_method');
 
     if (limit > 0) {
       query.limit(limit);
@@ -476,9 +486,10 @@ export async function runMatcher(
     : (refProof || perfectDateDescProof);
 
   if (autoConfirmEligible) {
-    const bankIsEtransfer = bankTx.payment_method?.toLowerCase().includes('interac') ?? false;
+    const bankIsEtransfer = isETransferPaymentMethod(bankTx.payment_method);
     const txMethod = (top as ScoredCandidate)._payment_method;
-    top.auto_confirm_eligible = !(bankIsEtransfer && txMethod && txMethod !== 'e-transfer');
+    const txIsEtransfer = txMethod === 'e-transfer';
+    top.auto_confirm_eligible = !bankIsEtransfer || txIsEtransfer || txMethod === null;
   } else {
     top.auto_confirm_eligible = false;
   }

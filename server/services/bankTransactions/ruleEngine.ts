@@ -886,7 +886,7 @@ export function extractTrainFromFeedPattern(input: {
   const raw = String(input.raw_description || '');
   const desc2 = String(input.bank_description_2 || '');
   const combined = `${raw} ${desc2}`.trim();
-  const isEtransfer = /(e[\s-]?transfer|autodeposit|interac)/i.test(combined);
+  const isEtransfer = /(e[\s-]?transfer|auto\s*deposit|interac)/i.test(combined);
   if (isEtransfer && senderName) {
     return normalizeDescription(senderName);
   }

@@ -145,20 +145,27 @@ export interface AccountResponse {
   account: AccountSummary;
 }
 
+export const PAYMENT_METHODS = ['cash', 'cheque', 'e-transfer'] as const;
+export type PaymentMethod = typeof PAYMENT_METHODS[number];
+
 export interface TransactionEntryInput {
   account_id: number;
   fund_id: number;
   debit?: number;
   credit?: number;
+  payment_method?: PaymentMethod | null;
   contact_id?: number | null;
   memo?: string;
+}
+
+export interface UpdateTransactionEntryInput extends Omit<TransactionEntryInput, 'payment_method'> {
+  payment_method: Exclude<TransactionEntryInput['payment_method'], undefined>;
 }
 
 export interface CreateTransactionInput {
   date: string;
   description: string;
   reference_no?: string;
-  payment_method?: 'cash' | 'cheque' | 'e-transfer' | null;
   entries: TransactionEntryInput[];
 }
 
@@ -166,8 +173,7 @@ export interface UpdateTransactionInput {
   date?: string;
   description?: string;
   reference_no?: string | null;
-  payment_method?: 'cash' | 'cheque' | 'e-transfer' | null;
-  entries?: TransactionEntryInput[];
+  entries?: UpdateTransactionEntryInput[];
 }
 
 export interface TransactionSplit {
@@ -190,6 +196,7 @@ export interface ImportTransactionRow {
   reference_no?: string;
   amount: number;
   type: 'withdrawal' | 'deposit';
+  entry_payment_method?: PaymentMethod | null;
   offset_account_id?: number;
   payee_id?: number;
   contact_id?: number;
@@ -562,6 +569,7 @@ export interface TransactionEntryDetail {
   fund_name: string;
   debit: number;
   credit: number;
+  payment_method: string | null;
   memo: string | null;
   is_reconciled: boolean;
   contact_id: number | null;
@@ -574,7 +582,7 @@ export interface TransactionDetail {
   description: string;
   reference_no: string | null;
   payment_method: string | null;
-  transaction_type?: 'deposit' | 'withdrawal' | 'transfer';
+  transaction_type: 'deposit' | 'withdrawal' | 'transfer';
   fund_id: number;
   created_at: string;
   created_by_name?: string | null;
@@ -591,6 +599,7 @@ export interface TransactionCreateEntry {
   contact_id: number | null;
   debit: number;
   credit: number;
+  payment_method: string | null;
   memo: string | null;
   is_reconciled: boolean;
   created_at: string;
@@ -1030,6 +1039,7 @@ export interface UpdateBillInput {
 export interface PayBillInput {
   payment_date?: string;
   bank_account_id?: number;
+  entry_payment_method?: PaymentMethod | null;
   memo?: string;
   amount?: number;
   reference_no?: string;

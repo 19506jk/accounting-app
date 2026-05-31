@@ -346,6 +346,7 @@ describe('direct DB bills integration smoke checks', () => {
       method: 'POST',
       userId: fixture.userId,
       role: 'admin',
+      body: { reason_note: 'Integration test void' },
     });
 
     expect(voided.status).toBe(200);
@@ -522,6 +523,7 @@ describe('direct DB bills integration smoke checks', () => {
       method: 'POST',
       userId: fixture.userId,
       role: 'editor',
+      body: { reason_note: 'Integration test unapply' },
     });
 
     const transactionIdsAfterUnapply = await db('transactions')
@@ -787,6 +789,7 @@ describe('direct DB bills integration smoke checks', () => {
       body: {
         payment_date: date,
         bank_account_id: fixture.bankAccount.id,
+        entry_payment_method: 'cheque',
         reference_no: `PAY-PART-${fixture.suffix}`,
         amount: 15,
       },
@@ -811,6 +814,7 @@ describe('direct DB bills integration smoke checks', () => {
         contact_id: number | null;
         debit: string | number;
         credit: string | number;
+        payment_method: string | null;
       }>;
 
     expect(paymentEntries).toEqual(expect.arrayContaining([
@@ -820,6 +824,7 @@ describe('direct DB bills integration smoke checks', () => {
         contact_id: fixture.vendor.id,
         debit: '15.00',
         credit: '0.00',
+        payment_method: null,
       }),
       expect.objectContaining({
         account_id: fixture.bankAccount.id,
@@ -827,6 +832,7 @@ describe('direct DB bills integration smoke checks', () => {
         contact_id: fixture.vendor.id,
         debit: '0.00',
         credit: '15.00',
+        payment_method: 'cheque',
       }),
     ]));
 
@@ -835,6 +841,7 @@ describe('direct DB bills integration smoke checks', () => {
       method: 'POST',
       userId: fixture.userId,
       role: 'admin',
+      body: { reason_note: 'Integration test partial-payment void attempt' },
     });
 
     expect(voidPartial.status).toBe(400);
@@ -871,6 +878,7 @@ describe('direct DB bills integration smoke checks', () => {
       method: 'POST',
       userId: fixture.userId,
       role: 'admin',
+      body: { reason_note: 'Integration test paid-bill void attempt' },
     });
 
     expect(voidPaid.status).toBe(400);

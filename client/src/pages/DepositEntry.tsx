@@ -13,10 +13,11 @@ import { getChurchToday } from '../utils/date';
 import { getErrorMessage } from '../utils/errors';
 import type { CreateTransactionInput } from '@shared/contracts';
 import type { OptionValue } from '../components/ui/types';
+import { PAYMENT_METHOD_OPTIONS_WITH_EMPTY } from './paymentMethodOptions';
 
 const dec = (v: Decimal.Value | null | undefined) => new Decimal(v || 0);
 const fmt = (n: number | string | null | undefined) => '$' + Number(n || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 });
-const DONATION_GRID_TEMPLATE = 'minmax(220px, 1.8fr) minmax(170px, 1.3fr) minmax(200px, 1.3fr) minmax(240px, 1.8fr) 132px 40px';
+const DONATION_GRID_TEMPLATE = 'minmax(220px, 1.7fr) minmax(170px, 1.2fr) minmax(200px, 1.2fr) 132px minmax(220px, 1.6fr) 132px 40px';
 
 interface DepositHeader {
   date: string;
@@ -24,18 +25,18 @@ interface DepositHeader {
   reference_no: string;
   total_amount: string;
   bank_account_id: OptionValue | '';
-  payment_method: 'cash' | 'cheque' | 'e-transfer';
 }
 
 interface DepositLine {
   contact_id: OptionValue | '';
   fund_id: OptionValue | '';
   account_id: OptionValue | '';
+  payment_method: '' | 'cash' | 'cheque' | 'e-transfer';
   amount: string;
   memo: string;
 }
 
-const EMPTY_LINE: DepositLine = { contact_id: '', fund_id: '', account_id: '', amount: '', memo: '' };
+const EMPTY_LINE: DepositLine = { contact_id: '', fund_id: '', account_id: '', payment_method: '', amount: '', memo: '' };
 
 export default function DepositEntry() {
   const { addToast }  = useToast();
@@ -66,12 +67,6 @@ export default function DepositEntry() {
 
   const defaultIncomeAccountId = incomeAccounts.length > 0 ? incomeAccounts[0]?.value ?? '' : '';
 
-  const paymentMethodOptions = [
-    { value: 'cash',       label: 'Cash' },
-    { value: 'cheque',     label: 'Cheque' },
-    { value: 'e-transfer', label: 'E-Transfer' },
-  ];
-
   // -- State --
   const [header, setHeader] = useState<DepositHeader>({
     date: today,
@@ -79,7 +74,6 @@ export default function DepositEntry() {
     reference_no: '',
     total_amount: '',
     bank_account_id: '',
-    payment_method: 'cash',
   });
 
   const [lines, setLines] = useState<DepositLine[]>([{ ...EMPTY_LINE, account_id: defaultIncomeAccountId }]);
@@ -117,7 +111,8 @@ export default function DepositEntry() {
     setLines((prev) => [...prev, { 
       ...EMPTY_LINE, 
       fund_id: prevLine?.fund_id || (fundOptions.length > 0 ? fundOptions[0]?.value ?? '' : ''), 
-      account_id: prevLine?.account_id || defaultIncomeAccountId 
+      account_id: prevLine?.account_id || defaultIncomeAccountId,
+      payment_method: prevLine?.payment_method || '',
     }]); 
   }
 
@@ -140,6 +135,7 @@ export default function DepositEntry() {
       contact_id: '', // Anonymous
       fund_id: prevLine?.fund_id || (fundOptions.length > 0 ? fundOptions[0]?.value ?? '' : ''),
       account_id: prevLine?.account_id || defaultIncomeAccountId,
+      payment_method: prevLine?.payment_method || '',
       amount: remaining.toFixed(2)
     }]);
   }
@@ -168,6 +164,7 @@ export default function DepositEntry() {
         fund_id:    Number(fundId),
         debit:      amount,
         credit:     0,
+        payment_method: null,
         contact_id: contactId,
       };
     });
@@ -178,6 +175,7 @@ export default function DepositEntry() {
       fund_id:    Number(l.fund_id),
       debit:      0,
       credit:     parseFloat(l.amount),
+      payment_method: l.payment_method || null,
       contact_id: l.contact_id ? Number(l.contact_id) : null,
       memo:       l.memo || undefined,
     }));
@@ -186,7 +184,6 @@ export default function DepositEntry() {
       date:           header.date,
       description:    header.description,
       reference_no:   header.reference_no || undefined,
-      payment_method: header.payment_method || null,
       entries:        [...debitEntries, ...creditEntries],
     };
 
@@ -220,10 +217,6 @@ export default function DepositEntry() {
           <Input label="Reference No" value={header.reference_no}
             onChange={(e) => setHeader({ ...header, reference_no: e.target.value })} placeholder="DEP-001" />
 
-          <Select label="Deposit Type" value={header.payment_method}
-            onChange={(e) => setHeader({ ...header, payment_method: e.target.value as DepositHeader['payment_method'] })}
-            options={paymentMethodOptions} />
-
           <Input label="Total Deposit Amount" required type="number" min="0" step="0.01" value={header.total_amount}
             onChange={(e) => setHeader({ ...header, total_amount: e.target.value })}
             placeholder="0.00" style={{ fontSize: '1.1rem', fontWeight: 600, color: '#15803d' }} />
@@ -238,12 +231,12 @@ export default function DepositEntry() {
         </div>
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', marginBottom: '1rem', overflowX: 'auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: DONATION_GRID_TEMPLATE, minWidth: '1020px', gap: '0.75rem', padding: '0.5rem 0.75rem', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', fontSize: '0.75rem', fontWeight: 600, color: '#6b7280' }}>
-            <span>Donor</span><span>Fund</span><span>Income Account</span><span>Description</span><span style={{ textAlign: 'right' }}>Amount</span><span />
+          <div style={{ display: 'grid', gridTemplateColumns: DONATION_GRID_TEMPLATE, minWidth: '1160px', gap: '0.75rem', padding: '0.5rem 0.75rem', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', fontSize: '0.75rem', fontWeight: 600, color: '#6b7280' }}>
+            <span>Donor</span><span>Fund</span><span>Income Account</span><span>Method</span><span>Description</span><span style={{ textAlign: 'right' }}>Amount</span><span />
           </div>
 
           {lines.map((l, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: DONATION_GRID_TEMPLATE, minWidth: '1020px', gap: '0.75rem', padding: '0.5rem 0.75rem', borderBottom: i < lines.length - 1 ? '1px solid #f3f4f6' : 'none', alignItems: 'center' }}>
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: DONATION_GRID_TEMPLATE, minWidth: '1160px', gap: '0.75rem', padding: '0.5rem 0.75rem', borderBottom: i < lines.length - 1 ? '1px solid #f3f4f6' : 'none', alignItems: 'center' }}>
               <div>
                 <Combobox options={contactOptions} value={l.contact_id}
                   onChange={(v) => setLine(i, 'contact_id', v)} placeholder="Anonymous / Cash" />
@@ -258,6 +251,13 @@ export default function DepositEntry() {
                 <Combobox options={incomeAccounts} value={l.account_id}
                   onChange={(v) => setLine(i, 'account_id', v)} placeholder="Account..." />
               </div>
+
+              <Select
+                aria-label={`Payment Method ${i + 1}`}
+                value={l.payment_method}
+                onChange={(e) => setLine(i, 'payment_method', e.target.value as DepositLine['payment_method'])}
+                    options={PAYMENT_METHOD_OPTIONS_WITH_EMPTY}
+              />
 
               <div style={{ paddingRight: '0.35rem' }}>
                 <input type="text" value={l.memo}

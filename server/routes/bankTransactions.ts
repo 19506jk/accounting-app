@@ -32,6 +32,10 @@ import type {
 import { isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
 import { buildFingerprint, normalizeDescription } from '../services/bankTransactions/normalize.js';
 import {
+  isInteracPaymentMethod,
+  toEntryPaymentMethod,
+} from '../services/bankTransactions/paymentMethods.js';
+import {
   confirmMatch,
   runMatcher,
   writeBankTransactionEvent,
@@ -319,7 +323,7 @@ router.post(
           const chequeMatch = normalizedDescription.match(/\bchequ?e (\d+)/);
           if (chequeMatch) bankTransactionId = chequeMatch[1] ?? null;
         }
-        const isInterac = paymentMethod?.toLowerCase().includes('interac') ?? false;
+        const isInterac = isInteracPaymentMethod(paymentMethod);
         const fingerprint = buildFingerprint(
           normalizedDescription,
           amount,
@@ -1249,6 +1253,7 @@ router.post(
             {
               payment_date: req.body.date,
               bank_account_id: existing.account_id,
+              entry_payment_method: toEntryPaymentMethod(existing.payment_method),
               reference_no: req.body.reference_no,
               amount: parseFloat(requestAmount.toFixed(2)),
             },
@@ -1301,6 +1306,7 @@ router.post(
             ...req.body,
             bank_account_id: existing.account_id,
             fund_id: existing.fund_id,
+            entry_payment_method: toEntryPaymentMethod(existing.payment_method),
           },
           req.user!.id,
           trx

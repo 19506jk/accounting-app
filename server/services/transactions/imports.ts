@@ -13,6 +13,7 @@ import type {
 } from '../../types/db';
 import { normalizeDateOnly, parseDateOnlyStrict } from '../../utils/date.js';
 import { assertNotClosedPeriod } from '../../utils/hardCloseGuard.js';
+import { formatPaymentMethodList, isValidPaymentMethod } from './paymentMethods.js';
 import billService = require('../bills');
 
 const db = require('../../db') as Knex;
@@ -58,6 +59,7 @@ type PreparedImportRow = {
   amount: Decimal;
   amount_fixed: string;
   type: 'withdrawal' | 'deposit';
+  entry_payment_method: NonNullable<ImportTransactionRow['entry_payment_method']> | null;
   offset_account_id: number;
   payee_id: number | null;
   contact_id: number | null;
@@ -144,6 +146,7 @@ async function importTransactions(payload: ImportTransactionsInput, userId: numb
     const rowDescription = String(row.description || '').trim();
     const rowReferenceNo = normalizeImportReference(row.reference_no);
     const rowType = row.type;
+    const rowEntryPaymentMethod = row.entry_payment_method ?? null;
     const rowPayeeId = row.payee_id === undefined || row.payee_id === null ? null : Number(row.payee_id);
     const rowContactId = row.contact_id === undefined || row.contact_id === null ? null : Number(row.contact_id);
     const offsetAccountId = Number(row.offset_account_id);
@@ -175,6 +178,12 @@ async function importTransactions(payload: ImportTransactionsInput, userId: numb
 
     if (rowType !== 'withdrawal' && rowType !== 'deposit') {
       rowErrors.push(`Row ${rowNumber}: type must be 'withdrawal' or 'deposit'`);
+    }
+    if (
+      rowEntryPaymentMethod !== null
+      && !isValidPaymentMethod(rowEntryPaymentMethod)
+    ) {
+      rowErrors.push(`Row ${rowNumber}: entry_payment_method must be one of ${formatPaymentMethodList()}`);
     }
 
     if (hasSplits && billId !== undefined) {
@@ -447,6 +456,7 @@ async function importTransactions(payload: ImportTransactionsInput, userId: numb
       amount,
       amount_fixed: amount.toFixed(2),
       type: rowType,
+      entry_payment_method: rowEntryPaymentMethod,
       offset_account_id: hasSplits ? 0 : offsetAccountId,
       payee_id: rowPayeeId,
       contact_id: rowType === 'deposit' && !hasSplits && billId === undefined ? rowContactId : null,
@@ -686,6 +696,7 @@ async function importTransactions(payload: ImportTransactionsInput, userId: numb
       {
         payment_date: row.date,
         bank_account_id: bankAccountId,
+        entry_payment_method: row.entry_payment_method,
         reference_no: row.reference_no || undefined,
       },
       userId
@@ -768,6 +779,7 @@ async function importTransactions(payload: ImportTransactionsInput, userId: numb
               contact_id: split.contact_id,
               debit: '0.00',
               credit: split.amount_fixed,
+              payment_method: row.entry_payment_method,
               memo: split.memo,
               is_reconciled: false,
               created_at: trx.fn.now(),
@@ -830,6 +842,7 @@ async function importTransactions(payload: ImportTransactionsInput, userId: numb
             contact_id: row.type === 'deposit' ? row.contact_id : withdrawalPayeeId,
             debit: row.type === 'deposit' ? '0.00' : amountFixed,
             credit: row.type === 'deposit' ? amountFixed : '0.00',
+            payment_method: row.type === 'deposit' ? row.entry_payment_method : null,
             memo: null,
             is_reconciled: false,
             created_at: trx.fn.now(),

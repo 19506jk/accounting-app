@@ -130,7 +130,6 @@ describe('runMatcher payment_method veto', () => {
         date: txDate,
         description,
         reference_no: refNo,
-        payment_method: 'cheque',
         fund_id: fx.fundId,
         created_by: fx.userId,
         created_at: db.fn.now(),
@@ -159,6 +158,7 @@ describe('runMatcher payment_method veto', () => {
       fund_id: fx.fundId,
       debit: '0.00',
       credit: amount.toFixed(2),
+      payment_method: 'cheque',
       is_reconciled: false,
       created_at: db.fn.now(),
       updated_at: db.fn.now(),
@@ -207,5 +207,86 @@ describe('runMatcher payment_method veto', () => {
     const dbRow = await db('bank_transactions').where({ id: bankTx.id }).first();
     expect(dbRow.match_status).toBe('suggested');
     expect(dbRow.suggested_match_id).toBe(je.id);
+  });
+
+  it('keeps auto-confirm eligible when an Interac bank row matches a legacy deposit with null payment_method', async () => {
+    const fx = await createFixture();
+    const txDate = '2026-05-02';
+    const description = 'Legacy deposit';
+    const refNo = `LEGACY-${fx.suffix}`;
+    const amount = 175;
+
+    const [tx] = await db('transactions')
+      .insert({
+        date: txDate,
+        description,
+        reference_no: refNo,
+        fund_id: fx.fundId,
+        created_by: fx.userId,
+        created_at: db.fn.now(),
+        updated_at: db.fn.now(),
+      })
+      .returning('*') as Array<{ id: number }>;
+    if (!tx) throw new Error('Failed to create transaction');
+    createdTransactionIds.push(tx.id);
+
+    const [je] = await db('journal_entries')
+      .insert({
+        transaction_id: tx.id,
+        account_id: fx.bankAccountId,
+        fund_id: fx.fundId,
+        debit: amount.toFixed(2),
+        credit: '0.00',
+        is_reconciled: false,
+        created_at: db.fn.now(),
+        updated_at: db.fn.now(),
+      })
+      .returning('*') as Array<{ id: number }>;
+    if (!je) throw new Error('Failed to create journal entry');
+    await db('journal_entries').insert({
+      transaction_id: tx.id,
+      account_id: fx.incomeAccountId,
+      fund_id: fx.fundId,
+      debit: '0.00',
+      credit: amount.toFixed(2),
+      payment_method: null,
+      is_reconciled: false,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    });
+
+    const [upload] = await db('bank_uploads')
+      .insert({
+        account_id: fx.bankAccountId,
+        fund_id: fx.fundId,
+        filename: `pm-legacy-${fx.suffix}.csv`,
+        uploaded_by: fx.userId,
+        row_count: 1,
+      })
+      .returning('*') as Array<{ id: number }>;
+    if (!upload) throw new Error('Failed to create bank upload');
+    createdUploadIds.push(upload.id);
+
+    const [bankTx] = await db('bank_transactions')
+      .insert({
+        upload_id: upload.id,
+        row_index: 0,
+        bank_transaction_id: refNo,
+        bank_posted_date: txDate,
+        raw_description: description,
+        normalized_description: description.toLowerCase(),
+        payment_method: 'Interac e-Transfer',
+        amount: amount.toFixed(2),
+        fingerprint: 'b'.repeat(64),
+      })
+      .returning('*') as Array<{ id: number }>;
+    if (!bankTx) throw new Error('Failed to create bank transaction');
+
+    const result = await db.transaction(async (trx: Knex.Transaction) =>
+      runMatcher(bankTx.id, fx.userId, trx)
+    );
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.auto_confirm_eligible).toBe(true);
   });
 });
