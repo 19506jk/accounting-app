@@ -853,6 +853,163 @@ describe('direct DB bank-transactions Phase 3 integration checks', () => {
     expect(alreadyPaid.status).toBe(400);
   });
 
+  it('creates non-split deposit with explicit payment_method', async () => {
+    const fixture = await createFixture();
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-payment-method-deposit-${fixture.suffix}.csv`,
+      description: 'Deposit with explicit payment method',
+      amount: 125,
+      bankTransactionId: `PH3-PM-DEP-${fixture.suffix}`,
+      date: '2026-06-08',
+    });
+
+    const created = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-08',
+        description: 'Deposit with explicit payment method',
+        amount: 125,
+        type: 'deposit',
+        offset_account_id: fixture.incomeAccountId,
+        payment_method: 'cheque',
+      },
+    });
+    expect(created.status).toBe(200);
+
+    const bankJournalEntryId = created.body.item?.journal_entry_id as number;
+    const bankEntry = await db('journal_entries').where({ id: bankJournalEntryId }).first() as { transaction_id: number } | undefined;
+    expect(bankEntry).toBeDefined();
+    if (!bankEntry) throw new Error('Expected bank journal entry');
+    createdTransactionIds.push(bankEntry.transaction_id);
+
+    const creditEntry = await db('journal_entries')
+      .where({ transaction_id: bankEntry.transaction_id, account_id: fixture.incomeAccountId })
+      .first('payment_method') as { payment_method: string | null } | undefined;
+    expect(creditEntry?.payment_method).toBe('cheque');
+  });
+
+  it('creates split deposit with per-split payment_method values', async () => {
+    const fixture = await createFixture();
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-payment-method-splits-${fixture.suffix}.csv`,
+      description: 'Deposit split payment methods',
+      amount: 125,
+      bankTransactionId: `PH3-PM-SPLIT-${fixture.suffix}`,
+      date: '2026-06-08',
+    });
+
+    const created = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-08',
+        description: 'Deposit split payment methods',
+        amount: 125,
+        type: 'deposit',
+        splits: [
+          {
+            amount: 50,
+            offset_account_id: fixture.incomeAccountId,
+            fund_id: fixture.fundId,
+            payment_method: 'cash',
+          },
+          {
+            amount: 75,
+            offset_account_id: fixture.incomeAccountId,
+            fund_id: fixture.fundId,
+            payment_method: 'cheque',
+          },
+        ],
+      },
+    });
+    expect(created.status).toBe(200);
+
+    const bankJournalEntryId = created.body.item?.journal_entry_id as number;
+    const bankEntry = await db('journal_entries').where({ id: bankJournalEntryId }).first() as { transaction_id: number } | undefined;
+    expect(bankEntry).toBeDefined();
+    if (!bankEntry) throw new Error('Expected bank journal entry');
+    createdTransactionIds.push(bankEntry.transaction_id);
+
+    const creditEntries = await db('journal_entries')
+      .where({ transaction_id: bankEntry.transaction_id, account_id: fixture.incomeAccountId })
+      .andWhere('credit', '>', 0)
+      .orderBy('credit', 'asc')
+      .select('payment_method', 'credit') as Array<{ payment_method: string | null; credit: string | number }>;
+    expect(creditEntries).toEqual([
+      { payment_method: 'cash', credit: '50.00' },
+      { payment_method: 'cheque', credit: '75.00' },
+    ]);
+  });
+
+  it('rejects invalid top-level payment_method on deposit create', async () => {
+    const fixture = await createFixture();
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-invalid-top-payment-${fixture.suffix}.csv`,
+      description: 'Deposit invalid payment method',
+      amount: 125,
+      bankTransactionId: `PH3-PM-TOP-INV-${fixture.suffix}`,
+      date: '2026-06-08',
+    });
+
+    const rejected = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-08',
+        description: 'Deposit invalid payment method',
+        amount: 125,
+        type: 'deposit',
+        offset_account_id: fixture.incomeAccountId,
+        payment_method: 'wire',
+      },
+    });
+    expect(rejected.status).toBe(400);
+  });
+
+  it('rejects invalid split payment_method on deposit create', async () => {
+    const fixture = await createFixture();
+    const bankTransactionId = await importBankRow({
+      fixture,
+      filename: `phase3-invalid-split-payment-${fixture.suffix}.csv`,
+      description: 'Deposit invalid split payment method',
+      amount: 125,
+      bankTransactionId: `PH3-PM-SPLIT-INV-${fixture.suffix}`,
+      date: '2026-06-08',
+    });
+
+    const rejected = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-08',
+        description: 'Deposit invalid split payment method',
+        amount: 125,
+        type: 'deposit',
+        splits: [
+          {
+            amount: 125,
+            offset_account_id: fixture.incomeAccountId,
+            fund_id: fixture.fundId,
+            payment_method: 'wire',
+          },
+        ],
+      },
+    });
+    expect(rejected.status).toBe(400);
+  });
+
   it('posts recoverable tax and rounding lines for bank-feed withdrawal splits', async () => {
     const fixture = await createFixture();
     const roundingAccountId = await ensureAccountByCode({

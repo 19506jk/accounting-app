@@ -180,6 +180,7 @@ export interface TransactionSplit {
   amount: number;
   offset_account_id?: number;
   fund_id: number;
+  payment_method?: PaymentMethod | null;
   contact_id?: number | null;
   memo?: string | null;
   expense_account_id?: number;
@@ -497,6 +498,7 @@ export interface CreateFromBankRowInput {
   amount: number;
   type: 'withdrawal' | 'deposit';
   train_from_feed?: boolean;
+  payment_method?: PaymentMethod | null;
   offset_account_id?: number;
   payee_id?: number;
   contact_id?: number;

@@ -10,7 +10,9 @@ import Button from '../ui/Button'
 import Combobox from '../ui/Combobox'
 import Input from '../ui/Input'
 import Modal from '../ui/Modal'
+import Select from '../ui/Select'
 import SplitTransactionModal from '../../pages/importCsv/SplitTransactionModal'
+import { PAYMENT_METHOD_OPTIONS_WITH_EMPTY } from '../../pages/paymentMethodOptions'
 import { getErrorMessage } from '../../utils/errors'
 import { buildTrainFromFeedDraft, extractTrainPattern } from '../../utils/trainFromFeed'
 import {
@@ -19,7 +21,7 @@ import {
   isEtransferDescription,
   matchDonorFromSender,
 } from '../../utils/etransferEnrich'
-import type { BankTransaction, CreateFromBankRowInput, SimulateBankMatchingRuleResult } from '@shared/contracts'
+import type { BankTransaction, CreateFromBankRowInput, PaymentMethod, SimulateBankMatchingRuleResult } from '@shared/contracts'
 import type { ParsedImportRow, SplitSavePayload } from '../../pages/importCsv/importCsvTypes'
 import type { SelectOption } from '../ui/types'
 
@@ -54,6 +56,7 @@ export default function CreateFromBankRowModal({
     if (isInteracEtransferPaymentMethod(bankTransaction.payment_method)) return true
     return isEtransferDescription(fallbackEtransferDescription)
   }, [bankTransaction.amount, bankTransaction.payment_method, fallbackEtransferDescription])
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>(isEtransferDeposit ? 'e-transfer' : '')
   const [row, setRow] = useState<ParsedImportRow>({
     date: bankTransaction.bank_posted_date,
     description: proposal?.description || fallbackDescription,
@@ -226,6 +229,7 @@ export default function CreateFromBankRowModal({
       amount: row.amount,
       type: row.type,
       train_from_feed: trainFromFeed,
+      payment_method: paymentMethod || null,
       offset_account_id: hasSplits ? undefined : (row.offset_account_id ? Number(row.offset_account_id) : undefined),
       payee_id: row.payee_id ? Number(row.payee_id) : undefined,
       contact_id: row.contact_id ? Number(row.contact_id) : undefined,
@@ -266,18 +270,24 @@ export default function CreateFromBankRowModal({
           />
 
           {!hasSplits && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-              <Combobox
-                label="Offset Account"
-                value={row.offset_account_id || ''}
-                onChange={(value) => {
-                  resetPreview()
-                  setRow((prev) => ({ ...prev, offset_account_id: Number(value) || undefined }))
-                }}
-                options={offsetAccountOptions}
-                placeholder="Select offset account"
-              />
-              {row.type === 'deposit' ? (
+            row.type === 'deposit' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                <Combobox
+                  label="Offset Account"
+                  value={row.offset_account_id || ''}
+                  onChange={(value) => {
+                    resetPreview()
+                    setRow((prev) => ({ ...prev, offset_account_id: Number(value) || undefined }))
+                  }}
+                  options={offsetAccountOptions}
+                  placeholder="Select offset account"
+                />
+                <Select
+                  label="Payment Method"
+                  value={paymentMethod}
+                  onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod | '')}
+                  options={PAYMENT_METHOD_OPTIONS_WITH_EMPTY}
+                />
                 <Combobox
                   label="Contact"
                   value={row.contact_id || ''}
@@ -288,7 +298,19 @@ export default function CreateFromBankRowModal({
                   options={donorOptions}
                   placeholder="Optional contact"
                 />
-              ) : (
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <Combobox
+                  label="Offset Account"
+                  value={row.offset_account_id || ''}
+                  onChange={(value) => {
+                    resetPreview()
+                    setRow((prev) => ({ ...prev, offset_account_id: Number(value) || undefined }))
+                  }}
+                  options={offsetAccountOptions}
+                  placeholder="Select offset account"
+                />
                 <Combobox
                   label="Payee"
                   value={row.payee_id || ''}
@@ -299,8 +321,8 @@ export default function CreateFromBankRowModal({
                   options={payeeOptions}
                   placeholder="Optional payee"
                 />
-              )}
-            </div>
+              </div>
+            )
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
@@ -393,6 +415,7 @@ export default function CreateFromBankRowModal({
         payeeOptions={payeeOptions}
         expenseAccountOptions={expenseAccountOptions}
         activeExpenseAccountIds={activeExpenseAccountIds}
+        defaultPaymentMethod={paymentMethod}
       />
     </>
   )

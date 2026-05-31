@@ -6,9 +6,11 @@ import Button from '../../components/ui/Button';
 import Combobox from '../../components/ui/Combobox';
 import Input from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
+import Select from '../../components/ui/Select';
+import { PAYMENT_METHOD_OPTIONS_WITH_EMPTY } from '../paymentMethodOptions';
 import { formatDateOnlyForDisplay } from '../../utils/date';
 import { dec, fmt } from './importCsvHelpers';
-import type { TaxRateSummary } from '@shared/contracts';
+import type { PaymentMethod, TaxRateSummary } from '@shared/contracts';
 import type { SelectOption } from '../../components/ui/types';
 import type {
   DepositSplitModalLine,
@@ -19,6 +21,15 @@ import type {
 } from './importCsvTypes';
 
 const MAX_ROUNDING_ADJUSTMENT = new Decimal('0.10');
+const PAYMENT_METHOD_SET = new Set(
+  PAYMENT_METHOD_OPTIONS_WITH_EMPTY
+    .map((option) => option.value)
+    .filter((value): value is PaymentMethod => value !== '')
+);
+
+function toPaymentMethodOrEmpty(value: unknown): PaymentMethod | '' {
+  return PAYMENT_METHOD_SET.has(value as PaymentMethod) ? (value as PaymentMethod) : '';
+}
 
 interface SplitTransactionModalProps {
   isOpen: boolean;
@@ -32,6 +43,7 @@ interface SplitTransactionModalProps {
   payeeOptions: SelectOption[];
   expenseAccountOptions: SelectOption[];
   activeExpenseAccountIds: number[];
+  defaultPaymentMethod?: PaymentMethod | '';
 }
 
 interface WithdrawalLineTotal {
@@ -54,6 +66,7 @@ export default function SplitTransactionModal({
   payeeOptions,
   expenseAccountOptions,
   activeExpenseAccountIds,
+  defaultPaymentMethod = '',
 }: SplitTransactionModalProps) {
   const [lines, setLines] = useState<SplitModalLine[]>([]);
   const [payeeId, setPayeeId] = useState('');
@@ -123,6 +136,7 @@ export default function SplitTransactionModal({
         amount: String(split.amount),
         offset_account_id: split.offset_account_id ?? '',
         fund_id: split.fund_id,
+        payment_method: toPaymentMethodOrEmpty(split.payment_method) || defaultPaymentMethod || '',
         contact_id: split.contact_id ?? '',
         memo: split.memo || '',
       })));
@@ -132,13 +146,14 @@ export default function SplitTransactionModal({
         amount: '',
         offset_account_id: '',
         fund_id: defaultFundId || '',
+        payment_method: defaultPaymentMethod ?? '',
         contact_id: '',
         memo: row?.description || '',
       }]);
     }
     setPayeeId('');
     setAttempted(false);
-  }, [isOpen, row, defaultFundId, isWithdrawal]);
+  }, [isOpen, row, defaultFundId, isWithdrawal, defaultPaymentMethod]);
 
   if (!isOpen || !row) return null;
 
@@ -190,7 +205,7 @@ export default function SplitTransactionModal({
     : hasValidDepositLines && assignedAmount.equals(rowAmount);
   const showDonor = row.type === 'deposit';
   const splitGridTemplateColumns = showDonor
-    ? '150px 2fr 150px 160px 1fr auto'
+    ? '150px 2fr 150px 160px 1fr 120px auto'
     : '150px 2fr 150px 1fr auto';
   const withdrawalGridTemplateColumns = 'minmax(190px, 1.35fr) minmax(140px, 0.95fr) 110px 110px minmax(180px, 1.1fr) 110px 120px 46px';
 
@@ -247,6 +262,7 @@ export default function SplitTransactionModal({
       amount: '',
       offset_account_id: '',
       fund_id: defaultFundId || '',
+      payment_method: defaultPaymentMethod ?? '',
       contact_id: '',
       memo: row.description || '',
     }]);
@@ -297,6 +313,7 @@ export default function SplitTransactionModal({
       amount: parseFloat(line.amount),
       offset_account_id: Number(line.offset_account_id),
       fund_id: Number(line.fund_id),
+      payment_method: line.payment_method || null,
       contact_id: line.contact_id ? Number(line.contact_id) : null,
       memo: line.memo ? line.memo.trim() || null : null,
     })));
@@ -427,6 +444,7 @@ export default function SplitTransactionModal({
                 <span>Fund</span>
                 {showDonor && <span>Donor</span>}
                 <span>Memo</span>
+                <span>Payment Method</span>
                 <span>Action</span>
               </div>
               {depositLines.map((line, idx) => (
@@ -471,6 +489,12 @@ export default function SplitTransactionModal({
                     value={line.memo}
                     onChange={(e) => updateDepositLine(idx, { memo: e.target.value })}
                     placeholder='Memo (optional)'
+                  />
+                  <Select
+                    aria-label='Payment Method'
+                    value={line.payment_method}
+                    onChange={(event) => updateDepositLine(idx, { payment_method: event.target.value as PaymentMethod | '' })}
+                    options={PAYMENT_METHOD_OPTIONS_WITH_EMPTY}
                   />
                   <Button
                     variant='ghost'

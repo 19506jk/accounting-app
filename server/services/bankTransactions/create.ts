@@ -2,6 +2,7 @@ import type { Knex } from 'knex';
 import Decimal from 'decimal.js';
 
 import type { CreateFromBankRowInput, TransactionEntryInput } from '@shared/contracts';
+import { formatPaymentMethodList, isValidPaymentMethod } from '../transactions/paymentMethods.js';
 import { isValidDateOnly } from '../../utils/date.js';
 import { assertNotClosedPeriod } from '../../utils/hardCloseGuard.js';
 
@@ -56,6 +57,16 @@ function validateAndBuildEntries(
   if (amount.lte(0)) throw serviceError('amount must be greater than 0', 400);
 
   const hasSplits = Array.isArray(payload.splits) && payload.splits.length > 0;
+  if (payload.payment_method != null && !isValidPaymentMethod(payload.payment_method)) {
+    throw serviceError(`payment_method must be one of: ${formatPaymentMethodList()}`, 400);
+  }
+  if (hasSplits) {
+    payload.splits!.forEach((split, index) => {
+      if (split.payment_method != null && !isValidPaymentMethod(split.payment_method)) {
+        throw serviceError(`splits[${index}].payment_method must be one of: ${formatPaymentMethodList()}`, 400);
+      }
+    });
+  }
   const entries: BuiltTransactionEntry[] = [];
 
   if (hasSplits) {
@@ -84,7 +95,7 @@ function validateAndBuildEntries(
           fund_id: Number(splitFundId),
           debit: 0,
           credit: Number(splitAmount.toFixed(2)),
-          payment_method: payload.entry_payment_method ?? null,
+          payment_method: split.payment_method ?? payload.entry_payment_method ?? null,
           contact_id: split.contact_id ?? null,
           memo: split.memo ?? undefined,
         });
@@ -101,7 +112,7 @@ function validateAndBuildEntries(
       fund_id: payload.fund_id,
       debit: 0,
       credit: Number(amount.toFixed(2)),
-      payment_method: payload.entry_payment_method ?? null,
+      payment_method: payload.payment_method ?? payload.entry_payment_method ?? null,
       contact_id: payload.contact_id ?? null,
     });
     return entries;

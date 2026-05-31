@@ -81,6 +81,7 @@ describe('CreateFromBankRowModal', () => {
         amount: 120,
         type: 'deposit',
         train_from_feed: false,
+        payment_method: 'e-transfer',
         offset_account_id: 2,
         contact_id: 11,
       })
@@ -187,5 +188,99 @@ describe('CreateFromBankRowModal', () => {
     await userEvent.click(comboboxes[4] as HTMLElement)
 
     await expect.element(screen.getByText('D-100 — Alice Donor')).toBeVisible()
+  })
+
+  it('preselects e-transfer for e-transfer deposits', async () => {
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({
+        accounts: [
+          { id: 1, code: '1000', name: 'Main Bank', type: 'ASSET', is_active: true },
+          { id: 2, code: '2050', name: 'Donations Clearing', type: 'ASSET', is_active: true },
+        ],
+      })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/settings', () => HttpResponse.json({ values: {} })),
+      http.get('/api/contacts', ({ request }) => {
+        const type = new URL(request.url).searchParams.get('type')
+        return HttpResponse.json({
+          contacts: [{ id: type === 'DONOR' ? 11 : 12, donor_id: null, name: 'Contact', is_active: true }],
+        })
+      }),
+    )
+
+    const screen = await renderWithProviders(
+      <CreateFromBankRowModal
+        bankTransaction={{
+          id: 80,
+          account_id: 1,
+          amount: 120,
+          bank_posted_date: '2026-03-13',
+          raw_description: 'Interac e-Transfer',
+          bank_description_2: 'Donor',
+          payment_method: 'E-TRANSFER',
+          sender_email: null,
+          sender_name: null,
+          bank_transaction_id: 'BTX-4',
+          fund_id: 1,
+          create_proposal: null,
+        } as never}
+        onClose={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    )
+
+    await expect.element(screen.getByLabelText('Payment Method')).toHaveValue('e-transfer')
+  })
+
+  it('submits selected payment method for deposits', async () => {
+    let requestBody: unknown = null
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({
+        accounts: [
+          { id: 1, code: '1000', name: 'Main Bank', type: 'ASSET', is_active: true },
+          { id: 2, code: '2050', name: 'Donations Clearing', type: 'ASSET', is_active: true },
+        ],
+      })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/settings', () => HttpResponse.json({ values: {} })),
+      http.get('/api/contacts', ({ request }) => {
+        const type = new URL(request.url).searchParams.get('type')
+        return HttpResponse.json({
+          contacts: [{ id: type === 'DONOR' ? 11 : 12, donor_id: null, name: 'Contact', is_active: true }],
+        })
+      }),
+      http.post('/api/bank-transactions/:id/create', async ({ request, params }) => {
+        requestBody = await request.json()
+        return HttpResponse.json({ item: { id: Number(params.id) } })
+      }),
+    )
+
+    const screen = await renderWithProviders(
+      <CreateFromBankRowModal
+        bankTransaction={{
+          id: 81,
+          account_id: 1,
+          amount: 120,
+          bank_posted_date: '2026-03-14',
+          raw_description: 'Sunday donation',
+          bank_description_2: '',
+          payment_method: 'DEPOSIT',
+          sender_email: null,
+          sender_name: null,
+          bank_transaction_id: 'BTX-5',
+          fund_id: 1,
+          create_proposal: { description: 'Sunday donation', offset_account_id: 2 },
+        } as never}
+        onClose={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    )
+
+    await userEvent.selectOptions(screen.getByLabelText('Payment Method'), 'cheque')
+    await userEvent.click(screen.getByRole('button', { name: 'Create Journal Entry' }))
+
+    await vi.waitFor(() => {
+      expect(requestBody).toEqual(expect.objectContaining({ payment_method: 'cheque' }))
+    })
   })
 })

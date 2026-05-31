@@ -110,6 +110,7 @@ describe('SplitTransactionModal', () => {
         amount: 100,
         offset_account_id: 1100,
         fund_id: 1,
+        payment_method: null,
         contact_id: null,
         memo: 'Sunday offering',
       },
@@ -215,5 +216,80 @@ describe('SplitTransactionModal', () => {
         },
       ],
     })
+  })
+
+  it('defaults deposit split payment method from props', async () => {
+    worker.use(
+      http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [] }))
+    )
+    const screen = renderWithProviders(
+      <SplitTransactionModal
+        isOpen
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        row={{
+          type: 'deposit',
+          date: '2026-03-04',
+          amount: 100,
+          description: 'Deposit',
+        } as never}
+        defaultFundId={1}
+        defaultPaymentMethod='e-transfer'
+        offsetAccountOptions={[{ value: 1100, label: '1100 - Donation Income' }]}
+        fundOptions={[{ value: 1, label: 'General' }]}
+        donorOptions={[]}
+        payeeOptions={[]}
+        expenseAccountOptions={[]}
+        activeExpenseAccountIds={[]}
+      />
+    )
+
+    const paymentMethodSelect = screen.getByLabelText('Payment Method')
+    await expect.element(paymentMethodSelect as HTMLSelectElement).toHaveValue('e-transfer')
+  })
+
+  it('saves updated per-line payment method for deposit splits', async () => {
+    worker.use(
+      http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [] }))
+    )
+    const onSave = vi.fn()
+    const screen = renderWithProviders(
+      <SplitTransactionModal
+        isOpen
+        onClose={vi.fn()}
+        onSave={onSave}
+        row={{
+          type: 'deposit',
+          date: '2026-03-05',
+          amount: 100,
+          description: 'Sunday offering',
+        } as never}
+        defaultFundId={1}
+        offsetAccountOptions={[{ value: 1100, label: '1100 - Donation Income' }]}
+        fundOptions={[{ value: 1, label: 'General' }]}
+        donorOptions={[{ value: 9, label: 'Jane Doe' }]}
+        payeeOptions={[]}
+        expenseAccountOptions={[]}
+        activeExpenseAccountIds={[]}
+      />
+    )
+
+    await userEvent.click(screen.getByTitle('Fill remaining amount'))
+    await userEvent.click(screen.getByText(/Offset account…|1100 - Donation Income/))
+    await userEvent.click(screen.getByText('1100 - Donation Income'))
+    const paymentMethodSelect = screen.getByLabelText('Payment Method')
+    await userEvent.selectOptions(paymentMethodSelect as HTMLSelectElement, 'cash')
+    await userEvent.click(screen.getByRole('button', { name: 'Save Split' }))
+
+    expect(onSave).toHaveBeenCalledWith([
+      {
+        amount: 100,
+        offset_account_id: 1100,
+        fund_id: 1,
+        payment_method: 'cash',
+        contact_id: null,
+        memo: 'Sunday offering',
+      },
+    ])
   })
 })

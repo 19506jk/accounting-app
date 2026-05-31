@@ -1,4 +1,4 @@
-import type { ImportTransactionRow, TransactionSplit } from '@shared/contracts';
+import type { ImportTransactionRow, PaymentMethod, TransactionSplit } from '@shared/contracts';
 import type { OptionValue } from '../../components/ui/types';
 
 export type ImportPhase = 'setup' | 'preview';
@@ -25,6 +25,7 @@ export interface DepositSplitModalLine {
   amount: string;
   offset_account_id: OptionValue | '';
   fund_id: OptionValue | '';
+  payment_method: PaymentMethod | '';
   contact_id: OptionValue | '';
   memo: string;
 }
