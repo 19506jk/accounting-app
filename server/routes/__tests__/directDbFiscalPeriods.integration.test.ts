@@ -597,6 +597,7 @@ describe('direct DB fiscal-periods integration smoke checks', () => {
       probePath: '/999999999/reopen',
       method: 'DELETE',
       role: 'admin',
+      body: { reason_note: 'Reopen requested for missing fiscal period test' },
     });
 
     expect(response.status).toBe(404);
@@ -610,6 +611,7 @@ describe('direct DB fiscal-periods integration smoke checks', () => {
       probePath: `/${period.id}/reopen`,
       method: 'DELETE',
       role: 'admin',
+      body: { reason_note: 'Reopening latest fiscal period for test' },
     });
 
     expect(response.status).toBe(200);
@@ -638,6 +640,7 @@ describe('direct DB fiscal-periods integration smoke checks', () => {
       probePath: `/${older.period.id}/reopen`,
       method: 'DELETE',
       role: 'admin',
+      body: { reason_note: 'Attempting reopen out of order for test' },
     });
 
     expect(response.status).toBe(409);

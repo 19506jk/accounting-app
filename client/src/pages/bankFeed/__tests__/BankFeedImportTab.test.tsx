@@ -13,7 +13,7 @@ vi.mock('../../../utils/parseStatementCsv', () => ({
 
 describe('BankFeedImportTab', () => {
   it('renders import action disabled before parsing rows', async () => {
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedImportTab
         isActive={false}
         bankAccountOptions={[{ value: 1, label: '1000 - Chequing' }]}
@@ -56,7 +56,7 @@ describe('BankFeedImportTab', () => {
       http.get('/api/bank-transactions/uploads', () => HttpResponse.json({ uploads: [] }))
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedImportTab
         isActive
         bankAccountOptions={[]}
@@ -132,7 +132,7 @@ describe('BankFeedImportTab', () => {
       })
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedImportTab
         isActive
         bankAccountOptions={[

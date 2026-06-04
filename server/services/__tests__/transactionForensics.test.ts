@@ -241,6 +241,7 @@ describe('transaction forensic snapshots', () => {
       credit: entry.credit,
       memo: entry.memo,
       contact_id: entry.contact_id,
+      payment_method: null,
     })));
 
     const fieldsChanged = payload?.fields_changed as Record<string, { from: unknown; to: unknown }> | undefined;

@@ -12,7 +12,7 @@ describe('SplitTransactionModal', () => {
       http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [] }))
     )
     const onSave = vi.fn()
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <SplitTransactionModal
         isOpen
         onClose={vi.fn()}
@@ -44,7 +44,7 @@ describe('SplitTransactionModal', () => {
       }))
     )
     const onSave = vi.fn()
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <SplitTransactionModal
         isOpen
         onClose={vi.fn()}
@@ -77,7 +77,7 @@ describe('SplitTransactionModal', () => {
       http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [] }))
     )
     const onSave = vi.fn()
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <SplitTransactionModal
         isOpen
         onClose={vi.fn()}
@@ -124,7 +124,7 @@ describe('SplitTransactionModal', () => {
       }))
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <SplitTransactionModal
         isOpen
         onClose={vi.fn()}
@@ -166,7 +166,7 @@ describe('SplitTransactionModal', () => {
       }))
     )
     const onSave = vi.fn()
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <SplitTransactionModal
         isOpen
         onClose={vi.fn()}
@@ -222,7 +222,7 @@ describe('SplitTransactionModal', () => {
     worker.use(
       http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [] }))
     )
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <SplitTransactionModal
         isOpen
         onClose={vi.fn()}
@@ -253,7 +253,7 @@ describe('SplitTransactionModal', () => {
       http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [] }))
     )
     const onSave = vi.fn()
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <SplitTransactionModal
         isOpen
         onClose={vi.fn()}

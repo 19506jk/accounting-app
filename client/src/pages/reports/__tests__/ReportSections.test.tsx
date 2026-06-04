@@ -7,7 +7,7 @@ import { DiagnosticsPanel, LineItem, Section } from '../ReportSections'
 describe('ReportSections', () => {
   it('renders warning/info groups and investigate action', async () => {
     const onInvestigate = vi.fn()
-    const screen = render(
+    const screen = await render(
       <DiagnosticsPanel
         diagnostics={[
           { code: 'W1', severity: 'warning', message: 'Mismatch', investigate_filters: { type: 'x' } },
@@ -24,7 +24,7 @@ describe('ReportSections', () => {
   })
 
   it('renders Section and LineItem content', async () => {
-    const screen = render(
+    const screen = await render(
       <Section title='Summary'>
         <LineItem label='Total' value='$100.00' bold />
       </Section>

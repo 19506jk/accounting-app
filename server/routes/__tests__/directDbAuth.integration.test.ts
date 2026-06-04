@@ -13,9 +13,11 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
 const verifyIdTokenMock = vi.hoisted(() => vi.fn());
 
 vi.mock('google-auth-library', () => ({
-  OAuth2Client: vi.fn().mockImplementation(() => ({
+  OAuth2Client: vi.fn().mockImplementation(function () {
+    return {
     verifyIdToken: verifyIdTokenMock,
-  })),
+    };
+  }),
 }));
 
 const db = require('../../db') as Knex;

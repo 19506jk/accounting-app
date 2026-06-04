@@ -26,7 +26,7 @@ describe('BillsTable', () => {
   it('renders rows and pay action when editable unpaid bill has balance', async () => {
     const onPay = vi.fn()
     const onRowClick = vi.fn()
-    const screen = render(
+    const screen = await render(
       <BillsTable
         bills={[bill as never]}
         isLoading={false}

@@ -12,7 +12,7 @@ import {
 
 describe('reportRenderers', () => {
   it('renders PL totals', async () => {
-    const screen = render(
+    const screen = await render(
       <PLReport
         data={{
           income: [{ id: 1, name: 'Donations', amount: 500 }],
@@ -30,7 +30,7 @@ describe('reportRenderers', () => {
   })
 
   it('renders balance badge and diagnostics', async () => {
-    const screen = render(
+    const screen = await render(
       <BalanceSheetReport
         onInvestigate={vi.fn()}
         data={{
@@ -52,7 +52,7 @@ describe('reportRenderers', () => {
   })
 
   it('renders ledger table details including opening and closing balances', async () => {
-    const screen = render(
+    const screen = await render(
       <LedgerReport
         data={{
           ledger: [
@@ -84,7 +84,7 @@ describe('reportRenderers', () => {
   })
 
   it('renders trial balance rows, synthetic marker, totals, and unbalanced badge', async () => {
-    const screen = render(
+    const screen = await render(
       <TrialBalanceReport
         onInvestigate={vi.fn()}
         data={{
@@ -106,7 +106,7 @@ describe('reportRenderers', () => {
   })
 
   it('renders donor summary and donor detail anonymous sections', async () => {
-    const summaryScreen = render(
+    const summaryScreen = await render(
       <DonorSummaryReport
         data={{
           donors: [{ contact_id: 10, contact_name: 'Jane Doe', transaction_count: 2, total: 75 }],
@@ -119,7 +119,7 @@ describe('reportRenderers', () => {
     await expect.element(summaryScreen.getByText('Grand Total')).toBeVisible()
     await expect.element(summaryScreen.getByText('Anonymous')).toBeVisible()
 
-    const detailScreen = render(
+    const detailScreen = await render(
       <DonorDetailReport
         data={{
           donors: [

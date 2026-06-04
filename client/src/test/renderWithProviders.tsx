@@ -17,7 +17,7 @@ interface RenderOptions {
   queryClient?: QueryClient
 }
 
-export function renderWithProviders(
+export async function renderWithProviders(
   ui: React.ReactNode,
   { auth, initialEntries = ['/'], queryClient }: RenderOptions = {}
 ) {

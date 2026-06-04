@@ -1,16 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
+import { http, HttpResponse } from 'msw';
 
-import client from '../../../api/client';
 import TransactionTable from '../TransactionTable';
+import { worker } from '../../../test/msw/browser';
 import type { TransactionDetail, TransactionListItem } from '@shared/contracts';
-
-vi.mock('../../../api/client', () => ({
-  default: {
-    get: vi.fn(),
-  },
-}));
 
 const row = {
   id: 11,
@@ -39,8 +34,6 @@ function depositRow(payment_method: string | null): TransactionListItem {
     is_voided: false,
   } as unknown as TransactionListItem;
 }
-
-const clientGet = vi.mocked(client.get);
 
 describe('TransactionTable', () => {
   it('renders entry payment methods in the expanded detail view', async () => {
@@ -90,7 +83,9 @@ describe('TransactionTable', () => {
       ],
     };
 
-    clientGet.mockResolvedValueOnce({ data: { transaction: detail } });
+    worker.use(
+      http.get('/api/transactions/99', () => HttpResponse.json({ transaction: detail }))
+    );
 
     const screen = await render(
       <TransactionTable

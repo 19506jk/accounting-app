@@ -9,7 +9,7 @@ import BankFeedMatchTab from '../BankFeedMatchTab'
 
 describe('BankFeedMatchTab', () => {
   it('renders section headings and empty match queue state', async () => {
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedMatchTab isActive={false} />
     )
 
@@ -76,7 +76,7 @@ describe('BankFeedMatchTab', () => {
       })
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedMatchTab isActive />
     )
 
@@ -145,7 +145,7 @@ describe('BankFeedMatchTab', () => {
       })
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedMatchTab isActive />
     )
 
@@ -371,7 +371,7 @@ describe('BankFeedMatchTab', () => {
       http.post('/api/transactions/import/bill-matches', () => HttpResponse.json({ suggestions: [] }))
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedMatchTab isActive />
     )
 
@@ -468,7 +468,7 @@ describe('BankFeedMatchTab', () => {
       })),
     )
 
-    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    const screen = await renderWithProviders(<BankFeedMatchTab isActive />)
     await userEvent.click(screen.getByRole('button', { name: 'Find Matches' }))
     await expect.element(screen.getByText('Auto-confirmed match')).toBeVisible()
     await expect.element(screen.getByText('JE #880 • 2026-04-14')).toBeVisible()
@@ -565,7 +565,7 @@ describe('BankFeedMatchTab', () => {
       http.post('/api/bank-transactions/82/scan', () => HttpResponse.json({ error: 'boom' }, { status: 500 })),
     )
 
-    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    const screen = await renderWithProviders(<BankFeedMatchTab isActive />)
     await userEvent.click(screen.getByRole('button', { name: 'Find Matches' }).first())
     await userEvent.click(screen.getByRole('button', { name: 'Find Matches' }).nth(1))
 
@@ -621,7 +621,7 @@ describe('BankFeedMatchTab', () => {
       http.post('/api/transactions/import/bill-matches', () => HttpResponse.json({ suggestions: [] })),
     )
 
-    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    const screen = await renderWithProviders(<BankFeedMatchTab isActive />)
     await userEvent.click(screen.getByRole('button', { name: 'Create New JE' }))
     await expect.element(screen.getByRole('heading', { name: 'Create Journal Entry - Bank Row #91' })).toBeVisible()
   })
@@ -691,7 +691,7 @@ describe('BankFeedMatchTab', () => {
       }),
     )
 
-    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    const screen = await renderWithProviders(<BankFeedMatchTab isActive />)
     await expect.element(screen.getByRole('button', { name: /Pay Exact Bill B-2001/i })).toBeVisible()
     await userEvent.click(screen.getByRole('button', { name: /Pay Exact Bill B-2001/i }))
 
@@ -782,7 +782,7 @@ describe('BankFeedMatchTab', () => {
       }),
     )
 
-    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    const screen = await renderWithProviders(<BankFeedMatchTab isActive />)
     await expect.element(screen.getByText('Match Queue (2)')).toBeVisible()
 
     const scanAllButton = screen.getByRole('button', { name: 'Scan All' })
@@ -924,7 +924,7 @@ describe('BankFeedMatchTab', () => {
       http.post('/api/bank-transactions/134/scan', () => HttpResponse.json({ error: 'boom' }, { status: 500 })),
     )
 
-    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    const screen = await renderWithProviders(<BankFeedMatchTab isActive />)
     await expect.element(screen.getByText('Match Queue (4)')).toBeVisible()
 
     await userEvent.click(screen.getByRole('button', { name: 'Scan All' }))
@@ -987,7 +987,7 @@ describe('BankFeedMatchTab', () => {
       http.post('/api/bank-transactions/141/scan', () => HttpResponse.json({ error: 'single row boom' }, { status: 500 })),
     )
 
-    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    const screen = await renderWithProviders(<BankFeedMatchTab isActive />)
     await expect.element(screen.getByText('Match Queue (1)')).toBeVisible()
 
     await userEvent.click(screen.getByRole('button', { name: 'Find Matches' }))
@@ -1048,7 +1048,7 @@ describe('BankFeedMatchTab', () => {
       )),
     )
 
-    const screen = renderWithProviders(<BankFeedMatchTab isActive />)
+    const screen = await renderWithProviders(<BankFeedMatchTab isActive />)
     await vi.waitFor(() => {
       expect(screen.container.textContent || '').toContain('suggestion lookup failed')
     })

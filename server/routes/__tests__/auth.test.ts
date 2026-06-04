@@ -8,9 +8,11 @@ process.env.DB_PASS = process.env.DB_PASS || 'test_pass';
 const verifyIdTokenMock = vi.fn();
 
 vi.mock('google-auth-library', () => ({
-  OAuth2Client: vi.fn().mockImplementation(() => ({
+  OAuth2Client: vi.fn().mockImplementation(function () {
+    return {
     verifyIdToken: verifyIdTokenMock,
-  })),
+    };
+  }),
 }));
 vi.mock('../middleware/auth.js', () => ((req: express.Request, _res: express.Response, next: express.NextFunction) => next()));
 

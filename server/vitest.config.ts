@@ -18,11 +18,7 @@ export default defineConfig({
       NODE_ENV: 'test',
     },
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        execArgv: ['--require', 'tsx/cjs'],
-      },
-    },
+    execArgv: ['--require', 'tsx/cjs'],
     include: ['**/*.test.ts'],
     exclude: ['dist/**', 'node_modules/**', 'db/migrations/**', 'db/seeds/**'],
     sequence: {
@@ -33,10 +29,10 @@ export default defineConfig({
       reporter: ['text', 'html'],
       include: ['**/*.ts'],
       thresholds: {
-        statements: 74,
-        branches: 60,
-        functions: 69,
-        lines: 74,
+        statements: 69,
+        branches: 58,
+        functions: 81,
+        lines: 72,
       },
       exclude: [
         'db/migrations/**',

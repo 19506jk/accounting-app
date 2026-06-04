@@ -7,8 +7,9 @@ import { worker } from './msw/browser'
 beforeAll(async () => {
   await worker.start({ onUnhandledRequest: 'bypass', quiet: true })
 })
-afterEach(() => {
-  cleanup()
+
+afterEach(async () => {
+  await cleanup()
   worker.resetHandlers()
   localStorage.clear()
 })

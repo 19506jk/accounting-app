@@ -9,7 +9,7 @@ import BankFeedReviewTab from '../BankFeedReviewTab'
 
 describe('BankFeedReviewTab', () => {
   it('shows empty review queue state', async () => {
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedReviewTab
         isActive={false}
         onReviewed={vi.fn()}
@@ -48,7 +48,7 @@ describe('BankFeedReviewTab', () => {
       })
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedReviewTab
         isActive
         onReviewed={onReviewed}

@@ -14,7 +14,7 @@ describe('BillForm', () => {
       http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
       http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [] }))
     )
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BillForm
         readOnly
         bill={{
@@ -92,7 +92,7 @@ describe('BillForm', () => {
       })
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BillForm
         onClose={vi.fn()}
         onSaved={onSaved}
@@ -157,7 +157,7 @@ describe('BillForm', () => {
       http.get('/api/tax-rates', () => HttpResponse.json({ tax_rates: [] })),
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BillForm
         onClose={vi.fn()}
       />
@@ -221,7 +221,7 @@ describe('BillForm', () => {
       }),
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BillForm
         onClose={vi.fn()}
         onSaved={onSaved}
@@ -314,7 +314,7 @@ describe('BillForm', () => {
       }),
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BillForm
         bill={{
           id: 200,
@@ -390,7 +390,7 @@ describe('BillForm', () => {
       }),
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BillForm
         bill={{
           id: 201,

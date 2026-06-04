@@ -158,7 +158,17 @@ describe('service-backed happy path smoke checks', () => {
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ bill, transaction: undefined });
-    expect(billsServiceMocks.createBill).toHaveBeenCalledWith(payload, 2);
+    expect(billsServiceMocks.createBill).toHaveBeenCalledWith(
+      payload,
+      2,
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          id: 2,
+          email: 'editor@example.com',
+          role: 'editor',
+        }),
+      })
+    );
   });
 
   it('returns transactions list from list service', async () => {

@@ -1525,6 +1525,7 @@ describe('direct DB reconciliation integration smoke checks', () => {
       method: 'POST',
       userId: fixture.userId,
       role: 'admin',
+      body: { reason_note: 'Reopen reconciliation for voided journal entry test' },
     });
     expect(reopen.status).toBe(200);
 
@@ -1603,6 +1604,7 @@ describe('direct DB reconciliation integration smoke checks', () => {
       method: 'POST',
       userId: fixture.userId,
       role: 'admin',
+      body: { reason_note: 'Reopen reconciliation with voided matched item test' },
     });
     expect(reopen.status).toBe(200);
   });

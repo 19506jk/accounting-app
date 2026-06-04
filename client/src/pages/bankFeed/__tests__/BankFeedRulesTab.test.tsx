@@ -13,7 +13,7 @@ describe('BankFeedRulesTab', () => {
       http.get('/api/accounts', () => HttpResponse.json({ accounts: [] })),
       http.get('/api/bank-matching-rules', () => HttpResponse.json({ rules: [] }))
     )
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedRulesTab isActive={false} />
     )
 
@@ -67,7 +67,7 @@ describe('BankFeedRulesTab', () => {
       })
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedRulesTab isActive />
     )
 
@@ -141,7 +141,7 @@ describe('BankFeedRulesTab', () => {
       })),
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedRulesTab isActive />
     )
 
@@ -203,7 +203,7 @@ describe('BankFeedRulesTab', () => {
       )),
     )
 
-    const screen = renderWithProviders(
+    const screen = await renderWithProviders(
       <BankFeedRulesTab isActive />
     )
 

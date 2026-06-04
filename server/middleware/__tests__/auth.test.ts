@@ -93,7 +93,7 @@ describe('auth middleware', () => {
       id: 7,
       email: 'admin@example.com',
       role: 'admin',
-      name: '',
+      name: 'admin@example.com',
       avatar_url: null,
     });
     expect(next).toHaveBeenCalledTimes(1);

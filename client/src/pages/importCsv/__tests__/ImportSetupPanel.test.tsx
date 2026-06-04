@@ -5,7 +5,7 @@ import ImportSetupPanel from '../ImportSetupPanel'
 
 describe('ImportSetupPanel', () => {
   it('renders parse status and warnings', async () => {
-    const screen = render(
+    const screen = await render(
       <ImportSetupPanel
         bankAccountId='1'
         fundId='2'

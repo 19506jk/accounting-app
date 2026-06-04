@@ -72,11 +72,13 @@ async function requestRoute({
   method,
   userId,
   role = 'admin',
+  body,
 }: {
   probePath: string;
   method: 'POST';
   userId: number;
   role?: 'admin' | 'editor' | 'viewer';
+  body?: unknown;
 }) {
   return requestMountedRoute({
     mountPath: '/api/reconciliations',
@@ -85,6 +87,7 @@ async function requestRoute({
     router: reconciliationRouter,
     userId,
     role,
+    body,
   });
 }
 
@@ -318,6 +321,7 @@ describe('direct DB reconciliation reopen integration checks', () => {
       method: 'POST',
       userId: fixture.userId,
       role: 'admin',
+      body: { reason_note: 'Blocked reopen validation test' },
     });
 
     expect(response.status).toBe(409);
@@ -343,6 +347,7 @@ describe('direct DB reconciliation reopen integration checks', () => {
       method: 'POST',
       userId: fixture.userId,
       role: 'admin',
+      body: { reason_note: 'Allowed reopen validation test' },
     });
 
     expect(response.status).toBe(200);
