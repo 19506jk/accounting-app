@@ -19,7 +19,7 @@ describe('parseStatementCsv', () => {
   it('captures payment_method metadata when the column is present', async () => {
     const file = buildStatementFile([
       {
-        'Posted Date': '20260401',
+        'Value Date': '20260401',
         'Description 1': 'E-TRANSFER - AUTODEPOSIT',
         'Description 2': 'Donation from Jane Doe',
         'Payment Method': 'Interac e-Transfer',
@@ -47,7 +47,7 @@ describe('parseStatementCsv', () => {
   it('defaults payment_method metadata to empty string when the column is missing', async () => {
     const file = buildStatementFile([
       {
-        'Posted Date': '20260402',
+        'Value Date': '20260402',
         Description: 'Manual Deposit',
         Debit: '',
         Credit: '50',
@@ -61,7 +61,7 @@ describe('parseStatementCsv', () => {
   it('parses withdrawal-only rows with formatted amounts and reference fields', async () => {
     const file = buildStatementFile([
       {
-        'Posted Date': '20260403',
+        'Value Date': '20260403',
         'Description 1': 'Vendor A',
         'Description 2': 'Invoice 10',
         Withdrawals: '$1,234.56',
@@ -83,7 +83,7 @@ describe('parseStatementCsv', () => {
   it('parses deposit-only rows and parenthesized amounts', async () => {
     const file = buildStatementFile([
       {
-        'Posted Date': '20260404',
+        'Value Date': '20260404',
         Description: 'Donation',
         Debit: '',
         Credit: '(250.75)',
@@ -102,7 +102,7 @@ describe('parseStatementCsv', () => {
   it('warns and skips rows where both withdrawals and deposits are populated', async () => {
     const file = buildStatementFile([
       {
-        'Posted Date': '20260405',
+        'Value Date': '20260405',
         Description: 'Ambiguous row',
         Debit: '20',
         Credit: '10',
@@ -125,13 +125,13 @@ describe('parseStatementCsv', () => {
       },
     ], 'statement-missing-date.xlsx')
 
-    await expect(runParser(file)).rejects.toThrow("Required column 'Posted Date' not found")
+    await expect(runParser(file)).rejects.toThrow("Required column 'Value Date' not found")
   })
 
-  it('throws for invalid posted date formats', async () => {
+  it('throws for invalid value date formats', async () => {
     const file = buildStatementFile([
       {
-        'Posted Date': '2026-04-01',
+        'Value Date': '2026-04-01',
         Description: 'Invalid date format',
         Debit: '',
         Credit: '25',
@@ -144,7 +144,7 @@ describe('parseStatementCsv', () => {
   it('throws for invalid calendar dates', async () => {
     const file = buildStatementFile([
       {
-        'Posted Date': '20260230',
+        'Value Date': '20260230',
         Description: 'Impossible date',
         Debit: '',
         Credit: '25',

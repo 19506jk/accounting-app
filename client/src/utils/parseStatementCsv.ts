@@ -16,7 +16,7 @@ interface ParseStatementCsvResult {
   metadata: RowMetadata[]
 }
 
-const DATE_ALIASES = ['Posted Date', 'Transaction Date', 'Date']
+const DATE_ALIASES = ['Value Date', 'Transaction Date', 'Date']
 const DESCRIPTION_1_ALIASES = ['Description 1', 'Description', 'Payee']
 const DESCRIPTION_2_ALIASES = ['Description 2', 'Details', 'Memo']
 const PAYMENT_METHOD_ALIASES = ['Payment Method']
