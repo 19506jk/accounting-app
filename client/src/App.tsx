@@ -19,6 +19,7 @@ const DonationReceipts = lazy(() => import('./pages/DonationReceipts'));
 const Settings         = lazy(() => import('./pages/Settings'));
 const UserManagement   = lazy(() => import('./pages/UserManagement'));
 const AuditLog         = lazy(() => import('./pages/AuditLog'));
+const Budget           = lazy(() => import('./pages/Budget'));
 const DepositEntry     = lazy(() => import('./pages/DepositEntry'));
 const ExpenseEntry     = lazy(() => import('./pages/ExpenseEntry'));
 const BankFeed         = lazy(() => import('./pages/BankFeed'));
@@ -77,6 +78,11 @@ function AppRoutes() {
           <Route path="/audit-log" element={
             <RoleGuard roles={['admin']} fallback={<Navigate to="/dashboard" replace />}>
               <AuditLog />
+            </RoleGuard>
+          } />
+          <Route path="/budget" element={
+            <RoleGuard roles={['admin']} fallback={<Navigate to="/dashboard" replace />}>
+              <Budget />
             </RoleGuard>
           } />
         </Route>

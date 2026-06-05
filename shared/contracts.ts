@@ -438,6 +438,21 @@ export interface BankTransactionsListResponse {
   items: BankTransaction[];
 }
 
+export interface AccountBudgetRow {
+  account_id: number;
+  account_code: string;
+  account_name: string;
+  account_type: 'INCOME' | 'EXPENSE';
+  budget_amount: number;
+  actual_amount: number;          // selected fiscal year actual (from journal entries)
+  prior_budget_amount: number;
+  prior_actual_amount: number;
+}
+
+export interface BudgetResponse {
+  rows: AccountBudgetRow[];
+}
+
 export interface BankUploadsListResponse {
   uploads: BankUploadSummary[];
 }

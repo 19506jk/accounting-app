@@ -13,6 +13,7 @@ import Button from '../components/ui/Button'
 import Select from '../components/ui/Select'
 import MultiSelectCombobox from '../components/ui/MultiSelectCombobox'
 import { getErrorMessage } from '../utils/errors'
+import { getCurrentFiscalYear } from '../utils/fiscalYear'
 import type { OptionValue } from '../components/ui/types'
 
 type ReceiptStatusType = 'success' | 'warning' | 'error' | null
@@ -92,13 +93,6 @@ const previewStyles = `
   }
 `
 
-function getCurrentFiscalYear(fiscalStartMonth: number) {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth() + 1
-  if (fiscalStartMonth === 1) return year
-  return month >= fiscalStartMonth ? year + 1 : year
-}
 
 function renderPreviewHtml(markdown: string) {
   const centerBlocks: string[] = []

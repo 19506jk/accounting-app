@@ -15,6 +15,7 @@ import type {
 } from '@shared/contracts';
 import { getChurchToday, normalizeDateOnly } from '../utils/date.js';
 import { getChurchTimeZone } from '../services/churchTimeZone.js';
+import { dayAfter, dayBefore, getFiscalStartMonth, getFiscalYearStartDate } from '../utils/fiscalYear.js';
 import { acquireHardCloseLock } from '../utils/hardCloseGuard.js';
 import { writeForensicEntry } from '../services/auditLog.js';
 
@@ -81,32 +82,6 @@ function toFiscalPeriod(row: FiscalPeriodRow): FiscalPeriod {
   };
 }
 
-function dayBefore(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
-
-function dayAfter(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
-function getFiscalYearStartDate(asOf: string, fiscalStartMonth: number): string {
-  const year = Number(asOf.slice(0, 4));
-  const month = Number(asOf.slice(5, 7));
-  const fiscalYear = month >= fiscalStartMonth ? year : year - 1;
-  return `${fiscalYear}-${String(fiscalStartMonth).padStart(2, '0')}-01`;
-}
-
-async function getFiscalStartMonth(executor: Executor): Promise<number> {
-  const row = await executor('settings')
-    .where({ key: 'fiscal_year_start' })
-    .select('value')
-    .first() as { value?: string | null } | undefined;
-  return Math.max(1, Math.min(12, parseInt(row?.value ?? '1', 10) || 1));
-}
 
 async function deriveCloseWindow(executor: Executor) {
   const fiscalStartMonth = await getFiscalStartMonth(executor);
