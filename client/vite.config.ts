@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
 import { fileURLToPath, URL } from 'node:url';
 
+const vitePort = Number(process.env.VITE_PORT) || 5173;
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:5000';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -11,14 +14,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: vitePort,
     allowedHosts: ['endian-server.tail8f0744.ts.net'],
     host: '0.0.0.0',
     proxy: {
       // All /api requests proxied to Express during development.
-      // In production, Nginx handles the same proxy — no code changes needed.
+      // In production, Nginx handles the same proxy - no code changes needed.
       '/api': {
-        target:       'http://localhost:4000',
+        target:       apiProxyTarget,
         changeOrigin: true,
       },
     },

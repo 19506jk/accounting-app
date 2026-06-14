@@ -6,11 +6,13 @@ import { fileURLToPath } from 'node:url'
 import { config as loadEnv } from 'dotenv'
 import jwt from 'jsonwebtoken'
 
+import { E2E_BASE_URL } from './constants'
+
 const here = path.dirname(fileURLToPath(import.meta.url))
 
 loadEnv({ path: path.resolve(here, '../../server/.env') })
 if (!process.env.JWT_SECRET) {
-  throw new Error('JWT_SECRET not set — server/.env missing or unreadable')
+  throw new Error('JWT_SECRET not set - server/.env missing or unreadable')
 }
 
 const E2E_USER = {
@@ -39,7 +41,7 @@ export default async function globalSetup() {
     cookies: [],
     origins: [
       {
-        origin: 'http://localhost:5173',
+        origin: E2E_BASE_URL,
         localStorage: [
           { name: 'church_token', value: token },
           { name: 'church_user', value: JSON.stringify(E2E_USER) },
