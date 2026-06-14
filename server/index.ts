@@ -50,7 +50,7 @@ app.use(helmet({
 app.use(cors({
   origin: [
     process.env.CLIENT_ORIGIN || 'http://localhost:5173',
-    'https://openclaw.tail8f0744.ts.net',
+    'https://endian-prod.tail8f0744.ts.net',
   ],
   credentials: true,
 }));

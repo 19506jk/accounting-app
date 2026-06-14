@@ -18,9 +18,10 @@ const queryClient = new QueryClient({
   },
 });
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_ID = __GOOGLE_CLIENT_ID__;
 const rootElement = document.getElementById('root');
 
+if (!GOOGLE_CLIENT_ID) throw new Error('No Google client ID configured for the client build');
 if (!rootElement) throw new Error('Root element not found');
 
 createRoot(rootElement).render(

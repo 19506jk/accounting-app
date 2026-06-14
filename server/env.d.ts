@@ -12,7 +12,11 @@ declare namespace NodeJS {
     DB_NAME_TEST?: string;
     DATABASE_URL_PROD?: string;
     JWT_SECRET: string;
-    GOOGLE_CLIENT_ID: string;
+    GOOGLE_CLIENT_ID?: string;
+    GOOGLE_CLIENT_ID_DEV?: string;
+    GOOGLE_CLIENT_ID_PROD?: string;
+    GOOGLE_CLIENT_SECRET_DEV?: string;
+    GOOGLE_CLIENT_SECRET_PROD?: string;
     CLIENT_ORIGIN?: string;
   }
 }

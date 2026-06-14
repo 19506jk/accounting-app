@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:tailnet": "TAILNET_HOST=endian-prod.tail8f0744.ts.net VITE_HMR_CLIENT_PORT=8443 vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "preview": "vite preview",

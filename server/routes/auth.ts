@@ -16,7 +16,15 @@ const db = require('../db');
 const auth = require('../middleware/auth.js');
 
 const router = express.Router();
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClientId = process.env.NODE_ENV === 'production'
+  ? process.env.GOOGLE_CLIENT_ID_PROD || process.env.GOOGLE_CLIENT_ID
+  : process.env.GOOGLE_CLIENT_ID_DEV || process.env.GOOGLE_CLIENT_ID;
+
+if (!googleClientId) {
+  throw new Error('No Google client ID configured - set GOOGLE_CLIENT_ID_DEV/PROD');
+}
+
+const client = new OAuth2Client(googleClientId);
 
 interface JwtSignPayload {
   id: number;
@@ -39,7 +47,7 @@ router.post('/google', async (req: GoogleAuthReq, res: Response, next: NextFunct
     try {
       ticket = await client.verifyIdToken({
         idToken: credential,
-        audience: process.env.GOOGLE_CLIENT_ID,
+        audience: googleClientId,
       });
     } catch {
       return res.status(401).json({ error: 'Invalid Google token' });
