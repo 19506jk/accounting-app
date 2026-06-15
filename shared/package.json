@@ -1,0 +1,12 @@
+{
+  "name": "@shared/contracts",
+  "version": "1.0.0",
+  "exports": {
+    ".": {
+      "types": "./contracts.d.ts",
+      "import": "./contracts.mjs",
+      "require": "./contracts.js",
+      "default": "./contracts.mjs"
+    }
+  }
+}

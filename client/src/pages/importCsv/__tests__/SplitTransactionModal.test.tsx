@@ -245,7 +245,7 @@ describe('SplitTransactionModal', () => {
     )
 
     const paymentMethodSelect = screen.getByLabelText('Payment Method')
-    await expect.element(paymentMethodSelect as HTMLSelectElement).toHaveValue('e-transfer')
+    await expect.element(paymentMethodSelect).toHaveValue('e-transfer')
   })
 
   it('saves updated per-line payment method for deposit splits', async () => {
@@ -278,7 +278,7 @@ describe('SplitTransactionModal', () => {
     await userEvent.click(screen.getByText(/Offset account…|1100 - Donation Income/))
     await userEvent.click(screen.getByText('1100 - Donation Income'))
     const paymentMethodSelect = screen.getByLabelText('Payment Method')
-    await userEvent.selectOptions(paymentMethodSelect as HTMLSelectElement, 'cash')
+    await userEvent.selectOptions(paymentMethodSelect, 'cash')
     await userEvent.click(screen.getByRole('button', { name: 'Save Split' }))
 
     expect(onSave).toHaveBeenCalledWith([
