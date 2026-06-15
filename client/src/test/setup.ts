@@ -1,6 +1,6 @@
 import '@vitest/browser/matchers'
 import { afterAll, afterEach, beforeAll } from 'vitest'
-import { cleanup } from 'vitest-browser-react'
+import { cleanup } from 'vitest-browser-react/pure'
 
 import { worker } from './msw/browser'
 

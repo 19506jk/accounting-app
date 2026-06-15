@@ -65,6 +65,23 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     fileParallelism: false,
+    deps: {
+      optimizer: {
+        web: {
+          include: [
+            '@vitest/browser/matchers',
+            'vitest-browser-react',
+            'vitest-browser-react/pure',
+            '@react-oauth/google',
+            '@tanstack/react-query',
+            'axios',
+            'dayjs',
+            'react-router-dom',
+            'xlsx',
+          ],
+        },
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

@@ -11,23 +11,23 @@ Full-stack church accounting application with:
 ### Client (`/client`)
 
 ```bash
-npm run dev      # Start Vite dev server with HMR
-npm run build    # Production build
-npm run preview  # Preview production build
+pnpm run dev      # Start Vite dev server with HMR
+pnpm run build    # Production build
+pnpm run preview  # Preview production build
 ```
 
 ### Server (`/server`)
 
 ```bash
-npm run dev              # Start with nodemon (auto-reload)
-npm run dev:test         # Start against test DB (used by Playwright)
-npm run start            # Production start
-npm run migrate          # Run pending migrations
-npm run migrate:status   # List migration status
-npm run migrate:rollback # Rollback last migration
-npm run seed             # Run seed files
-npm run db:reset         # Full DB reset: rollback all + migrate + seed
-npm run db:reset:test    # Same but targets the test DB (NODE_ENV=test)
+pnpm run dev              # Start with nodemon (auto-reload)
+pnpm run dev:test         # Start against test DB (used by Playwright)
+pnpm run start            # Production start
+pnpm run migrate          # Run pending migrations
+pnpm run migrate:status   # List migration status
+pnpm run migrate:rollback # Rollback last migration
+pnpm run seed             # Run seed files
+pnpm run db:reset         # Full DB reset: rollback all + migrate + seed
+pnpm run db:reset:test    # Same but targets the test DB (NODE_ENV=test)
 ```
 
 ### Running Tests
@@ -35,20 +35,20 @@ npm run db:reset:test    # Same but targets the test DB (NODE_ENV=test)
 **Client** (`/client`) — Vitest + Browser Mode (headless Chromium via Playwright):
 
 ```bash
-npm run test              # Run all unit tests once
-npm run test:watch        # Watch mode (add --browser.headless=false to see browser)
-npm run test:coverage     # Coverage report (thresholds enforced)
-npm run e2e               # Playwright E2E against real test backend
-npm run e2e:ui            # Playwright UI mode
-npm run e2e:report        # Show last E2E HTML report
+pnpm run test              # Run all unit tests once
+pnpm run test:watch        # Watch mode (add --browser.headless=false to see browser)
+pnpm run test:coverage     # Coverage report (thresholds enforced)
+pnpm run e2e               # Playwright E2E against real test backend
+pnpm run e2e:ui            # Playwright UI mode
+pnpm run e2e:report        # Show last E2E HTML report
 ```
 
 **Server** (`/server`) — Vitest:
 
 ```bash
-npm run test              # Run all server tests once
-npm run test:watch        # Watch mode
-npm run test:coverage     # Coverage report
+pnpm run test              # Run all server tests once
+pnpm run test:watch        # Watch mode
+pnpm run test:coverage     # Coverage report
 ```
 
 ### Client Test Conventions
@@ -57,7 +57,7 @@ npm run test:coverage     # Coverage report
 - **Component tests** use `renderWithProviders` from `src/test/renderWithProviders.tsx` — do not call `vitest-browser-react`'s `render` directly except for trivial leaf components with no providers.
 - **API calls** are intercepted by MSW — do not `vi.mock` axios or individual API modules. Add per-test overrides with `worker.use(http.get(...))`.
 - **Selectors**: prefer `getByRole` / `getByText` / `getByLabelText`; avoid `data-testid` so unit and E2E selectors stay aligned.
-- **E2E** lives in `client/e2e/` and runs against a real test backend (`npm run dev:test`) with a freshly seeded test DB. Auth is bypassed via a signed JWT written to `storageState` in `e2e/global-setup.ts` — no Google OAuth in tests.
+- **E2E** lives in `client/e2e/` and runs against a real test backend (`pnpm run dev:test`) with a freshly seeded test DB. Auth is bypassed via a signed JWT written to `storageState` in `e2e/global-setup.ts` — no Google OAuth in tests.
 
 ## Code Style Guidelines
 
@@ -240,9 +240,9 @@ db.raw('COALESCE(SUM(je.debit), 0) AS total_debit')
 3. Add to navigation in `client/src/components/Layout.jsx`
 
 **Database migration:**
-1. `npx knex migrate:make <description>`
+1. `pnpm --filter ./server run knex -- migrate:make <description>`
 2. Edit migration file in `db/migrations/`
-3. `npm run migrate` to apply
+3. `pnpm run migrate` to apply
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph

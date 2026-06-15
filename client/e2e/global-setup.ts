@@ -25,7 +25,7 @@ const E2E_USER = {
 }
 
 export default async function globalSetup() {
-  execSync('npm run db:reset:test', {
+  execSync('corepack pnpm run db:reset:test', {
     cwd: path.resolve(here, '../../server'),
     stdio: 'inherit',
     env: { ...process.env, NODE_ENV: 'test' },

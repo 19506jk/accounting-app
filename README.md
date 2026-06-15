@@ -18,12 +18,13 @@ shared/   Code shared between client and server
 docs/     Project documentation
 ```
 
-This repo does not have a root `package.json`. Install dependencies separately in `client/` and `server/`.
+The repo is a pnpm workspace with a root `package.json`, a single `pnpm-lock.yaml`,
+and workspace packages in `client/`, `server/`, and `shared/`.
 
 ## Prerequisites
 
 - Node 20 (`server/.nvmrc`)
-- npm
+- pnpm
 - PostgreSQL running locally
 - Google OAuth client ID(s) for local sign-in
 
@@ -36,12 +37,10 @@ git clone <repository-url> accounting-app
 cd accounting-app
 ```
 
-2. Install dependencies in both workspaces.
+2. Install dependencies for the workspace.
 
 ```bash
-cd server && npm install
-cd ../client && npm install
-cd ..
+pnpm install
 ```
 
 3. Copy the env templates and fill in your values.
@@ -62,32 +61,32 @@ Suggested names from `server/.env.example`:
 
 ```bash
 cd server
-npm run migrate
-npm run seed
+pnpm run migrate
+pnpm run seed
 ```
 
 6. Set up the test database when you need server tests or Playwright E2E.
 
 ```bash
 cd server
-npm run migrate:test
-npm run seed:test
+pnpm run migrate:test
+pnpm run seed:test
 ```
 
 Shortcut for a full reset:
 
 ```bash
 cd server
-npm run db:reset
-npm run db:reset:test
+pnpm run db:reset
+pnpm run db:reset:test
 ```
 
 7. Install Playwright Chromium before running client tests on a fresh machine.
 
 ```bash
 cd client
-npx playwright install chromium
-sudo npx playwright install-deps chromium
+pnpm exec playwright install chromium
+sudo pnpm exec playwright install-deps chromium
 ```
 
 ## Running Locally
@@ -96,14 +95,14 @@ Start the API:
 
 ```bash
 cd server
-npm run dev
+pnpm run dev
 ```
 
 Start the client in a second terminal:
 
 ```bash
 cd client
-npm run dev
+pnpm run dev
 ```
 
 Open `http://localhost:5173`.
@@ -118,7 +117,7 @@ Port convention used in this repo:
 - E2E Vite: `5174`
 - Prod/pm2 API: `4000`
 
-`AGENTS.md` mentions port `4000` for the server because that is the production/pm2 convention. Local `npm run dev` runs on `5000`.
+`AGENTS.md` mentions port `4000` for the server because that is the production/pm2 convention. Local `pnpm run dev` runs on `5000`.
 
 ## Environment Variables
 
@@ -129,7 +128,7 @@ Use the `.env.example` files as the source of truth. Do not commit `.env` files 
 | Variable | Purpose |
 | --- | --- |
 | `NODE_ENV` | Runtime environment |
-| `PORT` | Express port; local template defaults to `4000`, while `npm run dev` overrides to `5000` |
+| `PORT` | Express port; local template defaults to `4000`, while `pnpm run dev` overrides to `5000` |
 | `DB_HOST` | PostgreSQL host for dev and test |
 | `DB_PORT` | PostgreSQL port |
 | `DB_NAME_DEV` | Development database name |
@@ -163,27 +162,27 @@ See [docs/testing.md](docs/testing.md) for the project testing notes.
 Server checks run from `server/`:
 
 ```bash
-npm run typecheck
-npm run test
-npm run test:coverage
-npm run build
+pnpm run typecheck
+pnpm run test
+pnpm run test:coverage
+pnpm run build
 ```
 
 Client checks run from `client/`:
 
 ```bash
-npm run typecheck
-npm run test
-npm run test:coverage
-npm run build
+pnpm run typecheck
+pnpm run test
+pnpm run test:coverage
+pnpm run build
 ```
 
 Playwright E2E runs from `client/`:
 
 ```bash
-npm run e2e
-npm run e2e:ui
-npm run e2e:report
+pnpm run e2e
+pnpm run e2e:ui
+pnpm run e2e:report
 ```
 
 The E2E setup starts the test API on `5001` and the Vite app on `5174`.
@@ -195,9 +194,9 @@ Create a branch from `main`, make your changes, and open a pull request.
 Before opening a PR, these commands should pass in both `server/` and `client/`:
 
 ```bash
-npm run typecheck
-npm run test
-npm run build
+pnpm run typecheck
+pnpm run test
+pnpm run build
 ```
 
 Code-style summary:
@@ -213,7 +212,7 @@ Common tasks:
 
 - Add an API endpoint: create a route, add the service logic, and register the route in `server/index.ts`
 - Add a page: create the page component, register the route in `client/src/App.tsx`, and add navigation if needed
-- Add a migration: run `npm run knex -- migrate:make <name>` in `server/`, edit the generated file under `server/db/migrations/`, then run `npm run migrate`
+- Add a migration: from `server/`, run `pnpm run knex -- migrate:make <name>`. From the repo root, use `pnpm --filter ./server run knex -- migrate:make <name>`. Then edit the generated file under `server/db/migrations/` and run `pnpm run migrate`.
 
 ## Deployment
 
@@ -222,9 +221,9 @@ Production deployment is driven by [deploy.sh](deploy.sh) and PM2 via [server/ec
 The current deploy flow is:
 
 1. `git pull`
-2. `npm ci` in `client/` and `server/`
-3. `npm run build` in both workspaces
-4. `npm run migrate -- --env production` in `server/`
+2. `pnpm install --frozen-lockfile`
+3. `pnpm -r --if-present run build`
+4. `pnpm --filter ./server run migrate -- --env production`
 5. Run only these production seed files:
    `01_chart_of_accounts.js`, `02_settings.js`, `03_tax_rates.js`
 6. Restart PM2 with `server/ecosystem.config.cjs`
