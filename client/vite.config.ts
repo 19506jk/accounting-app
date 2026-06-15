@@ -1,17 +1,26 @@
 import { defineConfig } from 'vitest/config';
+import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
 
-const vitePort = Number(process.env.VITE_PORT) || 5173;
-const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:5000';
-const tailnetHost = process.env.TAILNET_HOST;
-const magicDnsHost = tailnetHost || 'endian-prod.tail8f0744.ts.net';
-const hmrClientPort = Number(process.env.VITE_HMR_CLIENT_PORT) || 8443;
-const googleClientId = process.env.NODE_ENV === 'production'
-  ? process.env.VITE_GOOGLE_CLIENT_ID_PROD || process.env.VITE_GOOGLE_CLIENT_ID
-  : process.env.VITE_GOOGLE_CLIENT_ID_DEV || process.env.VITE_GOOGLE_CLIENT_ID;
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const vitePort = Number(env.VITE_PORT) || 5173;
+  const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:5000';
+  const tailnetHost = env.TAILNET_HOST;
+  const magicDnsHost = tailnetHost || 'endian-prod.tail8f0744.ts.net';
+  const hmrClientPort = Number(env.VITE_HMR_CLIENT_PORT) || 8443;
+  const googleClientId = mode === 'production'
+    ? env.VITE_GOOGLE_CLIENT_ID_PROD
+      || env.VITE_GOOGLE_CLIENT_ID
+      || env.GOOGLE_CLIENT_ID_PROD
+      || env.GOOGLE_CLIENT_ID
+    : env.VITE_GOOGLE_CLIENT_ID_DEV
+      || env.VITE_GOOGLE_CLIENT_ID
+      || env.GOOGLE_CLIENT_ID_DEV
+      || env.GOOGLE_CLIENT_ID;
 
-export default defineConfig({
+  return {
   define: {
     __GOOGLE_CLIENT_ID__: JSON.stringify(googleClientId || ''),
   },
@@ -127,4 +136,5 @@ export default defineConfig({
       ],
     },
   },
+  };
 });
