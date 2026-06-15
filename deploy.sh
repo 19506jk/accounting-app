@@ -11,14 +11,15 @@ if echo "$OUTPUT" | grep -qE 'Already up[ -]to[ -]date\.?'; then
   exit 0
 fi
 
-npm ci --prefix client
-npm ci --prefix server
-npm run build --prefix client
-npm run build --prefix server
-npm run migrate --prefix server -- --env production
-npm run seed --prefix server -- --env production --specific=01_chart_of_accounts.js
-npm run seed --prefix server -- --env production --specific=02_settings.js
-npm run seed --prefix server -- --env production --specific=03_tax_rates.js
+export COREPACK_HOME="${COREPACK_HOME:-$HOME/.cache/node/corepack}"
+export PNPM_STORE_DIR="${PNPM_STORE_DIR:-$HOME/.local/share/pnpm/store}"
+
+corepack pnpm install --frozen-lockfile
+corepack pnpm -r --if-present run build
+corepack pnpm --filter ./server run migrate -- --env production
+corepack pnpm --filter ./server run seed -- --env production --specific=01_chart_of_accounts.js
+corepack pnpm --filter ./server run seed -- --env production --specific=02_settings.js
+corepack pnpm --filter ./server run seed -- --env production --specific=03_tax_rates.js
 if pm2 describe accounting-app > /dev/null 2>&1; then
   pm2 delete accounting-app
 fi

@@ -1,0 +1,12 @@
+{
+  "name": "accounting-app",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "dev": "corepack pnpm -r --parallel --if-present run dev",
+    "build": "corepack pnpm -r --if-present run build",
+    "test": "corepack pnpm -r --if-present run test",
+    "typecheck": "corepack pnpm -r --if-present run typecheck",
+    "migrate": "corepack pnpm --filter ./server run migrate"
+  }
+}

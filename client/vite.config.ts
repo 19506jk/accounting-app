@@ -1,7 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
-import { fileURLToPath, URL } from 'node:url';
 
 const vitePort = Number(process.env.VITE_PORT) || 5173;
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:5000';
@@ -17,11 +16,6 @@ export default defineConfig({
     __GOOGLE_CLIENT_ID__: JSON.stringify(googleClientId || ''),
   },
   plugins: [react()],
-  resolve: {
-    alias: {
-      '@shared': fileURLToPath(new URL('../shared', import.meta.url)),
-    },
-  },
   server: {
     port: vitePort,
     allowedHosts: [magicDnsHost],
