@@ -137,17 +137,20 @@ function AccountLedgerDrawer({ target, onClose }: { target: LedgerTarget | null;
 
   function exportExcel() {
     if (!ledger) return;
+    const isFund = ledger.mode === 'fund';
+    const colCount = isFund ? 6 : 7;
+    const pad = (n: number) => Array(n).fill('');
     const formatReferenceForExport = (referenceNo: string | null | undefined) => {
       if (referenceNo === null || referenceNo === undefined || referenceNo === '') return '-';
       return String(referenceNo);
     };
 
     const rows = [
-      [drawerTitle, '', '', '', '', '', ''],
-      [`From: ${range.from}`, `To: ${range.to}`, '', '', '', '', ''],
+      [drawerTitle, ...pad(colCount - 1)],
+      [`From: ${range.from}`, `To: ${range.to}`, ...pad(colCount - 2)],
       [],
-      ['Date', 'Reference No', 'Description', 'Fund', 'Debit', 'Credit', 'Balance'],
-      ...(ledger.mode === 'fund' ? [] : [[`Opening Balance`, '', '', '', '', '', ledger.opening_balance]]),
+      ['Date', 'Reference No', 'Description', 'Fund', 'Debit', 'Credit', ...(isFund ? [] : ['Balance'])],
+      ...(isFund ? [] : [[`Opening Balance`, ...pad(colCount - 2), ledger.opening_balance]]),
       ...ledger.rows.map((r) => [
         r.date,
         formatReferenceForExport(r.reference_no),
@@ -155,9 +158,9 @@ function AccountLedgerDrawer({ target, onClose }: { target: LedgerTarget | null;
         r.fund_name,
         r.debit || '',
         r.credit || '',
-        r.balance,
+        ...(isFund ? [] : [r.balance]),
       ]),
-      ...(ledger.mode === 'fund' ? [] : [[], ['Closing Balance', '', '', '', '', '', ledger.closing_balance]]),
+      ...(isFund ? [] : [[], ['Closing Balance', ...pad(colCount - 2), ledger.closing_balance]]),
     ];
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -168,7 +171,7 @@ function AccountLedgerDrawer({ target, onClose }: { target: LedgerTarget | null;
       { wch: 18 },
       { wch: 14 },
       { wch: 14 },
-      { wch: 14 },
+      ...(isFund ? [] : [{ wch: 14 }]),
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
     const exportPrefix = target?.mode === 'fund'
@@ -211,7 +214,7 @@ function AccountLedgerDrawer({ target, onClose }: { target: LedgerTarget | null;
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
-                  {['Date','Reference No','Description','Fund','Debit','Credit','Balance'].map((h) => (
+                  {['Date','Reference No','Description','Fund','Debit','Credit', ...(ledger.mode === 'account' ? ['Balance'] : [])].map((h) => (
                     <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: h === 'Description' || h === 'Fund' || h === 'Reference No' ? 'left' : 'right',
                       fontWeight: 600, color: '#6b7280', fontSize: '0.72rem',
                       textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
@@ -245,9 +248,11 @@ function AccountLedgerDrawer({ target, onClose }: { target: LedgerTarget | null;
                     <td style={{ padding: '0.45rem 0.75rem', textAlign: 'right', color: '#b91c1c' }}>
                       {r.credit > 0 ? fmt(r.credit) : ''}
                     </td>
-                    <td style={{ padding: '0.45rem 0.75rem', textAlign: 'right', fontWeight: 500 }}>
-                      {fmt(r.balance)}
-                    </td>
+                    {ledger.mode === 'account' && (
+                      <td style={{ padding: '0.45rem 0.75rem', textAlign: 'right', fontWeight: 500 }}>
+                        {fmt(r.balance)}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
