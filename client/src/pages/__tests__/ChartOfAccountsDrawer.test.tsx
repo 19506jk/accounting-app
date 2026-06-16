@@ -9,10 +9,19 @@ import ChartOfAccounts from '../ChartOfAccounts'
 
 import type {
   AccountSummary,
+  AuthUser,
   FundSummary,
   LedgerReportAccount,
   LedgerReportResponse,
 } from '@shared/contracts'
+
+const authUser: AuthUser = {
+  id: 1,
+  name: 'Admin User',
+  email: 'admin@example.com',
+  role: 'admin',
+  avatar_url: null,
+}
 
 function accountSummary(overrides: Partial<AccountSummary>): AccountSummary {
   return {
@@ -144,8 +153,13 @@ function stubChartApis({
 }
 
 async function openDrawer(screen: Awaited<ReturnType<typeof renderWithProviders>>, name: string) {
+  await expect.element(screen.getByText(name)).toBeVisible()
   await userEvent.click(screen.getByText(name))
   await expect.element(screen.getByRole('button', { name: 'Export Excel' })).toBeVisible()
+}
+
+function headerTexts() {
+  return Array.from(document.querySelectorAll('th')).map((cell) => cell.textContent?.trim() || '')
 }
 
 describe('ChartOfAccounts drawer', () => {
@@ -166,11 +180,17 @@ describe('ChartOfAccounts drawer', () => {
       ],
     })
 
-    const screen = await renderWithProviders(<ChartOfAccounts />)
+    const screen = await renderWithProviders(<ChartOfAccounts />, { auth: authUser })
     await openDrawer(screen, 'General Fund - Net Assets')
 
-    await expect.element(screen.getByRole('columnheader', { name: 'Date' })).toBeVisible()
-    await expect.element(screen.getByRole('columnheader', { name: 'Balance' })).not.toBeInTheDocument()
+    await expect.poll(headerTexts).toEqual([
+      'Date',
+      'Reference No',
+      'Description',
+      'Fund',
+      'Debit',
+      'Credit',
+    ])
   })
 
   it('keeps the Balance column and empty-state colSpan in account mode', async () => {
@@ -185,17 +205,24 @@ describe('ChartOfAccounts drawer', () => {
       ],
     })
 
-    const screen = await renderWithProviders(<ChartOfAccounts />)
+    const screen = await renderWithProviders(<ChartOfAccounts />, { auth: authUser })
     await openDrawer(screen, 'Operating Cash')
 
-    await expect.element(screen.getByRole('columnheader', { name: 'Balance' })).toBeVisible()
+    await expect.poll(headerTexts).toEqual([
+      'Date',
+      'Reference No',
+      'Description',
+      'Fund',
+      'Debit',
+      'Credit',
+      'Balance',
+    ])
     const emptyCell = screen.getByText('No entries in this date range.')
     await expect.poll(() => emptyCell.element()?.getAttribute('colspan')).toBe('7')
   })
 
   it('exports a 6-column fund-mode worksheet', async () => {
     const aoaSpy = vi.spyOn(XLSX.utils, 'aoa_to_sheet')
-    vi.spyOn(XLSX, 'writeFile').mockImplementation(() => {})
 
     stubChartApis({
       accountLedger: [
@@ -220,7 +247,7 @@ describe('ChartOfAccounts drawer', () => {
       ],
     })
 
-    const screen = await renderWithProviders(<ChartOfAccounts />)
+    const screen = await renderWithProviders(<ChartOfAccounts />, { auth: authUser })
     await openDrawer(screen, 'General Fund - Net Assets')
     await userEvent.click(screen.getByRole('button', { name: 'Export Excel' }))
 
@@ -232,7 +259,6 @@ describe('ChartOfAccounts drawer', () => {
 
   it('exports a 7-column account-mode worksheet', async () => {
     const aoaSpy = vi.spyOn(XLSX.utils, 'aoa_to_sheet')
-    vi.spyOn(XLSX, 'writeFile').mockImplementation(() => {})
 
     stubChartApis({
       accountLedger: [
@@ -257,7 +283,7 @@ describe('ChartOfAccounts drawer', () => {
       ],
     })
 
-    const screen = await renderWithProviders(<ChartOfAccounts />)
+    const screen = await renderWithProviders(<ChartOfAccounts />, { auth: authUser })
     await openDrawer(screen, 'Operating Cash')
     await userEvent.click(screen.getByRole('button', { name: 'Export Excel' }))
 
