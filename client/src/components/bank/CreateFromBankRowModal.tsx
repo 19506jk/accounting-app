@@ -20,6 +20,7 @@ import {
   isInteracEtransferPaymentMethod,
   isEtransferDescription,
   matchDonorFromSender,
+  defaultCreateDescription,
 } from '../../utils/etransferEnrich'
 import type { BankTransaction, CreateFromBankRowInput, PaymentMethod, SimulateBankMatchingRuleResult } from '@shared/contracts'
 import type { ParsedImportRow, SplitSavePayload } from '../../pages/importCsv/importCsvTypes'
@@ -49,7 +50,13 @@ export default function CreateFromBankRowModal({
   const [splitModalOpen, setSplitModalOpen] = useState(false)
   const [trainFromFeed, setTrainFromFeed] = useState(false)
   const proposal = bankTransaction.create_proposal
-  const fallbackDescription = [bankTransaction.raw_description, bankTransaction.bank_description_2].filter(Boolean).join(' — ')
+  const fallbackDescription = defaultCreateDescription(
+    bankTransaction.amount,
+    bankTransaction.payment_method,
+    bankTransaction.raw_description,
+    bankTransaction.bank_description_2,
+    bankTransaction.bank_transaction_id,
+  )
   const fallbackEtransferDescription = [bankTransaction.raw_description, bankTransaction.bank_description_2].filter(Boolean).join(' — ')
   const isEtransferDeposit = useMemo(() => {
     if (bankTransaction.amount < 0) return false

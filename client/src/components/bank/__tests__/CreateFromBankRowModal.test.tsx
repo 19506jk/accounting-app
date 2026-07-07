@@ -283,4 +283,116 @@ describe('CreateFromBankRowModal', () => {
       expect(requestBody).toEqual(expect.objectContaining({ payment_method: 'cheque' }))
     })
   })
+
+  it('prefills description with bank_transaction_id for unmatched e-transfer deposit', async () => {
+    let requestBody: unknown = null
+    const onClose = vi.fn()
+    const onSuccess = vi.fn()
+
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({
+        accounts: [
+          { id: 1, code: '1000', name: 'Main Bank', type: 'ASSET', is_active: true },
+          { id: 2, code: '2050', name: 'Donations Clearing', type: 'ASSET', is_active: true },
+        ],
+      })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/settings', () => HttpResponse.json({ values: { etransfer_deposit_offset_account_id: '2' } })),
+      http.get('/api/contacts', ({ request }) => {
+        const type = new URL(request.url).searchParams.get('type')
+        return HttpResponse.json({
+          contacts: [{ id: type === 'DONOR' ? 11 : 12, donor_id: null, name: 'Contact', is_active: true }],
+        })
+      }),
+      http.post('/api/bank-transactions/:id/create', async ({ request, params }) => {
+        requestBody = await request.json()
+        return HttpResponse.json({ item: { id: Number(params.id) } })
+      }),
+    )
+
+    const screen = await renderWithProviders(
+      <CreateFromBankRowModal
+        bankTransaction={{
+          id: 82,
+          account_id: 1,
+          amount: 120,
+          bank_posted_date: '2026-03-15',
+          raw_description: 'Interac e-Transfer',
+          bank_description_2: 'Donor Name',
+          payment_method: 'E-TRANSFER',
+          sender_email: null,
+          sender_name: 'Donor Name',
+          bank_transaction_id: 'BTX-ET-001',
+          fund_id: 1,
+          create_proposal: null,  // unmatched — no proposal
+        } as never}
+        onClose={onClose}
+        onSuccess={onSuccess}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create Journal Entry' }))
+
+    await vi.waitFor(() => {
+      expect(requestBody).toEqual(expect.objectContaining({
+        description: 'BTX-ET-001',
+      }))
+    })
+  })
+
+  it('falls back to joined description for e-transfer deposit without reference', async () => {
+    let requestBody: unknown = null
+    const onClose = vi.fn()
+    const onSuccess = vi.fn()
+
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({
+        accounts: [
+          { id: 1, code: '1000', name: 'Main Bank', type: 'ASSET', is_active: true },
+          { id: 2, code: '2050', name: 'Donations Clearing', type: 'ASSET', is_active: true },
+        ],
+      })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/settings', () => HttpResponse.json({ values: { etransfer_deposit_offset_account_id: '2' } })),
+      http.get('/api/contacts', ({ request }) => {
+        const type = new URL(request.url).searchParams.get('type')
+        return HttpResponse.json({
+          contacts: [{ id: type === 'DONOR' ? 11 : 12, donor_id: null, name: 'Contact', is_active: true }],
+        })
+      }),
+      http.post('/api/bank-transactions/:id/create', async ({ request, params }) => {
+        requestBody = await request.json()
+        return HttpResponse.json({ item: { id: Number(params.id) } })
+      }),
+    )
+
+    const screen = await renderWithProviders(
+      <CreateFromBankRowModal
+        bankTransaction={{
+          id: 83,
+          account_id: 1,
+          amount: 120,
+          bank_posted_date: '2026-03-16',
+          raw_description: 'Interac e-Transfer',
+          bank_description_2: 'Donor Name',
+          payment_method: 'E-TRANSFER',
+          sender_email: null,
+          sender_name: 'Donor Name',
+          bank_transaction_id: null,  // no reference
+          fund_id: 1,
+          create_proposal: null,
+        } as never}
+        onClose={onClose}
+        onSuccess={onSuccess}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create Journal Entry' }))
+
+    await vi.waitFor(() => {
+      expect(requestBody).toEqual(expect.objectContaining({
+        description: 'Interac e-Transfer — Donor Name',
+      }))
+    })
+  })
 })

@@ -18,6 +18,7 @@ import type {
 } from '../../types/db';
 import { isValidDateOnly } from '../../utils/date.js';
 import { normalizeDescription } from './normalize.js';
+import { defaultCreateDescription } from './etransferDefaults.js';
 
 const dec = (value: Decimal.Value | null | undefined) => new Decimal(value ?? 0);
 const MAX_ROUNDING_ADJUSTMENT = dec('0.10');
@@ -284,7 +285,13 @@ function buildSingleLineProposal(
       matchType: rule.match_type,
       matchPattern: rule.match_pattern,
       proposal: {
-        description: ctx.bankTx.raw_description,
+        description: defaultCreateDescription(
+          ctx.bankTx.amount,
+          ctx.bankTx.payment_method,
+          ctx.bankTx.raw_description,
+          ctx.bankTx.bank_description_2,
+          ctx.bankTx.bank_transaction_id,
+        ),
         reference_no: ctx.bankTx.bank_transaction_id ?? undefined,
         offset_account_id: rule.offset_account_id,
         contact_id: rule.contact_id ?? undefined,
@@ -311,7 +318,13 @@ function buildSingleLineProposal(
     matchType: rule.match_type,
     matchPattern: rule.match_pattern,
     proposal: {
-      description: ctx.bankTx.raw_description,
+      description: defaultCreateDescription(
+        ctx.bankTx.amount,
+        ctx.bankTx.payment_method,
+        ctx.bankTx.raw_description,
+        ctx.bankTx.bank_description_2,
+        ctx.bankTx.bank_transaction_id,
+      ),
       reference_no: ctx.bankTx.bank_transaction_id ?? undefined,
       offset_account_id: rule.offset_account_id,
       payee_id: rule.payee_id,
@@ -464,7 +477,13 @@ function buildSplitProposal(
     matchType: rule.match_type,
     matchPattern: rule.match_pattern,
     proposal: {
-      description: ctx.bankTx.raw_description,
+      description: defaultCreateDescription(
+        ctx.bankTx.amount,
+        ctx.bankTx.payment_method,
+        ctx.bankTx.raw_description,
+        ctx.bankTx.bank_description_2,
+        ctx.bankTx.bank_transaction_id,
+      ),
       reference_no: ctx.bankTx.bank_transaction_id ?? undefined,
       payee_id: ctx.txType === 'withdrawal' ? rule.payee_id ?? undefined : undefined,
       contact_id: ctx.txType === 'deposit' ? rule.contact_id ?? undefined : undefined,
