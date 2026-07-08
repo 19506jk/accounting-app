@@ -73,7 +73,9 @@ describe('reportExports', () => {
     const workbook = writeFile.mock.calls[0]?.[0] as WorkBook
     const rows = sheetRows(xlsx, workbook, 'P&L')
     expect(rows).toContainEqual(['Statement of Activities', '', ''])
+    expect(rows).toContainEqual(['', '4000 - Donations', 250])
     expect(rows).toContainEqual(['', 'Total Income', 250])
+    expect(rows).toContainEqual(['', '5000 - Rent', 100])
     expect(rows).toContainEqual(['', 'Total Expenses', 100])
     expect(rows).toContainEqual(['Net Surplus / (Deficit)', '', 150])
   })
