@@ -208,7 +208,10 @@ router.get(
           'je.debit',
           'je.credit'
         )
-        .orderBy('t.date', 'asc') as ReconciliationItemRow[];
+        .orderBy('t.date', 'asc')
+        .orderBy('t.id', 'asc')
+        .orderBy('je.id', 'asc')
+        .orderBy('ri.id', 'asc') as ReconciliationItemRow[];
 
       const clearedBalance = await calcBalance(id, recon.opening_balance, recon.account_type);
       const difference = dec(recon.statement_balance).minus(clearedBalance);

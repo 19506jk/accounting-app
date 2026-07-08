@@ -1726,4 +1726,81 @@ describe('direct DB reconciliation integration smoke checks', () => {
       expect(item.date).toBe(fixture.date);
     }
   });
+
+  it('keeps same-day reconciliation items in a stable order after clearing and refetching', async () => {
+    const fixture = await createFixture();
+
+    await createTransactionEntry({
+      date: fixture.date,
+      description: `Integration Reconciliation Transaction B ${fixture.suffix}`,
+      referenceNo: `IR-B-${fixture.suffix}`,
+      fundId: fixture.fundId,
+      createdBy: fixture.userId,
+      entries: [
+        {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          debit: '10.00',
+          credit: '0.00',
+          memo: 'Second bank deposit',
+        },
+        {
+          account_id: fixture.incomeAccountId,
+          fund_id: fixture.fundId,
+          debit: '0.00',
+          credit: '10.00',
+          memo: 'Second donation income',
+        },
+      ],
+    });
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 35,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+
+    const initialDetail = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(initialDetail.status).toBe(200);
+    expect(initialDetail.body.reconciliation.items.map((item: { description: string }) => item.description)).toEqual([
+      `Integration Reconciliation Transaction ${fixture.suffix}`,
+      `Integration Reconciliation Transaction B ${fixture.suffix}`,
+    ]);
+
+    const firstItemId = initialDetail.body.reconciliation.items[0].id as number;
+
+    const clear = await requestRoute({
+      probePath: `/${reconciliationId}/items/${firstItemId}/clear`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+    });
+    expect(clear.status).toBe(200);
+
+    const refreshedDetail = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(refreshedDetail.status).toBe(200);
+    expect(refreshedDetail.body.reconciliation.items.map((item: { description: string }) => item.description)).toEqual([
+      `Integration Reconciliation Transaction ${fixture.suffix}`,
+      `Integration Reconciliation Transaction B ${fixture.suffix}`,
+    ]);
+  });
 });
