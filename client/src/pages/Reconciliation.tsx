@@ -38,7 +38,7 @@ interface ReconciliationForm {
 }
 
 // ── Reconciliation Workspace ─────────────────────────────────────────────────
-function Workspace({ id, onBack, onExport, isExporting }: WorkspaceProps) {
+export function Workspace({ id, onBack, onExport, isExporting }: WorkspaceProps) {
   const { addToast }  = useToast();
   const { data: recon, isLoading } = useReconciliation(id);
   const clearItem   = useClearItem(id);
@@ -149,6 +149,8 @@ function Workspace({ id, onBack, onExport, isExporting }: WorkspaceProps) {
                 color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>Description</th>
               <th style={{ textAlign: 'left', padding: '0.6rem 0.75rem', fontWeight: 600,
                 color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>Fund</th>
+              <th style={{ textAlign: 'left', padding: '0.6rem 0.75rem', fontWeight: 600,
+                color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>Reference No</th>
               <th style={{ textAlign: 'right', padding: '0.6rem 0.75rem', fontWeight: 600,
                 color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>Deposit</th>
               <th style={{ textAlign: 'right', padding: '0.6rem 0.75rem', fontWeight: 600,
@@ -181,6 +183,7 @@ function Workspace({ id, onBack, onExport, isExporting }: WorkspaceProps) {
                 </td>
                 <td style={{ padding: '0.6rem 0.75rem' }}>{item.description}</td>
                 <td style={{ padding: '0.6rem 0.75rem', color: '#6b7280' }}>{item.fund_name}</td>
+                <td style={{ padding: '0.6rem 0.75rem', color: '#6b7280' }}>{item.reference_no || '—'}</td>
                 <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', color: '#15803d', fontWeight: 500 }}>
                   {item.debit > 0 ? fmt(item.debit) : ''}
                 </td>

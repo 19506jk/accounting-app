@@ -1693,4 +1693,37 @@ describe('direct DB reconciliation integration smoke checks', () => {
       unresolved_count: 1,
     }));
   });
+
+  it('returns reconciliation item dates as normalized YYYY-MM-DD strings', async () => {
+    const fixture = await createFixture();
+
+    const created = await requestRoute({
+      probePath: '/',
+      method: 'POST',
+      userId: fixture.userId,
+      body: {
+        account_id: fixture.bankAccountId,
+        statement_date: fixture.date,
+        statement_balance: 25,
+        opening_balance: 0,
+      },
+    });
+    expect(created.status).toBe(201);
+    const reconciliationId = created.body.reconciliation.id as number;
+    createdReconciliationIds.push(reconciliationId);
+
+    const detail = await requestRoute({
+      probePath: `/${reconciliationId}`,
+      method: 'GET',
+      userId: fixture.userId,
+      role: 'viewer',
+    });
+    expect(detail.status).toBe(200);
+
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    for (const item of detail.body.reconciliation.items) {
+      expect(item.date).toEqual(expect.stringMatching(dateRegex));
+      expect(item.date).toBe(fixture.date);
+    }
+  });
 });

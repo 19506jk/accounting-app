@@ -228,7 +228,7 @@ router.get(
         summary,
         items: items.map((item) => ({
           ...item,
-          date: String(item.date),
+          date: normalizeDateOnly(item.date),
           debit: parseFloat(String(item.debit)),
           credit: parseFloat(String(item.credit)),
         })) as ReconciliationItem[],
