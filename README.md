@@ -218,6 +218,8 @@ Common tasks:
 
 Production deployment is driven by [deploy.sh](deploy.sh) and PM2 via [server/ecosystem.config.cjs](server/ecosystem.config.cjs).
 
+By default, `./deploy.sh` stops after `git pull` when the repo is already up to date. Pass `--skip-update-check` (or `--force`) to continue the deploy steps anyway.
+
 The current deploy flow is:
 
 1. `git pull`

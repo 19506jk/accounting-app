@@ -1,13 +1,28 @@
 #!/bin/bash
 set -e
 
+SKIP_UPDATE_CHECK=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --skip-update-check|--force)
+      SKIP_UPDATE_CHECK=true
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      echo "Usage: $0 [--skip-update-check|--force]" >&2
+      exit 1
+      ;;
+  esac
+done
+
 # Run git pull and capture output
 OUTPUT=$(git pull)
 
 echo "$OUTPUT"
 
-if echo "$OUTPUT" | grep -qE 'Already up[ -]to[ -]date\.?'; then
-  echo "No updates detected. Aborting deployment."
+if [ "$SKIP_UPDATE_CHECK" != true ] && echo "$OUTPUT" | grep -qE 'Already up[ -]to[ -]date\.?'; then
+  echo 'No updates detected. Aborting deployment.'
   exit 0
 fi
 
