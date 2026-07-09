@@ -15,7 +15,7 @@ describe('reportRenderers', () => {
     const screen = await render(
       <PLReport
         data={{
-          income: [{ id: 1, name: 'Donations', amount: 500 }],
+          income: [{ id: 1, code: '4000', name: 'Donations', amount: 500 }],
           expenses: [{ id: 2, code: '5000', name: 'Rent', amount: 200 }],
           total_income: 500,
           total_expenses: 200,
@@ -24,6 +24,7 @@ describe('reportRenderers', () => {
       />
     )
 
+    await expect.element(screen.getByText('4000 - Donations')).toBeVisible()
     await expect.element(screen.getByText('Total Income')).toBeVisible()
     await expect.element(screen.getByText('Total Expenses')).toBeVisible()
     await expect.element(screen.getByText('Net Surplus / (Deficit)')).toBeVisible()

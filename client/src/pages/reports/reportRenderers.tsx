@@ -28,7 +28,7 @@ export function PLReport({ data }: ReportProps<PLReportData>) {
   return (
     <div>
       <Section title="INCOME">
-        {data.income.map((a) => <LineItem key={a.id} label={`${a.name}`} value={fmt(a.amount)} />)}
+        {data.income.map((a) => <LineItem key={a.id} label={`${a.code} - ${a.name}`} value={fmt(a.amount)} />)}
         <LineItem label="Total Income" value={fmt(data.total_income)} bold />
       </Section>
       <Section title="EXPENSES">
