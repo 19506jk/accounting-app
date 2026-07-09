@@ -242,7 +242,7 @@ export default function Reconciliation() {
     try {
       setExportingId(id)
       const report = await getReconciliationReport(queryClient, id)
-      exportReconciliationReport(report)
+      await exportReconciliationReport(report)
     } catch (err) {
       addToast(getErrorMessage(err, 'Failed to export report.'), 'error')
     } finally {

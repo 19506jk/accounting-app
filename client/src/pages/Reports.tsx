@@ -6,6 +6,8 @@ import {
 import { useAccounts }  from '../api/useAccounts';
 import { useFunds }     from '../api/useFunds';
 import { useContacts }  from '../api/useContacts';
+import { useToast }     from '../components/ui/Toast';
+import { getErrorMessage } from '../utils/errors';
 import Card    from '../components/ui/Card';
 import Button  from '../components/ui/Button';
 import Select  from '../components/ui/Select';
@@ -56,6 +58,8 @@ export default function Reports() {
   const [donorAcctIds, setDonorAcctIds] = useState<OptionValue[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [hardCloseOpen, setHardCloseOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const { addToast } = useToast();
 
   const { data: funds    } = useFunds();
   const { data: accounts } = useAccounts();
@@ -97,13 +101,23 @@ export default function Reports() {
 
   function handleRun() { setEnabled(false); setTimeout(() => setEnabled(true), 0); }
 
-  function handleExport() {
-    if (type === 'pl' && plData.data) exportPL(plData.data.data, plFilters);
-    if (type === 'balance-sheet' && bsData.data) exportBalanceSheet(bsData.data.data, bsFilters);
-    if (type === 'ledger' && lgData.data) exportLedger(lgData.data.data, ledgerFilters);
-    if (type === 'trial-balance' && tbData.data) exportTrialBalance(tbData.data.data, tbFilters);
-    if (type === 'donors-summary' && dsData.data) exportDonorSummary(dsData.data.data, dsFilters);
-    if (type === 'donors-detail' && ddData.data) exportDonorDetail(ddData.data.data, ddFilters);
+  async function handleExport() {
+    setIsExporting(true);
+    try {
+      if (type === 'pl' && plData.data) await exportPL(plData.data.data, plFilters);
+      if (type === 'balance-sheet' && bsData.data) await exportBalanceSheet(bsData.data.data, bsFilters);
+      if (type === 'ledger' && lgData.data) await exportLedger(lgData.data.data, ledgerFilters);
+      if (type === 'trial-balance' && tbData.data) await exportTrialBalance(tbData.data.data, tbFilters);
+      if (type === 'donors-summary' && dsData.data) await exportDonorSummary(dsData.data.data, dsFilters);
+      if (type === 'donors-detail' && ddData.data) await exportDonorDetail(ddData.data.data, ddFilters);
+    } catch (err) {
+      const msg = (err instanceof Error && err.message.includes('Failed to fetch dynamically imported module'))
+        ? 'Failed to load Excel export tools.'
+        : getErrorMessage(err, 'Failed to export report.');
+      addToast(msg, 'error');
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   function handleInvestigate(item: ReportDiagnostic | ReportInvestigateFilters) {
@@ -188,7 +202,7 @@ export default function Reports() {
               Run Report
             </Button>
             {hasReportData && (
-              <Button variant="secondary" onClick={handleExport} style={{ marginTop: 'auto' }}>
+              <Button variant="secondary" onClick={handleExport} isLoading={isExporting} style={{ marginTop: 'auto' }}>
                 Export Excel
               </Button>
             )}

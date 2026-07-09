@@ -337,7 +337,17 @@ export default function Contacts() {
             {showInactive ? 'Hide Inactive' : 'Show Inactive'}
           </Button>
           {contacts && contacts.length > 0 && (
-            <Button variant="secondary" onClick={() => exportContacts(contacts)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                exportContacts(contacts).catch((err) => {
+                  addToast(
+                    getErrorMessage(err, 'Failed to export contacts.'),
+                    'error',
+                  );
+                });
+              }}
+            >
               Export Excel
             </Button>
           )}

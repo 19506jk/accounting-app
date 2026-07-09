@@ -16,12 +16,13 @@
     "e2e:report": "playwright show-report e2e/playwright-report"
   },
   "dependencies": {
-    "@shared/contracts": "workspace:*",
     "@react-oauth/google": "^0.12.1",
+    "@shared/contracts": "workspace:*",
     "@tanstack/react-query": "^5.40.0",
     "axios": "^1.15.0",
     "dayjs": "catalog:",
     "decimal.js": "catalog:",
+    "exceljs": "^4.4.0",
     "marked": "catalog:",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -30,12 +31,12 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
-    "@vitest/browser": "catalog:",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.5.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/browser": "catalog:",
     "@vitest/browser-playwright": "^4.1.8",
     "@vitest/coverage-v8": "catalog:",
     "dotenv": "^17.4.2",
