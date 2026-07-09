@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import Decimal from 'decimal.js';
 import { getVisibleTrialBalanceAccounts } from './trialBalanceHelpers';
+import { REPORT_META } from './reportMetadata';
 import type {
   BalanceSheetReportData,
   BalanceSheetReportFilters,
@@ -27,8 +28,9 @@ function formatReferenceForExport(referenceNo: string | null | undefined) {
 }
 
 export function exportPL(data: PLReportData, filters: PLReportFilters) {
+  const meta = REPORT_META['pl'];
   const rows: XlsxRow[] = [
-    ['Statement of Activities', '', ''],
+    [meta.title, '', ''],
     [`Period: ${filters.from} to ${filters.to}`, '', ''],
     [],
     ['INCOME', '', ''],
@@ -41,12 +43,13 @@ export function exportPL(data: PLReportData, filters: PLReportFilters) {
     [],
     ['Net Surplus / (Deficit)', '', data.net_surplus],
   ];
-  downloadXlsx(rows, `pl_${filters.from}_${filters.to}.xlsx`, 'P&L');
+  downloadXlsx(rows, `${meta.filenamePrefix}_${filters.from}_${filters.to}.xlsx`, meta.tabName);
 }
 
 export function exportBalanceSheet(data: BalanceSheetReportData, filters: BalanceSheetReportFilters) {
+  const meta = REPORT_META['balance-sheet'];
   const rows: XlsxRow[] = [
-    ['Statement of Financial Position', '', ''],
+    [meta.title, '', ''],
     [`As of: ${filters.as_of}`, '', ''],
     [],
     ['ASSETS', '', ''],
@@ -64,13 +67,14 @@ export function exportBalanceSheet(data: BalanceSheetReportData, filters: Balanc
     ['Total Liabilities + Equity', '', data.total_liabilities_and_equity],
     ['Balanced', '', data.is_balanced ? 'YES' : 'NO'],
   ];
-  downloadXlsx(rows, `balance_sheet_${filters.as_of}.xlsx`, 'Balance Sheet');
+  downloadXlsx(rows, `${meta.filenamePrefix}_${filters.as_of}.xlsx`, meta.tabName);
 }
 
 export function exportLedger(data: LedgerReportData, filters: LedgerReportFilters) {
+  const meta = REPORT_META['ledger'];
   const headers = ['Date', 'Reference No', 'Description', 'Contact', 'Fund', 'Debit', 'Credit', 'Balance']
   const rows: XlsxRow[] = [
-    ['General Ledger', '', '', '', '', '', '', ''],
+    [meta.title, '', '', '', '', '', '', ''],
     [`Period: ${filters.from} to ${filters.to}`, '', '', '', '', '', '', ''],
     [],
   ];
@@ -101,13 +105,14 @@ export function exportLedger(data: LedgerReportData, filters: LedgerReportFilter
     { wch: 14 },
     { wch: 14 },
   ];
-  downloadXlsx(rows, `ledger_${filters.from}_${filters.to}.xlsx`, 'General Ledger', cols);
+  downloadXlsx(rows, `${meta.filenamePrefix}_${filters.from}_${filters.to}.xlsx`, meta.tabName, cols);
 }
 
 export function exportTrialBalance(data: TrialBalanceReportData, filters: TrialBalanceReportFilters) {
+  const meta = REPORT_META['trial-balance'];
   const orderedAccounts = getVisibleTrialBalanceAccounts(data.accounts || [])
   const rows: XlsxRow[] = [
-    ['Trial Balance', '', '', ''],
+    [meta.title, '', '', ''],
     [`As of: ${filters.as_of}`, '', '', ''],
     [],
     ['Code', 'Account', 'Debit', 'Credit'],
@@ -140,13 +145,14 @@ export function exportTrialBalance(data: TrialBalanceReportData, filters: TrialB
     }
   })
 
-  XLSX.utils.book_append_sheet(wb, ws, 'Trial Balance')
-  XLSX.writeFile(wb, `trial_balance_${filters.as_of}.xlsx`)
+  XLSX.utils.book_append_sheet(wb, ws, meta.tabName)
+  XLSX.writeFile(wb, `${meta.filenamePrefix}_${filters.as_of}.xlsx`)
 }
 
 export function exportDonorSummary(data: DonorSummaryReportData, filters: DonorSummaryReportFilters) {
+  const meta = REPORT_META['donors-summary'];
   const rows: XlsxRow[] = [
-    ['Income by Donor — Summary', '', '', ''],
+    [meta.title, '', '', ''],
     [`Period: ${filters.from} to ${filters.to}`, '', '', ''],
     [],
     ['Donor', 'Donations', 'Total'],
@@ -155,12 +161,13 @@ export function exportDonorSummary(data: DonorSummaryReportData, filters: DonorS
     [],
     ['Grand Total', '', '', data.grand_total],
   ];
-  downloadXlsx(rows, `donor_summary_${filters.from}_${filters.to}.xlsx`, 'Donor Summary');
+  downloadXlsx(rows, `${meta.filenamePrefix}_${filters.from}_${filters.to}.xlsx`, meta.tabName);
 }
 
 export function exportDonorDetail(data: DonorDetailReportData, filters: DonorDetailReportFilters) {
+  const meta = REPORT_META['donors-detail'];
   const rows: XlsxRow[] = [
-    ['Income by Donor — Detail', '', '', '', ''],
+    [meta.title, '', '', '', ''],
     [`Period: ${filters.from} to ${filters.to}`, '', '', '', ''],
     [],
   ];
@@ -178,7 +185,7 @@ export function exportDonorDetail(data: DonorDetailReportData, filters: DonorDet
     rows.push([]);
   }
   rows.push(['Grand Total', '', '', '', data.grand_total]);
-  downloadXlsx(rows, `donor_detail_${filters.from}_${filters.to}.xlsx`, 'Donor Detail');
+  downloadXlsx(rows, `${meta.filenamePrefix}_${filters.from}_${filters.to}.xlsx`, meta.tabName);
 }
 
 export function exportContacts(contacts: ContactSummary[]) {
@@ -232,6 +239,14 @@ function getQbLabels(accountType: ReconciliationReport['account_type']) {
   }
 }
 
+export function formatReconciliationAccountTitle(report: { account_code: string; account_name: string }): string {
+  return `${report.account_code} — ${report.account_name}`;
+}
+
+export function formatReconciliationWorkspaceHeader(report: { account_name: string; statement_date: string }): string {
+  return `${report.account_name} — ${report.statement_date}`;
+}
+
 function formatQbDate(dateStr: string): string {
   const parts = dateStr.split('-')
   if (parts.length !== 3) return dateStr
@@ -261,7 +276,7 @@ export function exportReconciliationReport(report: ReconciliationReport): void {
   const registerNet = dec(report.book_balance).minus(report.opening_balance)
   const reportTime = formatReportDateTime(report.reconciliation_date)
   const statementDate = formatQbDate(report.statement_period_end)
-  const accountLabel = `${report.account_code} ${report.account_name}`
+  const accountLabel = formatReconciliationAccountTitle(report)
   const periodLabel = `${report.account_code}-${report.account_name}, Period Ending ${report.statement_period_end}`
 
   const summaryRows: XlsxRow[] = [

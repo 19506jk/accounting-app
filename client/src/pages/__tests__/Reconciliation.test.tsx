@@ -59,6 +59,30 @@ function buildMockDetail(overrides?: Partial<ReconciliationDetail>): Reconciliat
 }
 
 describe('Reconciliation Workspace', () => {
+  it('renders workspace header with account name and statement date', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+        mutations: { retry: false },
+      },
+    });
+    queryClient.setQueryData(['reconciliation', 1], buildMockDetail());
+
+    const screen = await renderWithProviders(
+      <Workspace
+        id={1}
+        onBack={vi.fn()}
+        onExport={vi.fn()}
+        isExporting={false}
+        onReopenRequest={vi.fn()}
+      />,
+      { queryClient },
+    );
+
+    // buildMockDetail uses account_name: 'Test Bank', statement_date: '2026-07-08'
+    await expect.element(screen.getByText('Test Bank — 2026-07-08')).toBeVisible();
+  });
+
   it('renders Reference No column after Fund with values and empty placeholder', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {

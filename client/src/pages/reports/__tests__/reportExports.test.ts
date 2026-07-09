@@ -71,8 +71,8 @@ describe('reportExports', () => {
 
     expect(writeFile).toHaveBeenCalledWith(expect.any(Object), 'pl_2026-01-01_2026-03-31.xlsx')
     const workbook = writeFile.mock.calls[0]?.[0] as WorkBook
-    const rows = sheetRows(xlsx, workbook, 'P&L')
-    expect(rows).toContainEqual(['Statement of Activities', '', ''])
+    const rows = sheetRows(xlsx, workbook, 'Profit & Loss')
+    expect(rows).toContainEqual(['Profit & Loss', '', ''])
     expect(rows).toContainEqual(['', '4000 - Donations', 250])
     expect(rows).toContainEqual(['', 'Total Income', 250])
     expect(rows).toContainEqual(['', '5000 - Rent', 100])
@@ -101,7 +101,7 @@ describe('reportExports', () => {
     expect(writeFile).toHaveBeenCalledWith(expect.any(Object), 'balance_sheet_2026-03-31.xlsx')
     const workbook = writeFile.mock.calls[0]?.[0] as WorkBook
     const rows = sheetRows(xlsx, workbook, 'Balance Sheet')
-    expect(rows).toContainEqual(['Statement of Financial Position', '', ''])
+    expect(rows).toContainEqual(['Balance Sheet', '', ''])
     expect(rows).toContainEqual(['', 'Total Assets', 100])
     expect(rows).toContainEqual(['Balanced', '', 'YES'])
   })
@@ -137,6 +137,7 @@ describe('reportExports', () => {
     expect(writeFile).toHaveBeenCalledWith(expect.any(Object), 'ledger_2026-03-01_2026-03-31.xlsx')
     const workbook = writeFile.mock.calls[0]?.[0] as WorkBook
     const rows = sheetRows(xlsx, workbook, 'General Ledger')
+    expect(rows).toContainEqual(['General Ledger', '', '', '', '', '', '', ''])
     expect(rows).toContainEqual(['Opening Balance', '', '', '', '', '', '', 50])
     expect(rows).toContainEqual(['2026-03-02', '-', 'Deposit', 'Unassigned', 'General', 10, '', 60])
     expect(rows).toContainEqual(['Closing Balance', '', '', '', '', '', '', 60])
@@ -196,6 +197,7 @@ describe('reportExports', () => {
     expect(writeFile).toHaveBeenCalledWith(expect.any(Object), 'trial_balance_2026-03-31.xlsx')
     const workbook = writeFile.mock.calls[0]?.[0] as WorkBook
     const rows = sheetRows(xlsx, workbook, 'Trial Balance')
+    expect(rows).toContainEqual(['Trial Balance', '', '', ''])
     expect(rows).toContainEqual(['Code', 'Account', 'Debit', 'Credit'])
     expect(rows).toContainEqual(['3000', '[System] Net Income (Prior Years) - General [Synthetic]', 0, 10])
     expect(rows).toContainEqual(['TOTALS', '', 100, 10])
@@ -386,8 +388,10 @@ describe('reportExports', () => {
     const workbook = writeFile.mock.calls[0]?.[0] as WorkBook
     const summaryRows = sheetRows(xlsx, workbook, 'Summary')
     const detailRows = sheetRows(xlsx, workbook, 'Detail')
+    expect(summaryRows[0]?.[0]).toBe('1000 — Checking')
     expect(summaryRows.flat()).toContain('Reconciliation Summary')
     expect(summaryRows.flat()).toContain('Cleared Balance')
+    expect(detailRows[0]?.[0]).toBe('1000 — Checking')
     expect(detailRows.flat()).toContain('Reconciliation Detail')
     expect(detailRows.flat()).toContain('Beginning Balance')
   })
@@ -437,7 +441,7 @@ describe('reportExports', () => {
     const summaryRows = sheetRows(xlsx, workbook, 'Summary')
     const detailRows = sheetRows(xlsx, workbook, 'Detail')
 
-    expect(summaryRows).toContainEqual(['2200 Credit Card', '', '', '', ''])
+    expect(summaryRows).toContainEqual(['2200 — Credit Card', '', '', '', ''])
     expect(summaryRows).toContainEqual(['Reconciliation Summary', '', '', '', '2026/03/31'])
     expect(summaryRows.flat()).toContain('Charges - 1 items')
     expect(summaryRows.flat()).toContain('Receipts - 0 items')
@@ -500,5 +504,42 @@ describe('reportExports', () => {
 
     expect(detailRows).toContainEqual(['', '', '', '', 'Cheque', '2026-03-18', 'CHK-2', 'Vendor', '', -25, 975])
     expect(detailRows).toContainEqual(['', '', '', '', 'Deposit', '2026-03-20', 'DEP-1', 'Donor', '', 40, 1015])
+  })
+})
+
+describe('reportMetadata', () => {
+  it('has canonical UI titles for all six report types', async () => {
+    const { REPORT_META, getReportMeta, getReportTypeOptions } = await import('../reportMetadata')
+
+    expect(REPORT_META['pl'].title).toBe('Profit & Loss')
+    expect(REPORT_META['pl'].tabName).toBe('Profit & Loss')
+    expect(REPORT_META['pl'].filenamePrefix).toBe('pl')
+
+    expect(REPORT_META['balance-sheet'].title).toBe('Balance Sheet')
+    expect(REPORT_META['balance-sheet'].tabName).toBe('Balance Sheet')
+    expect(REPORT_META['balance-sheet'].filenamePrefix).toBe('balance_sheet')
+
+    expect(REPORT_META['ledger'].title).toBe('General Ledger')
+    expect(REPORT_META['ledger'].tabName).toBe('General Ledger')
+    expect(REPORT_META['ledger'].filenamePrefix).toBe('ledger')
+
+    expect(REPORT_META['trial-balance'].title).toBe('Trial Balance')
+    expect(REPORT_META['trial-balance'].tabName).toBe('Trial Balance')
+    expect(REPORT_META['trial-balance'].filenamePrefix).toBe('trial_balance')
+
+    expect(REPORT_META['donors-summary'].title).toBe('Income by Donor — Summary')
+    expect(REPORT_META['donors-summary'].tabName).toBe('Donor Summary')
+    expect(REPORT_META['donors-summary'].filenamePrefix).toBe('donor_summary')
+
+    expect(REPORT_META['donors-detail'].title).toBe('Income by Donor — Detail')
+    expect(REPORT_META['donors-detail'].tabName).toBe('Donor Detail')
+    expect(REPORT_META['donors-detail'].filenamePrefix).toBe('donor_detail')
+
+    expect(getReportMeta('pl').title).toBe('Profit & Loss')
+
+    const options = getReportTypeOptions()
+    expect(options).toHaveLength(6)
+    expect(options.find((o) => o.value === 'pl')?.label).toBe('Profit & Loss')
+    expect(options.find((o) => o.value === 'balance-sheet')?.label).toBe('Balance Sheet')
   })
 })

@@ -17,7 +17,7 @@ import Input   from '../components/ui/Input';
 import Select  from '../components/ui/Select';
 import { formatDateOnlyForDisplay } from '../utils/date';
 import { getErrorMessage } from '../utils/errors';
-import { exportReconciliationReport } from './reports/reportExports';
+import { exportReconciliationReport, formatReconciliationWorkspaceHeader } from './reports/reportExports';
 import type React from 'react';
 import type { ReconciliationSummary } from '@shared/contracts';
 import type { TableColumn } from '../components/ui/types';
@@ -92,7 +92,7 @@ export function Workspace({ id, onBack, onExport, isExporting, onReopenRequest }
             ← Back
           </button>
           <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#1e293b' }}>
-            {recon.account_name} — {recon.statement_date}
+            {formatReconciliationWorkspaceHeader(recon)}
           </h1>
           <Badge label={recon.is_closed ? 'Closed' : recon.status}
             variant={recon.is_closed ? 'inactive' : isBalanced ? 'success' : 'error'} />

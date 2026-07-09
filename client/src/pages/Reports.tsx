@@ -41,16 +41,10 @@ import type {
   ReportType,
   TrialBalanceReportFilters,
 } from '@shared/contracts';
-import type { OptionValue, SelectOption } from '../components/ui/types';
+import type { OptionValue } from '../components/ui/types';
+import { getReportMeta, getReportTypeOptions } from './reports/reportMetadata';
 
-const REPORT_TYPES: SelectOption<ReportType>[] = [
-  { value: 'pl',             label: 'Profit & Loss' },
-  { value: 'balance-sheet',  label: 'Balance Sheet' },
-  { value: 'ledger',         label: 'General Ledger' },
-  { value: 'trial-balance',  label: 'Trial Balance' },
-  { value: 'donors-summary', label: 'Income by Donor — Summary' },
-  { value: 'donors-detail',  label: 'Income by Donor — Detail' },
-];
+const REPORT_TYPES = getReportTypeOptions();
 
 export default function Reports() {
   const [type,    setType]    = useState<ReportType>('pl');
@@ -213,7 +207,7 @@ export default function Reports() {
           <div style={{ marginBottom: '1rem', paddingBottom: '0.75rem',
             borderBottom: '1px solid #e5e7eb' }}>
             <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>
-              {REPORT_TYPES.find((r) => r.value === type)?.label}
+              {getReportMeta(type).title}
             </h2>
             <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>
               {needsAsOf ? `As of ${asOf}` : `${range.from} — ${range.to}`}
