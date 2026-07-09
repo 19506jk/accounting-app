@@ -128,10 +128,12 @@ export function useReopenReconciliation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, reason_note }: { id: number; reason_note: string }) => {
-      await client.post(`/reconciliations/${id}/reopen`, { reason_note } satisfies ReopenReconciliationBody)
+      const { data } = await client.post(`/reconciliations/${id}/reopen`, { reason_note } satisfies ReopenReconciliationBody)
+      return data
     },
-    onSuccess: () => {
+    onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['reconciliations'] })
+      queryClient.invalidateQueries({ queryKey: ['reconciliation', id] })
     },
   })
 }

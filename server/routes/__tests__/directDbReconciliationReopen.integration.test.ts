@@ -17,6 +17,7 @@ const createdAccountIds: number[] = [];
 const createdUserIds: number[] = [];
 const createdTransactionIds: number[] = [];
 const createdBankTransactionIds: number[] = [];
+const createdFiscalPeriodIds: number[] = [];
 
 let reconciliationRouter: Router;
 
@@ -40,6 +41,11 @@ afterEach(async () => {
   if (createdReconciliationIds.length > 0) {
     await db('reconciliations').whereIn('id', createdReconciliationIds).delete();
     createdReconciliationIds.length = 0;
+  }
+
+  if (createdFiscalPeriodIds.length > 0) {
+    await db('fiscal_periods').whereIn('id', createdFiscalPeriodIds).delete();
+    createdFiscalPeriodIds.length = 0;
   }
 
   if (createdTransactionIds.length > 0) {
@@ -365,5 +371,85 @@ describe('direct DB reconciliation reopen integration checks', () => {
       .where({ id: bankTransactionId })
       .first() as { lifecycle_status: string } | undefined;
     expect(updatedBankTransaction?.lifecycle_status).toBe('open');
+  });
+
+  it('blocks reopen when reconciliation statement date is inside a hard-closed fiscal period', async () => {
+    const fixture = await createFixture();
+
+    // Create a hard-closed fiscal period that covers the reconciliation statement date (2026-06-30)
+    const suffix = uniqueSuffix();
+    const [equityAccount] = await db('accounts')
+      .insert({
+        code: `HC-REOPEN-${suffix}`,
+        name: `Hard Close Reopen Test ${suffix}`,
+        type: 'EQUITY',
+        account_class: 'EQUITY',
+        is_active: true,
+        created_at: db.fn.now(),
+        updated_at: db.fn.now(),
+      })
+      .returning(['id']) as Array<{ id: number }>;
+    createdAccountIds.push(equityAccount.id);
+
+    const [hcFund] = await db('funds')
+      .insert({
+        name: `Hard Close Reopen Fund ${suffix}`,
+        description: 'Hard close reopen test fund',
+        net_asset_account_id: equityAccount.id,
+        is_active: true,
+        created_at: db.fn.now(),
+        updated_at: db.fn.now(),
+      })
+      .returning(['id']) as Array<{ id: number }>;
+    createdFundIds.push(hcFund.id);
+
+    const [closingTx] = await db('transactions')
+      .insert({
+        date: '2026-06-30',
+        description: `Hard Close Reopen Boundary ${suffix}`,
+        reference_no: `HC-REOPEN-${suffix}`,
+        fund_id: hcFund.id,
+        is_closing_entry: true,
+        created_at: db.fn.now(),
+        updated_at: db.fn.now(),
+      })
+      .returning(['id']) as Array<{ id: number }>;
+    createdTransactionIds.push(closingTx.id);
+
+    const [fiscalPeriod] = await db('fiscal_periods')
+      .insert({
+        fiscal_year: 2026,
+        period_start: '2026-01-01',
+        period_end: '2026-06-30',
+        status: 'HARD_CLOSED',
+        closing_transaction_id: closingTx.id,
+        closed_at: db.fn.now(),
+        created_at: db.fn.now(),
+      })
+      .returning(['id']) as Array<{ id: number }>;
+    createdFiscalPeriodIds.push(fiscalPeriod.id);
+
+    // Store the original reconciliation state to assert it was not mutated
+    const beforeReopen = await db('reconciliations')
+      .where({ id: fixture.reconciliationId })
+      .first() as { is_closed: boolean } | undefined;
+    expect(beforeReopen?.is_closed).toBe(true);
+
+    const response = await requestRoute({
+      probePath: `/${fixture.reconciliationId}/reopen`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'admin',
+      body: { reason_note: 'Attempt reopen within hard-closed period' },
+    });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error).toMatch(/hard-closed period/i);
+
+    // Assert reconciliation state was not mutated
+    const afterReopen = await db('reconciliations')
+      .where({ id: fixture.reconciliationId })
+      .first() as { is_closed: boolean } | undefined;
+    expect(afterReopen?.is_closed).toBe(true);
   });
 });

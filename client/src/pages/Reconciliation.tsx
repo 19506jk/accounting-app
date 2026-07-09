@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useReconciliations, useReconciliation,
-  useCreateReconciliation,
+  useCreateReconciliation, useReopenReconciliation,
   useClearItem, useCloseReconciliation, useDeleteReconciliation, getReconciliationReport,
 } from '../api/useReconciliation';
+import { useAuth } from '../context/AuthContext';
 import { useAccounts }  from '../api/useAccounts';
 import { useToast }     from '../components/ui/Toast';
 import Card    from '../components/ui/Card';
@@ -28,6 +29,7 @@ interface WorkspaceProps {
   onBack: () => void;
   onExport: (id: number) => Promise<void>;
   isExporting: boolean;
+  onReopenRequest: (id: number) => void;
 }
 
 interface ReconciliationForm {
@@ -38,8 +40,9 @@ interface ReconciliationForm {
 }
 
 // ── Reconciliation Workspace ─────────────────────────────────────────────────
-export function Workspace({ id, onBack, onExport, isExporting }: WorkspaceProps) {
+export function Workspace({ id, onBack, onExport, isExporting, onReopenRequest }: WorkspaceProps) {
   const { addToast }  = useToast();
+  const { user } = useAuth();
   const { data: recon, isLoading } = useReconciliation(id);
   const clearItem   = useClearItem(id);
   const closeRecon  = useCloseReconciliation();
@@ -93,7 +96,12 @@ export function Workspace({ id, onBack, onExport, isExporting }: WorkspaceProps)
           </h1>
           <Badge label={recon.is_closed ? 'Closed' : recon.status}
             variant={recon.is_closed ? 'inactive' : isBalanced ? 'success' : 'error'} />
-          <div style={{ marginLeft: 'auto' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
+            {recon.is_closed && user?.role === 'admin' && (
+              <Button variant="secondary" size="sm" onClick={() => onReopenRequest(id)}>
+                Reopen Reconciliation
+              </Button>
+            )}
             <Button variant="secondary" size="sm" onClick={() => onExport(id)} isLoading={isExporting}>
               Export Report
             </Button>
@@ -213,11 +221,13 @@ export function Workspace({ id, onBack, onExport, isExporting }: WorkspaceProps)
 // ── Reconciliation List ──────────────────────────────────────────────────────
 export default function Reconciliation() {
   const { addToast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient()
   const { data: reconciliations, isLoading } = useReconciliations();
   const { data: accounts } = useAccounts();
   const createRecon  = useCreateReconciliation();
   const deleteRecon  = useDeleteReconciliation();
+  const reopenRecon  = useReopenReconciliation();
 
   const [activeId, setActiveId]   = useState<number | null>(null);
   const [exportingId, setExportingId] = useState<number | null>(null);
@@ -225,6 +235,8 @@ export default function Reconciliation() {
   const [form,     setForm]       = useState<ReconciliationForm>({
     account_id: '', statement_date: '', statement_balance: '', opening_balance: '0',
   });
+  const [reopenTargetId, setReopenTargetId] = useState<number | null>(null);
+  const [reopenReason, setReopenReason] = useState('');
 
   async function handleExport(id: number) {
     try {
@@ -238,14 +250,59 @@ export default function Reconciliation() {
     }
   }
 
+  const reopenModal = (
+    <Modal isOpen={reopenTargetId !== null} onClose={() => { setReopenTargetId(null); setReopenReason(''); }} title="Reopen Reconciliation">
+      <div style={{ display: 'grid', gap: '1rem' }}>
+        <p style={{ fontSize: '0.875rem', color: '#6b7280', margin: 0 }}>
+          This will unreconcile all cleared entries and reopen related locked bank matches for this reconciliation period.
+          This action is recorded in the audit log.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+          <label style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>
+            Reason<span style={{ color: '#ef4444', marginLeft: '2px' }}>*</span>
+          </label>
+          <textarea
+            value={reopenReason}
+            onChange={(e) => setReopenReason(e.target.value)}
+            placeholder="Explain why this reconciliation needs to be reopened…"
+            rows={4}
+            style={{
+              padding: '0.45rem 0.75rem',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
+              fontSize: '0.875rem',
+              color: '#111827',
+              background: 'white',
+              outline: 'none',
+              width: '100%',
+              boxSizing: 'border-box',
+              resize: 'vertical',
+              fontFamily: 'inherit',
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+          <Button variant="secondary" onClick={() => { setReopenTargetId(null); setReopenReason(''); }}>Cancel</Button>
+          <Button onClick={handleReopen} disabled={!reopenReason.trim()} isLoading={reopenRecon.isPending}>
+            Reopen Reconciliation
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+
   if (activeId) {
     return (
-      <Workspace
-        id={activeId}
-        onBack={() => setActiveId(null)}
-        onExport={handleExport}
-        isExporting={exportingId === activeId}
-      />
+      <>
+        {reopenModal}
+        <Workspace
+          id={activeId}
+          onBack={() => setActiveId(null)}
+          onExport={handleExport}
+          isExporting={exportingId === activeId}
+          onReopenRequest={(id: number) => { setReopenTargetId(id); setReopenReason(''); }}
+        />
+      </>
     )
   }
 
@@ -283,6 +340,22 @@ export default function Reconciliation() {
     }
   }
 
+  async function handleReopen() {
+    if (!reopenTargetId || !reopenReason.trim()) return;
+    const wasInWorkspace = activeId === reopenTargetId;
+    try {
+      await reopenRecon.mutateAsync({ id: reopenTargetId, reason_note: reopenReason.trim() });
+      addToast('Reconciliation reopened successfully.', 'success');
+      setReopenTargetId(null);
+      setReopenReason('');
+      if (!wasInWorkspace) {
+        setActiveId(reopenTargetId);
+      }
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to reopen.'), 'error');
+    }
+  }
+
   const COLUMNS: TableColumn<ReconciliationSummary>[] = [
     { key: 'account_name', label: 'Account',
       render: (r) => `${r.account_code} — ${r.account_name}` },
@@ -306,6 +379,11 @@ export default function Reconciliation() {
           >
             Export Report
           </Button>
+          {r.is_closed && user?.role === 'admin' && (
+            <Button variant="secondary" size="sm" onClick={() => { setReopenTargetId(r.id); setReopenReason(''); }}>
+              Reopen
+            </Button>
+          )}
           {!r.is_closed && (
             <Button variant="ghost" size="sm" style={{ color: '#dc2626' }}
               onClick={() => handleDelete(r.id)}>Delete</Button>
@@ -316,43 +394,46 @@ export default function Reconciliation() {
   ];
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-        <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
-          Reconciliation
-        </h1>
-        <Button onClick={() => setShowNew(true)}>+ New Reconciliation</Button>
-      </div>
-
-      <Card>
-        <Table columns={COLUMNS} rows={reconciliations || []} isLoading={isLoading}
-          emptyText="No reconciliations yet." />
-      </Card>
-
-      <Modal isOpen={showNew} onClose={() => setShowNew(false)} title="New Reconciliation">
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          <Select label="Bank Account" required value={form.account_id}
-            onChange={set('account_id')} options={assetAccounts} placeholder="Select account…" />
-          <Input label="Statement Date" required type="date" value={form.statement_date}
-            onChange={set('statement_date')} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <Input label="Opening Balance" required type="number" step="0.01"
-              value={form.opening_balance} onChange={set('opening_balance')}
-              placeholder="0.00" />
-            <Input label="Statement Closing Balance" required type="number" step="0.01"
-              value={form.statement_balance} onChange={set('statement_balance')}
-              placeholder="0.00" />
-          </div>
-          <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: 0 }}>
-            All unreconciled entries for this account up to the statement date will be loaded automatically.
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-            <Button variant="secondary" onClick={() => setShowNew(false)}>Cancel</Button>
-            <Button onClick={handleCreate} isLoading={createRecon.isPending}>Start Reconciliation</Button>
-          </div>
+    <>
+      {reopenModal}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+          <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+            Reconciliation
+          </h1>
+          <Button onClick={() => setShowNew(true)}>+ New Reconciliation</Button>
         </div>
-      </Modal>
-    </div>
+
+        <Card>
+          <Table columns={COLUMNS} rows={reconciliations || []} isLoading={isLoading}
+            emptyText="No reconciliations yet." />
+        </Card>
+
+        <Modal isOpen={showNew} onClose={() => setShowNew(false)} title="New Reconciliation">
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <Select label="Bank Account" required value={form.account_id}
+              onChange={set('account_id')} options={assetAccounts} placeholder="Select account…" />
+            <Input label="Statement Date" required type="date" value={form.statement_date}
+              onChange={set('statement_date')} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <Input label="Opening Balance" required type="number" step="0.01"
+                value={form.opening_balance} onChange={set('opening_balance')}
+                placeholder="0.00" />
+              <Input label="Statement Closing Balance" required type="number" step="0.01"
+                value={form.statement_balance} onChange={set('statement_balance')}
+                placeholder="0.00" />
+            </div>
+            <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: 0 }}>
+              All unreconciled entries for this account up to the statement date will be loaded automatically.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <Button variant="secondary" onClick={() => setShowNew(false)}>Cancel</Button>
+              <Button onClick={handleCreate} isLoading={createRecon.isPending}>Start Reconciliation</Button>
+            </div>
+          </div>
+        </Modal>
+      </div>
+    </>
   );
 }

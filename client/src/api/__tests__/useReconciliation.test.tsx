@@ -140,19 +140,20 @@ describe('mutation hooks', () => {
     })
   })
 
-  it('useReopenReconciliation posts reopen body and invalidates list', async () => {
+  it('useReopenReconciliation posts reopen body and invalidates list + detail', async () => {
     const queryClient = new QueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     let body: unknown = null
     worker.use(http.post('/api/reconciliations/:id/reopen', async ({ request }) => {
       body = await request.json()
-      return HttpResponse.json({})
+      return HttpResponse.json({ reconciliation: { id: 8 } })
     }))
     const screen = await renderWithProviders(<ReopenProbe />, { queryClient })
     await screen.getByRole('button', { name: 'Reopen reconciliation' }).click()
     await vi.waitFor(() => {
       expect(body).toEqual({ reason_note: 'Fix mismatch' })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['reconciliations'] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['reconciliation', 8] })
     })
   })
 

@@ -31,6 +31,7 @@ import type {
 } from '../types/db';
 import { addDaysDateOnly, compareDateOnly, isValidDateOnly, normalizeDateOnly } from '../utils/date.js';
 import { buildReconciliationReport } from '../services/reports.js';
+import { assertNotClosedPeriod } from '../utils/hardCloseGuard.js';
 import { reconciliationReopenPreflight } from '../services/bankTransactions/preflight.js';
 import { writeForensicEntry } from '../services/auditLog.js';
 
@@ -660,6 +661,8 @@ router.post(
       }
 
       await db.transaction(async (trx: Knex.Transaction) => {
+        await assertNotClosedPeriod(normalizeDateOnly(recon.statement_date), trx);
+
         await trx('reconciliations')
           .where({ id: reconciliationId })
           .update({
