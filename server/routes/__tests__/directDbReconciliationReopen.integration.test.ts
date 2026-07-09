@@ -389,6 +389,7 @@ describe('direct DB reconciliation reopen integration checks', () => {
         updated_at: db.fn.now(),
       })
       .returning(['id']) as Array<{ id: number }>;
+    if (!equityAccount) throw new Error('Failed to create hard close equity account');
     createdAccountIds.push(equityAccount.id);
 
     const [hcFund] = await db('funds')
@@ -401,6 +402,7 @@ describe('direct DB reconciliation reopen integration checks', () => {
         updated_at: db.fn.now(),
       })
       .returning(['id']) as Array<{ id: number }>;
+    if (!hcFund) throw new Error('Failed to create hard close fund');
     createdFundIds.push(hcFund.id);
 
     const [closingTx] = await db('transactions')
@@ -414,6 +416,7 @@ describe('direct DB reconciliation reopen integration checks', () => {
         updated_at: db.fn.now(),
       })
       .returning(['id']) as Array<{ id: number }>;
+    if (!closingTx) throw new Error('Failed to create hard close boundary transaction');
     createdTransactionIds.push(closingTx.id);
 
     const [fiscalPeriod] = await db('fiscal_periods')
@@ -427,6 +430,7 @@ describe('direct DB reconciliation reopen integration checks', () => {
         created_at: db.fn.now(),
       })
       .returning(['id']) as Array<{ id: number }>;
+    if (!fiscalPeriod) throw new Error('Failed to create hard close fiscal period');
     createdFiscalPeriodIds.push(fiscalPeriod.id);
 
     // Store the original reconciliation state to assert it was not mutated
