@@ -193,7 +193,7 @@ function JournalEntryLines({
 }
 
 // ── New Transaction Form ─────────────────────────────────────────────────────
-function TransactionForm({ onClose, onSaved }: TransactionFormProps) {
+export function TransactionForm({ onClose, onSaved }: TransactionFormProps) {
   const { addToast }  = useToast();
   const { data: accounts  } = useAccounts();
   const { data: funds     } = useFunds();
@@ -276,8 +276,8 @@ function TransactionForm({ onClose, onSaved }: TransactionFormProps) {
         payment_method: '',
         contact_id: contactValueById.get(String(row.contact_id)) || '',
         memo: row.memo || '',
-        debit: '',
-        credit: '',
+        debit: row.debit || '',
+        credit: row.credit || '',
       }))
     );
     setTemplateDropdownOpen(false);
@@ -393,6 +393,8 @@ function TransactionForm({ onClose, onSaved }: TransactionFormProps) {
             fund_id: String(entry.fund_id || ''),
             contact_id: String(entry.contact_id || ''),
             memo: entry.memo,
+            debit: entry.debit,
+            credit: entry.credit,
           }));
           const errorMessage = saveTemplate(name, form, templateEntries);
           if (errorMessage) return errorMessage;

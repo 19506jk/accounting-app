@@ -6,6 +6,8 @@ export interface TransactionTemplateRow {
   fund_id: string
   contact_id: string
   memo: string
+  debit?: string
+  credit?: string
 }
 
 export interface TransactionTemplate {
@@ -25,6 +27,8 @@ interface EntrySnapshot {
   fund_id: string
   contact_id: string
   memo: string
+  debit?: string
+  credit?: string
   [key: string]: unknown
 }
 
@@ -81,6 +85,8 @@ export function useTransactionTemplates() {
         fund_id: entry.fund_id,
         contact_id: entry.contact_id,
         memo: entry.memo,
+        debit: entry.debit || '',
+        credit: entry.credit || '',
       })),
       created_at: new Date().toISOString(),
     }
