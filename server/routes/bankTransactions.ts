@@ -45,6 +45,10 @@ import {
   releaseReservation,
 } from '../services/bankTransactions/reservations.js';
 import { createFromBankRow } from '../services/bankTransactions/create.js';
+import {
+  defaultCreateDescription,
+  isEtransferDeposit,
+} from '../services/bankTransactions/etransferDefaults.js';
 import { resetRowState } from '../services/bankTransactions/resolution.js';
 import {
   extractTrainFromFeedPattern,
@@ -1301,15 +1305,34 @@ router.post(
           return getJoinedTransaction(trx, bankTransactionId);
         }
 
+        const isEtransferDepositRow = isEtransferDeposit(
+          existing.amount,
+          existing.payment_method,
+          existing.raw_description,
+          existing.bank_description_2,
+        );
+        const etransferMemoId = isEtransferDepositRow ? existing.bank_transaction_id : null;
+        const description = isEtransferDepositRow
+          ? defaultCreateDescription(
+            existing.amount,
+            existing.payment_method,
+            existing.raw_description,
+            existing.bank_description_2,
+            existing.bank_transaction_id,
+          )
+          : req.body.description;
+
         const created = await createFromBankRow(
           {
             ...req.body,
+            description,
             bank_account_id: existing.account_id,
             fund_id: existing.fund_id,
             entry_payment_method: toEntryPaymentMethod(existing.payment_method),
           },
           req.user!.id,
-          trx
+          trx,
+          etransferMemoId,
         );
 
         await trx('bank_transactions')

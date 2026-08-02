@@ -18,28 +18,24 @@ export function isEtransferDescription(description: string): boolean {
 }
 
 /**
- * Return the default description for a bank row when creating a new
- * transaction from an unmatched row (no create_proposal).
+ * Return the default transaction description for a bank row when creating
+ * a new transaction from an unmatched row (no create_proposal).
  *
- * For deposit-side e-transfer rows with a non-empty bank_transaction_id
- * the reference number is used as the description.  Otherwise the current
- * joined fallback (raw_description + bank_description_2) is returned.
+ * Joins the two bank-description fields with an em-dash separator,
+ * trimming and omitting blank values so the separator only appears
+ * when both fields are present.
  */
 export function defaultCreateDescription(
-  amount: number,
-  payment_method: string | null | undefined,
+  _amount: number,
+  _payment_method: string | null | undefined,
   raw_description: string,
   bank_description_2: string | null | undefined,
-  bank_transaction_id: string | null | undefined,
+  _bank_transaction_id: string | null | undefined,
 ): string {
-  const joined = [raw_description, bank_description_2].filter(Boolean).join(' — ');
-
-  if (amount > 0 && bank_transaction_id?.trim()) {
-    if (isInteracEtransferPaymentMethod(payment_method)) return bank_transaction_id;
-    if (isEtransferDescription(joined)) return bank_transaction_id;
-  }
-
-  return joined;
+  const parts = [raw_description, bank_description_2]
+    .map((s) => String(s ?? '').trim())
+    .filter(Boolean);
+  return parts.join(' — ');
 }
 
 export function buildDonorIndexes(donorContacts: ContactSummary[]) {

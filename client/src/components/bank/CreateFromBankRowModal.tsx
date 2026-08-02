@@ -57,12 +57,11 @@ export default function CreateFromBankRowModal({
     bankTransaction.bank_description_2,
     bankTransaction.bank_transaction_id,
   )
-  const fallbackEtransferDescription = [bankTransaction.raw_description, bankTransaction.bank_description_2].filter(Boolean).join(' — ')
   const isEtransferDeposit = useMemo(() => {
     if (bankTransaction.amount < 0) return false
     if (isInteracEtransferPaymentMethod(bankTransaction.payment_method)) return true
-    return isEtransferDescription(fallbackEtransferDescription)
-  }, [bankTransaction.amount, bankTransaction.payment_method, fallbackEtransferDescription])
+    return isEtransferDescription(fallbackDescription)
+  }, [bankTransaction.amount, bankTransaction.payment_method, fallbackDescription])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>(isEtransferDeposit ? 'e-transfer' : '')
   const [row, setRow] = useState<ParsedImportRow>({
     date: bankTransaction.bank_posted_date,

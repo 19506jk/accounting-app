@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ContactSummary } from '@shared/contracts'
 import {
   buildDonorIndexes,
+  defaultCreateDescription,
   isEtransferDescription,
   isInteracEtransferPaymentMethod,
   matchDonorFromSender,
@@ -92,3 +93,82 @@ describe('etransferEnrich helpers', () => {
     expect(matchDonorFromSender(null, 'Miller', ambiguousIndexes)).toBeNull()
   })
 })
+
+describe('defaultCreateDescription', () => {
+  it('joins both descriptions with em-dash when both are present', () => {
+    const result = defaultCreateDescription(
+      100,
+      'Interac e-transfer',
+      'Interac e-Transfer',
+      'Alice Donor',
+      'BTX-001',
+    );
+    expect(result).toBe('Interac e-Transfer — Alice Donor');
+  });
+
+  it('returns only raw_description when bank_description_2 is null', () => {
+    const result = defaultCreateDescription(
+      100,
+      'Interac e-transfer',
+      'E-transfer received',
+      null,
+      'BTX-001',
+    );
+    expect(result).toBe('E-transfer received');
+  });
+
+  it('returns only raw_description when bank_description_2 is empty', () => {
+    const result = defaultCreateDescription(
+      100,
+      null,
+      'Deposit',
+      '',
+      'BTX-001',
+    );
+    expect(result).toBe('Deposit');
+  });
+
+  it('trims whitespace and joins correctly', () => {
+    const result = defaultCreateDescription(
+      100,
+      null,
+      '  Deposit  ',
+      '  Jane Donor  ',
+      null,
+    );
+    expect(result).toBe('Deposit — Jane Donor');
+  });
+
+  it('returns only raw_description when bank_description_2 is whitespace-only', () => {
+    const result = defaultCreateDescription(
+      100,
+      null,
+      'Deposit',
+      '   ',
+      'BTX-001',
+    );
+    expect(result).toBe('Deposit');
+  });
+
+  it('ignores bank_transaction_id — returns joined description not the ID', () => {
+    const result = defaultCreateDescription(
+      75,
+      null,
+      'INTERAC E-TRANSFER FROM: JOHN DOE',
+      null,
+      'REF-99',
+    );
+    expect(result).toBe('INTERAC E-TRANSFER FROM: JOHN DOE');
+  });
+
+  it('works for unmatched withdrawal rows too', () => {
+    const result = defaultCreateDescription(
+      -200,
+      'CARD',
+      'POS PURCHASE Office Depot',
+      null,
+      'W-002',
+    );
+    expect(result).toBe('POS PURCHASE Office Depot');
+  });
+});

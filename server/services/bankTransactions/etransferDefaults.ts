@@ -21,7 +21,7 @@ function isEtransferDescription(description: string): boolean {
  *   1. payment_method recognized by the broad e-transfer classifier, OR
  *   2. combined bank text contains an e-transfer token.
  */
-function isEtransferDeposit(
+export function isEtransferDeposit(
   amount: number | string,
   payment_method: string | null | undefined,
   raw_description: string,
@@ -34,22 +34,21 @@ function isEtransferDeposit(
 }
 
 /**
- * Return the default description for a bank row that will be used when
- * creating a new transaction from an unmatched bank row.
+ * Return the default transaction description for a bank row.
  *
- * For deposit-side e-transfer rows with a non-empty bank_transaction_id
- * the reference number is used as the description.  Otherwise the current
- * server-side fallback (raw_description) is returned.
+ * Joins the two bank-description fields with an em-dash separator,
+ * trimming and omitting blank values so the separator only appears
+ * when both fields are present.
  */
 export function defaultCreateDescription(
-  amount: number | string,
-  payment_method: string | null | undefined,
+  _amount: number | string,
+  _payment_method: string | null | undefined,
   raw_description: string,
   bank_description_2: string | null | undefined,
-  bank_transaction_id: string | null | undefined,
+  _bank_transaction_id: string | null | undefined,
 ): string {
-  if (isEtransferDeposit(amount, payment_method, raw_description, bank_description_2) && bank_transaction_id?.trim()) {
-    return bank_transaction_id;
-  }
-  return raw_description;
+  const parts = [raw_description, bank_description_2]
+    .map((s) => String(s ?? '').trim())
+    .filter(Boolean);
+  return parts.join(' — ');
 }

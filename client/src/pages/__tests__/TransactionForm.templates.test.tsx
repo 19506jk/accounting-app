@@ -85,6 +85,26 @@ function getAmountValues(screen: { container: HTMLElement }) {
   return Array.from(inputs).map((el) => (el as HTMLInputElement).value)
 }
 
+describe('TransactionForm Journal Entries grid labels', () => {
+  it('uses Memo header and Line memo placeholder', async () => {
+    stubApis()
+
+    const noop = () => {}
+    const screen = await renderWithProviders(
+      <TransactionForm onClose={noop} />,
+      { auth: { id: 99, name: 'Tester', email: 'tester@example.com', role: 'admin', avatar_url: null } },
+    )
+
+    // The grid header column should read "Memo"
+    await expect.element(screen.getByText('Memo')).toBeVisible()
+
+    // The per-row input placeholder should read "Line memo"
+    const textInputs = screen.container.querySelectorAll('input[type="text"]')
+    const placeholders = Array.from(textInputs).map((el) => (el as HTMLInputElement).placeholder)
+    expect(placeholders).toContain('Line memo')
+  })
+})
+
 describe('TransactionForm template loading', () => {
   it('loads amount and legacy templates, restoring debit/credit while preserving date and reference', async () => {
     stubApis()

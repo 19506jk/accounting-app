@@ -284,7 +284,7 @@ describe('CreateFromBankRowModal', () => {
     })
   })
 
-  it('prefills description with bank_transaction_id for unmatched e-transfer deposit', async () => {
+  it('prefills description with joined bank descriptions for unmatched e-transfer deposit', async () => {
     let requestBody: unknown = null
     const onClose = vi.fn()
     const onSuccess = vi.fn()
@@ -335,7 +335,7 @@ describe('CreateFromBankRowModal', () => {
 
     await vi.waitFor(() => {
       expect(requestBody).toEqual(expect.objectContaining({
-        description: 'BTX-ET-001',
+        description: 'Interac e-Transfer — Donor Name',
       }))
     })
   })

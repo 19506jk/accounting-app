@@ -246,6 +246,7 @@ export async function createFromBankRow(
   payload: CreateFromBankRowInput & { bank_account_id: number; fund_id: number; entry_payment_method?: 'cash' | 'cheque' | 'e-transfer' | null },
   userId: number,
   trx: Knex.Transaction,
+  bankTransactionId?: string | null,
 ): Promise<{ transaction_id: number; bank_je_id: number }> {
   if (!isValidDateOnly(payload.date)) throw serviceError('date is not a valid date (YYYY-MM-DD)', 400);
   if (!payload.description || !String(payload.description).trim()) {
@@ -312,7 +313,7 @@ export async function createFromBankRow(
       debit: dec(entry.debit ?? 0).toFixed(2),
       credit: dec(entry.credit ?? 0).toFixed(2),
       payment_method: entry.payment_method ?? null,
-      memo: entry.memo?.trim() || null,
+      memo: entry.memo?.trim() || bankTransactionId?.trim() || null,
       tax_rate_id: entry.tax_rate_id ?? null,
       is_reconciled: false,
       created_at: trx.fn.now(),

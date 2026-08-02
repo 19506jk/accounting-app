@@ -118,7 +118,7 @@ function JournalEntryLines({
             <span style={{ textAlign: 'right' }}>Credit</span>
             {showPaymentMethod && <span>Method</span>}
             <span>Donor / Payee</span>
-            <span>Description</span>
+            <span>Memo</span>
             <span />
           </div>
 
@@ -171,7 +171,7 @@ function JournalEntryLines({
                 onChange={(v) => setEntry(i, 'contact_id', v)} placeholder="Anonymous" />
               <input type="text" value={e.memo}
                 onChange={(ev) => setEntry(i, 'memo', ev.target.value)}
-                placeholder="Line description"
+                placeholder="Line memo"
                 style={{ padding: '0.4rem 0.5rem', border: '1px solid #d1d5db',
                   borderRadius: '6px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box' }} />
               <button onClick={() => removeLine(i)}

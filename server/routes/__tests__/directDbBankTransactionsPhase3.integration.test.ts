@@ -1152,4 +1152,294 @@ describe('direct DB bank-transactions Phase 3 integration checks', () => {
     });
     expect(rejected.status).toBe(400);
   });
+
+  // ── e-transfer memo filling ──────────────────────────────────────────
+
+  it('fills memo with bank_transaction_id on both entries for simple e-transfer deposit', async () => {
+    const fixture = await createFixture();
+
+    const bankTransactionId = await (async () => {
+      const response = await requestRoute({
+        probePath: '/import',
+        method: 'POST',
+        userId: fixture.userId,
+        role: 'editor',
+        body: {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          filename: `phase3-memo-simple-${fixture.suffix}.csv`,
+          rows: [{
+            bank_posted_date: '2026-06-08',
+            raw_description: 'Interac e-Transfer',
+            bank_description_2: 'Jane Donor',
+            payment_method: 'Interac e-transfer',
+            amount: 150,
+            bank_transaction_id: `MEMO-SIMPLE-${fixture.suffix}`,
+          }],
+        },
+      });
+      expect(response.status).toBe(201);
+      createdUploadIds.push(response.body.upload_id as number);
+      const row = await db('bank_transactions')
+        .where({ upload_id: response.body.upload_id, row_index: 0 })
+        .first() as { id: number } | undefined;
+      if (!row) throw new Error('Expected bank transaction row');
+      createdBankTransactionIds.push(row.id);
+      return row.id;
+    })();
+
+    const created = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-08',
+        description: `MEMO-SIMPLE-${fixture.suffix}`,
+        amount: 150,
+        type: 'deposit',
+        offset_account_id: fixture.incomeAccountId,
+      },
+    });
+    expect(created.status).toBe(200);
+
+    const bankJeId = created.body.item?.journal_entry_id as number;
+    const bankEntry = await db('journal_entries').where({ id: bankJeId }).first() as
+      { transaction_id: number; memo: string | null } | undefined;
+    expect(bankEntry).toBeDefined();
+    if (!bankEntry) throw new Error('Expected bank journal entry');
+    createdTransactionIds.push(bankEntry.transaction_id);
+
+    const transaction = await db('transactions')
+      .where({ id: bankEntry.transaction_id })
+      .first('description') as { description: string } | undefined;
+    expect(transaction?.description).toBe('Interac e-Transfer — Jane Donor');
+
+    const entries = await db('journal_entries')
+      .where({ transaction_id: bankEntry.transaction_id })
+      .orderBy('id', 'asc')
+      .select('memo', 'debit', 'credit') as Array<{ memo: string | null; debit: string; credit: string }>;
+
+    expect(entries).toHaveLength(2);
+    // Both entries (bank debit + offset credit) get the bank_transaction_id memo
+    entries.forEach((entry) => {
+      expect(entry.memo).toBe(`MEMO-SIMPLE-${fixture.suffix}`);
+    });
+  });
+
+  it('fills blank memos with bank_transaction_id on split e-transfer deposit, preserves explicit memos', async () => {
+    const fixture = await createFixture();
+    const taxRateId = await createTaxRate({ fixture, recoverableAccountId: fixture.recoverableAccountId });
+
+    const bankTransactionId = await (async () => {
+      const response = await requestRoute({
+        probePath: '/import',
+        method: 'POST',
+        userId: fixture.userId,
+        role: 'editor',
+        body: {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          filename: `phase3-memo-split-${fixture.suffix}.csv`,
+          rows: [{
+            bank_posted_date: '2026-06-08',
+            raw_description: 'Interac e-Transfer',
+            bank_description_2: 'Donor Family',
+            payment_method: 'Interac e-transfer',
+            amount: 125,
+            bank_transaction_id: `MEMO-SPLIT-${fixture.suffix}`,
+          }],
+        },
+      });
+      expect(response.status).toBe(201);
+      createdUploadIds.push(response.body.upload_id as number);
+      const row = await db('bank_transactions')
+        .where({ upload_id: response.body.upload_id, row_index: 0 })
+        .first() as { id: number } | undefined;
+      if (!row) throw new Error('Expected bank transaction row');
+      createdBankTransactionIds.push(row.id);
+      return row.id;
+    })();
+
+    const created = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-08',
+        description: 'Interac e-Transfer — Donor Family',
+        amount: 125,
+        type: 'deposit',
+        splits: [{
+          amount: 50,
+          offset_account_id: fixture.incomeAccountId,
+          fund_id: fixture.fundId,
+          memo: 'Explicit split memo',
+        }, {
+          amount: 75,
+          offset_account_id: fixture.incomeAccountId,
+          fund_id: fixture.fundId,
+          // no memo — should get filled
+        }],
+      },
+    });
+    expect(created.status).toBe(200);
+
+    const bankJeId = created.body.item?.journal_entry_id as number;
+    const bankEntry = await db('journal_entries').where({ id: bankJeId }).first() as
+      { transaction_id: number } | undefined;
+    expect(bankEntry).toBeDefined();
+    if (!bankEntry) throw new Error('Expected bank journal entry');
+    createdTransactionIds.push(bankEntry.transaction_id);
+
+    const entries = await db('journal_entries')
+      .where({ transaction_id: bankEntry.transaction_id })
+      .orderBy('id', 'asc')
+      .select('memo', 'debit', 'credit') as Array<{ memo: string | null; debit: string; credit: string }>;
+
+    // Bank-side entry (debit): blank → filled
+    const bankSide = entries.find((e) => e.debit !== '0.00');
+    expect(bankSide?.memo).toBe(`MEMO-SPLIT-${fixture.suffix}`);
+
+    // Split with explicit memo → preserved
+    const explicitSplit = entries.find((e) => e.memo === 'Explicit split memo');
+    expect(explicitSplit).toBeDefined();
+
+    // Split without memo → filled
+    const filledSplit = entries.find((e) =>
+      e.memo === `MEMO-SPLIT-${fixture.suffix}` && e.credit !== '0.00',
+    );
+    expect(filledSplit).toBeDefined();
+  });
+
+  it('does not fill memo when e-transfer deposit has no bank_transaction_id', async () => {
+    const fixture = await createFixture();
+
+    const bankTransactionId = await (async () => {
+      const response = await requestRoute({
+        probePath: '/import',
+        method: 'POST',
+        userId: fixture.userId,
+        role: 'editor',
+        body: {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          filename: `phase3-memo-noid-${fixture.suffix}.csv`,
+          rows: [{
+            bank_posted_date: '2026-06-08',
+            raw_description: 'Interac e-Transfer',
+            bank_description_2: 'Anonymous',
+            payment_method: 'Interac e-transfer',
+            amount: 200,
+            bank_transaction_id: '',
+          }],
+        },
+      });
+      expect(response.status).toBe(201);
+      createdUploadIds.push(response.body.upload_id as number);
+      const row = await db('bank_transactions')
+        .where({ upload_id: response.body.upload_id, row_index: 0 })
+        .first() as { id: number } | undefined;
+      if (!row) throw new Error('Expected bank transaction row');
+      createdBankTransactionIds.push(row.id);
+      return row.id;
+    })();
+
+    const created = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-08',
+        description: 'Interac e-Transfer — Anonymous',
+        amount: 200,
+        type: 'deposit',
+        offset_account_id: fixture.incomeAccountId,
+      },
+    });
+    expect(created.status).toBe(200);
+
+    const bankJeId = created.body.item?.journal_entry_id as number;
+    const bankEntry = await db('journal_entries').where({ id: bankJeId }).first() as
+      { transaction_id: number; memo: string | null } | undefined;
+    expect(bankEntry).toBeDefined();
+    if (!bankEntry) throw new Error('Expected bank journal entry');
+    createdTransactionIds.push(bankEntry.transaction_id);
+
+    const entries = await db('journal_entries')
+      .where({ transaction_id: bankEntry.transaction_id })
+      .orderBy('id', 'asc')
+      .select('memo', 'debit', 'credit') as Array<{ memo: string | null; debit: string; credit: string }>;
+
+    expect(entries).toHaveLength(2);
+    entries.forEach((entry) => {
+      expect(entry.memo).toBeNull();
+    });
+  });
+
+  it('does not fill memo for non-e-transfer deposit', async () => {
+    const fixture = await createFixture();
+
+    const bankTransactionId = await (async () => {
+      const response = await requestRoute({
+        probePath: '/import',
+        method: 'POST',
+        userId: fixture.userId,
+        role: 'editor',
+        body: {
+          account_id: fixture.bankAccountId,
+          fund_id: fixture.fundId,
+          filename: `phase3-memo-nonet-${fixture.suffix}.csv`,
+          rows: [{
+            bank_posted_date: '2026-06-08',
+            raw_description: 'Counter deposit',
+            amount: 300,
+            bank_transaction_id: `MEMO-NONET-${fixture.suffix}`,
+          }],
+        },
+      });
+      expect(response.status).toBe(201);
+      createdUploadIds.push(response.body.upload_id as number);
+      const row = await db('bank_transactions')
+        .where({ upload_id: response.body.upload_id, row_index: 0 })
+        .first() as { id: number } | undefined;
+      if (!row) throw new Error('Expected bank transaction row');
+      createdBankTransactionIds.push(row.id);
+      return row.id;
+    })();
+
+    const created = await requestRoute({
+      probePath: `/${bankTransactionId}/create`,
+      method: 'POST',
+      userId: fixture.userId,
+      role: 'editor',
+      body: {
+        date: '2026-06-08',
+        description: 'Counter deposit',
+        amount: 300,
+        type: 'deposit',
+        offset_account_id: fixture.incomeAccountId,
+      },
+    });
+    expect(created.status).toBe(200);
+
+    const bankJeId = created.body.item?.journal_entry_id as number;
+    const bankEntry = await db('journal_entries').where({ id: bankJeId }).first() as
+      { transaction_id: number; memo: string | null } | undefined;
+    expect(bankEntry).toBeDefined();
+    if (!bankEntry) throw new Error('Expected bank journal entry');
+    createdTransactionIds.push(bankEntry.transaction_id);
+
+    const entries = await db('journal_entries')
+      .where({ transaction_id: bankEntry.transaction_id })
+      .orderBy('id', 'asc')
+      .select('memo', 'debit', 'credit') as Array<{ memo: string | null; debit: string; credit: string }>;
+
+    expect(entries).toHaveLength(2);
+    entries.forEach((entry) => {
+      expect(entry.memo).toBeNull();
+    });
+  });
 });
