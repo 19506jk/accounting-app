@@ -26,6 +26,7 @@ function donor(overrides: Partial<ContactSummary>): ContactSummary {
     postal_code: null,
     donor_id: null,
     is_active: true,
+    notes: null,
     ...overrides,
   }
 }

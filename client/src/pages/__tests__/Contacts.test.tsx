@@ -24,6 +24,7 @@ const contact: ContactSummary = {
   postal_code: 'M1M 1M1',
   donor_id: '5-12345',
   is_active: true,
+  notes: null,
 }
 
 describe('Contacts', () => {

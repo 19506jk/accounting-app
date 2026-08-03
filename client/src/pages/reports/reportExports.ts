@@ -365,6 +365,7 @@ export async function exportContacts(contacts: ContactSummary[]) {
     [
       'Donor ID', 'Name', 'First Name', 'Last Name', 'Email', 'Phone',
       'Address Line 1', 'Address Line 2', 'City', 'Province', 'Postal Code',
+      'Notes',
     ],
     ...active.map((c) => [
       c.donor_id || '',
@@ -378,12 +379,13 @@ export async function exportContacts(contacts: ContactSummary[]) {
       c.city || '',
       c.province || '',
       c.postal_code || '',
+      c.notes || '',
     ]),
   ];
   const cols: ColInfo[] = [
     { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 16 },
     { wch: 28 }, { wch: 16 }, { wch: 28 }, { wch: 20 },
-    { wch: 16 }, { wch: 10 }, { wch: 14 },
+    { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 40 },
   ];
   await downloadXlsx(
     rows,

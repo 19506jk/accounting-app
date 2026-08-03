@@ -423,6 +423,45 @@ describe('direct DB contacts/settings integration smoke checks', () => {
     ]));
   });
 
+  it('includes notes in the list response', async () => {
+    const suffix = uniqueSuffix();
+    const created = await requestRoute({
+      mountPath: '/api/contacts',
+      probePath: '/',
+      method: 'POST',
+      router: contactsRouter,
+      role: 'admin',
+      body: {
+        type: 'DONOR',
+        contact_class: 'INDIVIDUAL',
+        name: `Notes Contact ${suffix}`,
+        donor_id: `N-${suffix}`,
+        notes: 'List endpoint should include notes.',
+      },
+    });
+
+    expect(created.status).toBe(201);
+    const contactId = created.body.contact.id as number;
+    createdContactIds.push(contactId);
+
+    const listed = await requestRoute({
+      mountPath: '/api/contacts',
+      probePath: '/',
+      method: 'GET',
+      router: contactsRouter,
+      role: 'viewer',
+    });
+
+    expect(listed.status).toBe(200);
+    expect(Array.isArray(listed.body.contacts)).toBe(true);
+    expect(listed.body.contacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: contactId,
+        notes: 'List endpoint should include notes.',
+      }),
+    ]));
+  });
+
   it('deactivates a contact using the development database', async () => {
     const suffix = uniqueSuffix();
     const created = await requestRoute({

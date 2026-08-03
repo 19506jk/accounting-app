@@ -123,7 +123,7 @@ router.get(
           'id', 'type', 'contact_class', 'name', 'first_name', 'last_name',
           'email', 'phone', 'address_line1', 'address_line2',
           'city', 'province', 'postal_code',
-          'donor_id', 'is_active', 'created_at'
+          'donor_id', 'is_active', 'created_at', 'notes'
         )
         .orderBy('name', 'asc');
 

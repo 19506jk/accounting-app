@@ -555,6 +555,7 @@ describe('reportExports contacts', () => {
           address_line1: null, address_line2: null,
           city: null, province: null, postal_code: null,
           donor_id: 'D-100', is_active: true,
+          notes: 'Preferred donor — monthly giver',
         },
         {
           id: 2, type: 'DONOR', contact_class: 'HOUSEHOLD',
@@ -563,6 +564,7 @@ describe('reportExports contacts', () => {
           address_line1: null, address_line2: null,
           city: null, province: null, postal_code: null,
           donor_id: null, is_active: false,
+          notes: 'Should not appear in export',
         },
       ];
 
@@ -593,6 +595,17 @@ describe('reportExports contacts', () => {
       expect(allValues).toContain('Jane Doe');
       expect(allValues).toContain('D-100');
       expect(allValues.includes('Inactive Household')).toBe(false);
+
+      // Verify Notes header and cell content
+      const headerRow = rows[3] as string[];
+      const notesCol = headerRow.indexOf('Notes');
+      expect(notesCol).toBeGreaterThan(-1);
+
+      const dataRows = rows.slice(4);
+      const notesValues = dataRows.map((r: any[]) => r[notesCol]);
+      expect(notesValues).toContain('Preferred donor — monthly giver');
+      // Inactive contact's note should not appear
+      expect(notesValues.includes('Should not appear in export')).toBe(false);
     } finally {
       globalThis.Blob = origBlob;
     }

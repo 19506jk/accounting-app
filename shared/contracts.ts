@@ -802,10 +802,10 @@ export interface ContactSummary {
   donor_id: string | null;
   is_active: boolean;
   created_at?: string;
+  notes: string | null;
 }
 
 export interface ContactDetail extends ContactSummary {
-  notes: string | null;
   updated_at?: string;
 }
 
