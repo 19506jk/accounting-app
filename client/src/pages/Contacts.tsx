@@ -1,4 +1,4 @@
-import { useState, useCallback }  from 'react';
+import { useState, useCallback, useEffect }  from 'react';
 import {
   useContacts,
   useContact,
@@ -69,6 +69,25 @@ const EMPTY_FORM: ContactFormState = {
   notes: '', donor_id: '',
 };
 
+function contactToForm(contact: EditableContact): ContactFormState {
+  return {
+    type:          contact.type,
+    contact_class: contact.contact_class,
+    name:          contact.name          || '',
+    first_name:    contact.first_name    || '',
+    last_name:     contact.last_name     || '',
+    email:         contact.email         || '',
+    phone:         contact.phone         || '',
+    address_line1: contact.address_line1 || '',
+    address_line2: contact.address_line2 || '',
+    city:          contact.city          || '',
+    province:      contact.province      || 'ON',
+    postal_code:   contact.postal_code   || '',
+    notes:         contact.notes         || '',
+    donor_id:      contact.donor_id      || '',
+  };
+}
+
 function ContactForm({
   form,
   setForm,
@@ -138,8 +157,11 @@ function ContactForm({
       <hr style={{ border: 'none', borderTop: '1px solid #f3f4f6', margin: '0.25rem 0' }} />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-        <label style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>Notes</label>
+        <label htmlFor="contact-notes" style={{ fontSize: '0.8rem', fontWeight: 500, color: '#374151' }}>
+          Notes
+        </label>
         <textarea
+          id="contact-notes"
           value={form.notes}
           onChange={set('notes')}
           rows={2}
@@ -181,9 +203,15 @@ export default function Contacts() {
     staleTime: 60_000,
   });
   const activeDrawerContact = drawer && drawer !== 'add'
-    ? (drawerContact || drawer)
+    ? (drawerContact?.id === editingContactId ? drawerContact : drawer)
     : null;
+  const isEditContactLoading = !!editingContactId && drawerContact?.id !== editingContactId;
   const isAdmin = user?.role === 'admin';
+
+  useEffect(() => {
+    if (drawerContact?.id !== editingContactId) return;
+    setForm(contactToForm(drawerContact));
+  }, [drawerContact, editingContactId]);
 
   const openAdd = useCallback(() => {
     setForm(EMPTY_FORM);
@@ -192,22 +220,7 @@ export default function Contacts() {
   }, []);
 
   const openEdit = useCallback((contact: EditableContact) => {
-    setForm({
-      type:          contact.type,
-      contact_class: contact.contact_class,
-      name:          contact.name          || '',
-      first_name:    contact.first_name    || '',
-      last_name:     contact.last_name     || '',
-      email:         contact.email         || '',
-      phone:         contact.phone         || '',
-      address_line1: contact.address_line1 || '',
-      address_line2: contact.address_line2 || '',
-      city:          contact.city          || '',
-      province:      contact.province      || 'ON',
-      postal_code:   contact.postal_code   || '',
-      notes:         contact.notes         || '',
-      donor_id:      contact.donor_id      || '',
-    });
+    setForm(contactToForm(contact));
     setErrors({});
     setDrawer(contact);
   }, []);
@@ -393,7 +406,9 @@ export default function Contacts() {
         title={drawer === 'add' ? 'Add Contact' : 'Edit Contact'}
         width="600px"
       >
-        <ContactForm form={form} setForm={setForm} errors={errors} />
+        {isEditContactLoading
+          ? <div role="status">Loading contact…</div>
+          : <ContactForm form={form} setForm={setForm} errors={errors} />}
 
         <div style={{ display: 'flex', justifyContent: activeDrawerContact ? 'space-evenly' : 'flex-end',
           alignItems: 'center', gap: '0.75rem', marginTop: '1.5rem', paddingTop: '1rem',
@@ -424,7 +439,7 @@ export default function Contacts() {
 
           {/* Cancel / Save */}
           <Button variant="secondary" onClick={closeDrawer}>Cancel</Button>
-          <Button onClick={handleSave} isLoading={isSaving}>
+          <Button onClick={handleSave} isLoading={isSaving} disabled={isEditContactLoading}>
             {drawer === 'add' ? 'Add Contact' : 'Save Changes'}
           </Button>
         </div>

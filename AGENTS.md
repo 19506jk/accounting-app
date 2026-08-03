@@ -8,26 +8,32 @@ Full-stack church accounting application with:
 
 ## Build & Development Commands
 
+### Package Manager
+
+`pnpm` is not directly available on `PATH` in the Codex shell. Run it through
+Corepack as `corepack pnpm`. Corepack is currently installed at
+`/home/endian/.nvm/versions/node/v20.20.2/bin/corepack`.
+
 ### Client (`/client`)
 
 ```bash
-pnpm run dev      # Start Vite dev server with HMR
-pnpm run build    # Production build
-pnpm run preview  # Preview production build
+corepack pnpm run dev      # Start Vite dev server with HMR
+corepack pnpm run build    # Production build
+corepack pnpm run preview  # Preview production build
 ```
 
 ### Server (`/server`)
 
 ```bash
-pnpm run dev              # Start with nodemon (auto-reload)
-pnpm run dev:test         # Start against test DB (used by Playwright)
-pnpm run start            # Production start
-pnpm run migrate          # Run pending migrations
-pnpm run migrate:status   # List migration status
-pnpm run migrate:rollback # Rollback last migration
-pnpm run seed             # Run seed files
-pnpm run db:reset         # Full DB reset: rollback all + migrate + seed
-pnpm run db:reset:test    # Same but targets the test DB (NODE_ENV=test)
+corepack pnpm run dev              # Start with nodemon (auto-reload)
+corepack pnpm run dev:test         # Start against test DB (used by Playwright)
+corepack pnpm run start            # Production start
+corepack pnpm run migrate          # Run pending migrations
+corepack pnpm run migrate:status   # List migration status
+corepack pnpm run migrate:rollback # Rollback last migration
+corepack pnpm run seed             # Run seed files
+corepack pnpm run db:reset         # Full DB reset: rollback all + migrate + seed
+corepack pnpm run db:reset:test    # Same but targets the test DB (NODE_ENV=test)
 ```
 
 ### Running Tests
@@ -35,20 +41,20 @@ pnpm run db:reset:test    # Same but targets the test DB (NODE_ENV=test)
 **Client** (`/client`) — Vitest + Browser Mode (headless Chromium via Playwright):
 
 ```bash
-pnpm run test              # Run all unit tests once
-pnpm run test:watch        # Watch mode (add --browser.headless=false to see browser)
-pnpm run test:coverage     # Coverage report (thresholds enforced)
-pnpm run e2e               # Playwright E2E against real test backend
-pnpm run e2e:ui            # Playwright UI mode
-pnpm run e2e:report        # Show last E2E HTML report
+corepack pnpm run test              # Run all unit tests once
+corepack pnpm run test:watch        # Watch mode (add --browser.headless=false to see browser)
+corepack pnpm run test:coverage     # Coverage report (thresholds enforced)
+corepack pnpm run e2e               # Playwright E2E against real test backend
+corepack pnpm run e2e:ui            # Playwright UI mode
+corepack pnpm run e2e:report        # Show last E2E HTML report
 ```
 
 **Server** (`/server`) — Vitest:
 
 ```bash
-pnpm run test              # Run all server tests once
-pnpm run test:watch        # Watch mode
-pnpm run test:coverage     # Coverage report
+corepack pnpm run test              # Run all server tests once
+corepack pnpm run test:watch        # Watch mode
+corepack pnpm run test:coverage     # Coverage report
 ```
 
 ### Client Test Conventions
@@ -57,7 +63,7 @@ pnpm run test:coverage     # Coverage report
 - **Component tests** use `renderWithProviders` from `src/test/renderWithProviders.tsx` — do not call `vitest-browser-react`'s `render` directly except for trivial leaf components with no providers.
 - **API calls** are intercepted by MSW — do not `vi.mock` axios or individual API modules. Add per-test overrides with `worker.use(http.get(...))`.
 - **Selectors**: prefer `getByRole` / `getByText` / `getByLabelText`; avoid `data-testid` so unit and E2E selectors stay aligned.
-- **E2E** lives in `client/e2e/` and runs against a real test backend (`pnpm run dev:test`) with a freshly seeded test DB. Auth is bypassed via a signed JWT written to `storageState` in `e2e/global-setup.ts` — no Google OAuth in tests.
+- **E2E** lives in `client/e2e/` and runs against a real test backend (`corepack pnpm run dev:test`) with a freshly seeded test DB. Auth is bypassed via a signed JWT written to `storageState` in `e2e/global-setup.ts` — no Google OAuth in tests.
 
 ## Code Style Guidelines
 
@@ -240,9 +246,9 @@ db.raw('COALESCE(SUM(je.debit), 0) AS total_debit')
 3. Add to navigation in `client/src/components/Layout.jsx`
 
 **Database migration:**
-1. `pnpm --filter ./server run knex -- migrate:make <description>`
+1. `corepack pnpm --filter ./server run knex -- migrate:make <description>`
 2. Edit migration file in `db/migrations/`
-3. `pnpm run migrate` to apply
+3. `corepack pnpm run migrate` to apply
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
