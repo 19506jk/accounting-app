@@ -40,6 +40,8 @@ const dec = (n: number) => new Decimal(n);
 // Amount column for numeric values; text column for labels
 const AMT: ColumnConfig = { type: 'amount' };
 const TXT: ColumnConfig = { type: 'text' };
+const PL_COLUMN_WIDTHS = [28, 44, 16];
+const BALANCE_SHEET_COLUMN_WIDTHS = [30, 44, 16];
 
 // ---------------------------------------------------------------------------
 // Profit & Loss
@@ -80,7 +82,7 @@ export async function exportPL(
   const filename = `${meta.filenamePrefix}_${filters.from}_${filters.to}.xlsx`;
 
   const wb = await createWorkbook();
-  addSheetToWorkbook(wb, meta.tabName, 3, cols, (b) => buildPLSheet(b, data, filters));
+  addSheetToWorkbook(wb, meta.tabName, 3, cols, (b) => buildPLSheet(b, data, filters), PL_COLUMN_WIDTHS);
 
   await deps.downloadWorkbook(wb, filename);
 }
@@ -127,7 +129,7 @@ export async function exportBalanceSheet(
   const filename = `${meta.filenamePrefix}_${filters.as_of}.xlsx`;
 
   const wb = await createWorkbook();
-  addSheetToWorkbook(wb, meta.tabName, 3, cols, (b) => buildBalanceSheetSheet(b, data, filters));
+  addSheetToWorkbook(wb, meta.tabName, 3, cols, (b) => buildBalanceSheetSheet(b, data, filters), BALANCE_SHEET_COLUMN_WIDTHS);
 
   await deps.downloadWorkbook(wb, filename);
 }
@@ -764,13 +766,13 @@ export async function exportFinancialReport(
   }
 
   try {
-    addSheetToWorkbook(wb, REPORT_META['pl'].tabName, 3, plCols, (b) => buildPLSheet(b, input.pl.data, input.pl.filters));
+    addSheetToWorkbook(wb, REPORT_META['pl'].tabName, 3, plCols, (b) => buildPLSheet(b, input.pl.data, input.pl.filters), PL_COLUMN_WIDTHS);
   } catch (err) {
     throw new Error(`Failed to build Profit & Loss sheet: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   try {
-    addSheetToWorkbook(wb, REPORT_META['balance-sheet'].tabName, 3, bsCols, (b) => buildBalanceSheetSheet(b, input.balanceSheet.data, input.balanceSheet.filters));
+    addSheetToWorkbook(wb, REPORT_META['balance-sheet'].tabName, 3, bsCols, (b) => buildBalanceSheetSheet(b, input.balanceSheet.data, input.balanceSheet.filters), BALANCE_SHEET_COLUMN_WIDTHS);
   } catch (err) {
     throw new Error(`Failed to build Balance Sheet sheet: ${err instanceof Error ? err.message : String(err)}`);
   }

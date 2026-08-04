@@ -113,6 +113,9 @@ describe('reportExports styled', () => {
     const amountCell = ws.getCell(5, 3);
     expect(amountCell.numFmt).toBe('#,##0.00;(#,##0.00)');
     expect(amountCell.alignment?.horizontal).toBe('right');
+    expect(ws.getColumn(1).width).toBe(28);
+    expect(ws.getColumn(2).width).toBe(44);
+    expect(ws.getColumn(3).width).toBe(16);
   }, 30_000);
 
   it('exports styled balance sheet workbook with balance status row', async () => {
@@ -147,6 +150,9 @@ describe('reportExports styled', () => {
 
     const grandCell = ws.getCell(16, 1);
     expect(grandCell.border?.top?.style).toBe('medium');
+    expect(ws.getColumn(1).width).toBe(30);
+    expect(ws.getColumn(2).width).toBe(44);
+    expect(ws.getColumn(3).width).toBe(16);
   }, 30_000);
 
   it('exports styled ledger workbook with opening and closing rows', async () => {
@@ -676,6 +682,16 @@ describe('exportFinancialReport', () => {
     const tbRows = await sheetRows(wb, 'Trial Balance');
     expect(tbRows).toContainEqual(['Trial Balance', '', '', '']);
     expect(tbRows).toContainEqual(['TOTALS', '', 5000, 5000]);
+
+    const plSheet = wb.getWorksheet('Profit & Loss');
+    expect(plSheet.getColumn(1).width).toBe(28);
+    expect(plSheet.getColumn(2).width).toBe(44);
+    expect(plSheet.getColumn(3).width).toBe(16);
+
+    const balanceSheet = wb.getWorksheet('Balance Sheet');
+    expect(balanceSheet.getColumn(1).width).toBe(30);
+    expect(balanceSheet.getColumn(2).width).toBe(44);
+    expect(balanceSheet.getColumn(3).width).toBe(16);
   }, 30_000);
 
   it('retains styles and number formats from standalone builders', async () => {
