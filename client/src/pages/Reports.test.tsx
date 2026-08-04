@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { http, HttpResponse } from 'msw'
 
 import { worker } from '../test/msw/browser'
@@ -8,12 +8,9 @@ import type { FinancialReportExportInput } from './reports/reportExports'
 
 import type { ReconciliationSummary, ReconciliationReport } from '@shared/contracts'
 
-vi.mock('../utils/date', async () => {
-  const actual = await vi.importActual<typeof import('../utils/date')>('../utils/date')
-  return { ...actual, getChurchToday: () => '2026-08-03' }
-})
-
 const CHURCH_TODAY = '2026-08-03'
+// Must land on 2026-08-03 in the default church timezone (America/Toronto, UTC-4).
+const FIXED_NOW = new Date('2026-08-03T12:00:00Z')
 const FISCAL_YEAR_START = '2026-01-01'
 
 const closedRec1000: ReconciliationSummary = {
@@ -153,7 +150,12 @@ describe('Reports financial export', () => {
   let exporter = vi.fn<(input: FinancialReportExportInput) => Promise<void>>()
 
   beforeEach(() => {
+    vi.useFakeTimers({ now: FIXED_NOW, toFake: ['Date'] })
     exporter = vi.fn<(input: FinancialReportExportInput) => Promise<void>>()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('triggers financial export with correct two-wave orchestration', async () => {

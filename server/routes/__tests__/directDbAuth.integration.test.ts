@@ -6,9 +6,17 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { requestMountedRoute } from '../routeTestHelpers.js';
 
 
+const TEST_GOOGLE_CLIENT_ID = 'test-google-client-id';
+const TEST_JWT_SECRET = 'test-jwt-secret';
+
 dotenv.config();
-process.env.GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'google-client-id';
-process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
+// Test-owned credentials must win over ambient .env values so the mocked
+// OAuth flow is deterministic. auth.ts reads these at module load, so assign
+// before the dynamic import below. GOOGLE_CLIENT_ID is also the fallback
+// branch of auth.ts's prod/dev ternary.
+process.env.GOOGLE_CLIENT_ID_DEV = TEST_GOOGLE_CLIENT_ID;
+process.env.GOOGLE_CLIENT_ID = TEST_GOOGLE_CLIENT_ID;
+process.env.JWT_SECRET = TEST_JWT_SECRET;
 
 const verifyIdTokenMock = vi.hoisted(() => vi.fn());
 
@@ -195,14 +203,14 @@ describe('direct DB auth integration checks', () => {
       role: 'viewer',
     }));
     expect(typeof res.body.token).toBe('string');
-    expect(jwt.verify(res.body.token, process.env.JWT_SECRET || 'jwt-secret')).toEqual(expect.objectContaining({
+    expect(jwt.verify(res.body.token, TEST_JWT_SECRET)).toEqual(expect.objectContaining({
       id: preRegistered.id,
       email,
       role: 'viewer',
     }));
     expect(verifyIdTokenMock).toHaveBeenCalledWith({
       idToken: `credential-${suffix}`,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: TEST_GOOGLE_CLIENT_ID,
     });
 
     const stored = await db('users')

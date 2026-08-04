@@ -19,8 +19,7 @@ import {
 
 describe('date helpers', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-03-15T12:30:00Z'))
+    vi.useFakeTimers({ now: new Date('2026-03-15T12:30:00Z'), toFake: ['Date'] })
     setChurchTimeZone(DEFAULT_CHURCH_TIMEZONE)
   })
 

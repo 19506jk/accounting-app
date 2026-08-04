@@ -1,5 +1,5 @@
 import '@vitest/browser/matchers'
-import { afterAll, afterEach, beforeAll } from 'vitest'
+import { afterAll, afterEach, beforeAll, vi } from 'vitest'
 import { cleanup } from 'vitest-browser-react/pure'
 
 import { worker } from './msw/browser'
@@ -9,8 +9,14 @@ beforeAll(async () => {
 })
 
 afterEach(async () => {
-  await cleanup()
-  worker.resetHandlers()
-  localStorage.clear()
+  try {
+    await cleanup()
+    worker.resetHandlers()
+    localStorage.clear()
+  } finally {
+    // A failed test must not leave a fake clock behind for the next file
+    // (browser mode shares the page context across files).
+    vi.useRealTimers()
+  }
 })
 afterAll(() => worker.stop())
