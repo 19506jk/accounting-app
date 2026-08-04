@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { usePLSummary, useBalanceSheet, useRecentTransactions } from '../api/useDashboard';
 import Card  from '../components/ui/Card';
 import TransactionTable, { TYPE_BADGE, txFmt } from '../components/ui/TransactionTable';
-import { formatDateOnlyForDisplay, monthLabelInChurchZone } from '../utils/date';
+import { formatDateOnlyForDisplay, lastMonthLabelInChurchZone } from '../utils/date';
 import type { TransactionListItem } from '@shared/contracts';
 import type { TableColumn } from '../components/ui/types';
 
@@ -12,8 +12,8 @@ function fmt(n: number | null | undefined): string {
     : '—';
 }
 
-function currentMonthLabel() {
-  return monthLabelInChurchZone();
+function lastMonthLabel() {
+  return lastMonthLabelInChurchZone();
 }
 
 interface SummaryCardProps {
@@ -94,11 +94,11 @@ export default function Dashboard() {
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
         gap: '1rem', marginBottom: '2rem' }}>
         <SummaryCard label="Total Income"    value={fmt(pl.data?.total_income)}
-          isLoading={pl.isLoading} color="#15803d" sub={currentMonthLabel()} />
+          isLoading={pl.isLoading} color="#15803d" sub={lastMonthLabel()} />
         <SummaryCard label="Total Expenses"  value={fmt(pl.data?.total_expenses)}
-          isLoading={pl.isLoading} color="#b91c1c" sub={currentMonthLabel()} />
+          isLoading={pl.isLoading} color="#b91c1c" sub={lastMonthLabel()} />
         <SummaryCard label="Net Surplus"     value={fmt(pl.data?.net_surplus)}
-          isLoading={pl.isLoading} color={surplusColor} sub={currentMonthLabel()} />
+          isLoading={pl.isLoading} color={surplusColor} sub={lastMonthLabel()} />
         <SummaryCard label="Checking Balance" value={fmt(checkingBalance)}
           isLoading={bs.isLoading} color="#1d4ed8" sub="As of today" />
       </div>

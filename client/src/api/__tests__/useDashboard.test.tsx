@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 
 import { renderWithProviders } from '../../test/renderWithProviders'
@@ -21,7 +21,16 @@ function RecentTransactionsProbe() {
 }
 
 describe('usePLSummary', () => {
-  it('requests month-range PL summary', async () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-04T12:00:00Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('requests previous-month PL summary', async () => {
     let url = ''
     worker.use(http.get('/api/reports/pl', ({ request }) => {
       url = request.url
@@ -29,8 +38,8 @@ describe('usePLSummary', () => {
     }))
     const screen = await renderWithProviders(<PLSummaryProbe />)
     await expect.element(screen.getByText('123')).toBeVisible()
-    expect(url).toContain('from=')
-    expect(url).toContain('to=')
+    expect(url).toContain('from=2026-07-01')
+    expect(url).toContain('to=2026-07-31')
   })
 })
 

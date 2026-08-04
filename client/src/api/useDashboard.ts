@@ -8,14 +8,14 @@ import type {
   PLReportResponse,
   TransactionListItem,
 } from '@shared/contracts'
-import { currentMonthRange, getChurchToday } from '../utils/date'
+import { getChurchToday, lastMonthRange } from '../utils/date'
 
-function currentMonth() {
-  return currentMonthRange()
+function previousMonth() {
+  return lastMonthRange()
 }
 
 export function usePLSummary() {
-  const { from, to } = currentMonth()
+  const { from, to } = previousMonth()
 
   return useQuery<PLReportData>({
     queryKey: ['reports', 'pl', from, to],

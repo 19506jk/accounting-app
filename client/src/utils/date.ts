@@ -79,6 +79,10 @@ export function monthLabelInChurchZone(timeZone?: string | null) {
   return dayjs().tz(resolveTimeZone(timeZone)).format('MMMM YYYY')
 }
 
+export function lastMonthLabelInChurchZone(timeZone?: string | null) {
+  return dayjs().tz(resolveTimeZone(timeZone)).subtract(1, 'month').format('MMMM YYYY')
+}
+
 export function currentMonthRange(timeZone?: string | null) {
   const now = dayjs().tz(resolveTimeZone(timeZone))
   return {

@@ -10,6 +10,7 @@ import {
   getChurchToday,
   isDateOnlyBefore,
   isValidTimeZone,
+  lastMonthLabelInChurchZone,
   lastMonthRange,
   parseDateOnlyStrict,
   setChurchTimeZone,
@@ -77,6 +78,15 @@ describe('date helpers', () => {
       from: '2026-01-01',
       to: '2026-03-15',
     })
+  })
+
+  it('returns the previous-month label in the resolved timezone', () => {
+    expect(lastMonthLabelInChurchZone('UTC')).toBe('February 2026')
+  })
+
+  it('handles January-to-December year boundary for previous-month label', () => {
+    vi.setSystemTime(new Date('2027-01-15T12:00:00Z'))
+    expect(lastMonthLabelInChurchZone('UTC')).toBe('December 2026')
   })
 
   it('round-trips church timezone and falls back to default for invalid values', () => {

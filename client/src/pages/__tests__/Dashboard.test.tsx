@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 
 import { worker } from '../../test/msw/browser';
@@ -47,5 +47,33 @@ describe('Dashboard deposit type badges', () => {
     stubDashboardApis([depositRow(null)]);
     const screen = await renderWithProviders(<Dashboard />);
     await expect.element(screen.getByText('Deposit')).toBeVisible();
+  });
+});
+
+describe('Dashboard previous-month P&L', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-04T12:00:00Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('displays income, expenses, surplus, and previous-month label', async () => {
+    worker.use(
+      http.get('/api/reports/pl', () =>
+        HttpResponse.json({
+          report: { data: { total_income: 5000, total_expenses: 3200, net_surplus: 1800 } },
+        }),
+      ),
+      http.get('/api/reports/balance-sheet', () => HttpResponse.json(emptyBS)),
+      http.get('/api/transactions', () => HttpResponse.json({ transactions: [] })),
+    );
+    const screen = await renderWithProviders(<Dashboard />);
+    await expect.element(screen.getByText('$5,000.00')).toBeVisible();
+    await expect.element(screen.getByText('$3,200.00')).toBeVisible();
+    await expect.element(screen.getByText('$1,800.00')).toBeVisible();
+    await expect.element(screen.getByText('July 2026').first()).toBeVisible();
   });
 });
