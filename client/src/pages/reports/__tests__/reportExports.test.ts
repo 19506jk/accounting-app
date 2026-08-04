@@ -1,5 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as XLSX from 'xlsx';
+
+import {
+  exportBalanceSheet,
+  exportContacts,
+  exportDonorDetail,
+  exportDonorSummary,
+  exportFinancialReport,
+  exportLedger,
+  exportPL,
+  exportReconciliationReport,
+  exportTrialBalance,
+} from '../reportExports';
+import type { ReportExportDependencies } from '../reportExports';
+import { REPORT_META, getReportMeta, getReportTypeOptions } from '../reportMetadata';
 
 import type {
   BalanceSheetReportData,
@@ -18,15 +32,19 @@ import type {
   TrialBalanceReportFilters,
 } from '@shared/contracts';
 
-// ---------------------------------------------------------------------------
-// Shared mock function & helpers
-// ---------------------------------------------------------------------------
-
-/** Mutated by each test to capture the workbook + filename. */
 let capturedWorkbook: any = null;
 let capturedFilename = '';
 
-/** Round‑trip an ExcelJS workbook through xlsx so we can assert row values. */
+function fakeDownloadWorkbook(wb: any, fn: string): Promise<void> {
+  capturedWorkbook = wb;
+  capturedFilename = fn;
+  return Promise.resolve();
+}
+
+const fakeDeps: ReportExportDependencies = {
+  downloadWorkbook: vi.fn(fakeDownloadWorkbook),
+};
+
 async function sheetRows(
   wb: any,
   sheetName?: string,
@@ -43,37 +61,14 @@ async function sheetRows(
   }) as any[][];
 }
 
-// ---------------------------------------------------------------------------
-// Styled report export tests (ExcelJS path — real timers required)
-// ---------------------------------------------------------------------------
-
 describe('reportExports styled', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     capturedWorkbook = null;
     capturedFilename = '';
-
-    vi.resetModules();
-
-    vi.doMock('../excelExportHelper', async () => {
-      const actual =
-        await vi.importActual<typeof import('../excelExportHelper')>(
-          '../excelExportHelper',
-        );
-      return {
-        ...actual,
-        downloadWorkbook: vi.fn(async (wb: any, fn: string) => {
-          capturedWorkbook = wb;
-          capturedFilename = fn;
-        }),
-      };
-    });
+    vi.clearAllMocks();
   });
 
-  // ---- P&L -----------------------------------------------------------
-
   it('exports styled P&L workbook with headers and totals', async () => {
-    const { exportPL } = await import('../reportExports');
-
     const data: PLReportData = {
       income: [{ id: 1, code: '4000', name: 'Donations', amount: 250 }],
       expenses: [{ id: 2, code: '5000', name: 'Rent', amount: 100 }],
@@ -83,7 +78,7 @@ describe('reportExports styled', () => {
     };
     const filters: PLReportFilters = { from: '2026-01-01', to: '2026-03-31' };
 
-    await exportPL(data, filters);
+    await exportPL(data, filters, fakeDeps);
 
     expect(capturedFilename).toBe('pl_2026-01-01_2026-03-31.xlsx');
     expect(capturedWorkbook).toBeTruthy();
@@ -91,7 +86,6 @@ describe('reportExports styled', () => {
     const wb = capturedWorkbook;
     expect(wb.worksheets.map((s: any) => s.name)).toContain('Profit & Loss');
 
-    // Row-content assertions (via xlsx round-trip)
     const rows = await sheetRows(wb, 'Profit & Loss');
     expect(rows).toContainEqual(['Profit & Loss', '', '']);
     expect(rows).toContainEqual(['', '4000 - Donations', 250]);
@@ -100,7 +94,6 @@ describe('reportExports styled', () => {
     expect(rows).toContainEqual(['', 'Total Expenses', 100]);
     expect(rows).toContainEqual(['Net Surplus / (Deficit)', '', 150]);
 
-    // Style assertions
     const ws = wb.getWorksheet('Profit & Loss');
 
     const titleCell = ws.getCell(1, 1);
@@ -113,20 +106,16 @@ describe('reportExports styled', () => {
     expect(metaCell.font?.size).toBe(10);
     expect(metaCell.font?.bold).toBeFalsy();
 
-    const incomeHeader = ws.getCell(4, 1); // 'INCOME'
+    const incomeHeader = ws.getCell(4, 1);
     expect(incomeHeader.font?.bold).toBe(true);
     expect(incomeHeader.fill?.type).toBe('pattern');
 
-    const amountCell = ws.getCell(5, 3); // 250
+    const amountCell = ws.getCell(5, 3);
     expect(amountCell.numFmt).toBe('#,##0.00;(#,##0.00)');
     expect(amountCell.alignment?.horizontal).toBe('right');
   }, 30_000);
 
-  // ---- Balance Sheet -------------------------------------------------
-
   it('exports styled balance sheet workbook with balance status row', async () => {
-    const { exportBalanceSheet } = await import('../reportExports');
-
     const data: BalanceSheetReportData = {
       assets: [{ id: 1, code: '1000', name: 'Cash', balance: 100 }],
       liabilities: [{ id: 2, code: '2000', name: 'AP', balance: 30 }],
@@ -141,7 +130,7 @@ describe('reportExports styled', () => {
     };
     const filters: BalanceSheetReportFilters = { as_of: '2026-03-31' };
 
-    await exportBalanceSheet(data, filters);
+    await exportBalanceSheet(data, filters, fakeDeps);
 
     expect(capturedFilename).toBe('balance_sheet_2026-03-31.xlsx');
 
@@ -151,22 +140,16 @@ describe('reportExports styled', () => {
     expect(rows).toContainEqual(['', 'Total Assets', 100]);
     expect(rows).toContainEqual(['Balanced', '', 'YES']);
 
-    // Total row ("Total Assets") has bold + top border
     const ws = wb.getWorksheet('Balance Sheet');
     const totalCell = ws.getCell(6, 2);
     expect(totalCell.font?.bold).toBe(true);
     expect(totalCell.border?.top?.style).toBe('thin');
 
-    // Grand total ("Total Liabilities + Equity") has medium top border
     const grandCell = ws.getCell(16, 1);
     expect(grandCell.border?.top?.style).toBe('medium');
   }, 30_000);
 
-  // ---- General Ledger ------------------------------------------------
-
   it('exports styled ledger workbook with opening and closing rows', async () => {
-    const { exportLedger } = await import('../reportExports');
-
     const data: LedgerReportData = {
       ledger: [
         {
@@ -191,7 +174,7 @@ describe('reportExports styled', () => {
     };
     const filters: LedgerReportFilters = { from: '2026-03-01', to: '2026-03-31' };
 
-    await exportLedger(data, filters);
+    await exportLedger(data, filters, fakeDeps);
 
     expect(capturedFilename).toBe('ledger_2026-03-01_2026-03-31.xlsx');
 
@@ -210,27 +193,20 @@ describe('reportExports styled', () => {
       'Closing Balance', '', '', '', '', '', '', 60,
     ]);
 
-    // Column headers have bold + fill + bottom border
     const ws = wb.getWorksheet('General Ledger');
     const hdrCell = ws.getCell(5, 1);
     expect(hdrCell.font?.bold).toBe(true);
     expect(hdrCell.fill?.type).toBe('pattern');
     expect(hdrCell.border?.bottom?.style).toBe('thin');
 
-    // Frozen panes: below title + metadata + blank = row 3
     expect(ws.views?.[0]?.state).toBe('frozen');
     expect(ws.views?.[0]?.ySplit).toBe(3);
 
-    // Column widths
     expect(ws.getColumn(1).width).toBe(12);
     expect(ws.getColumn(3).width).toBe(28);
   }, 30_000);
 
-  // ---- Trial Balance -------------------------------------------------
-
   it('exports styled trial balance with synthetic indentation', async () => {
-    const { exportTrialBalance } = await import('../reportExports');
-
     const data: TrialBalanceReportData = {
       accounts: [
         {
@@ -259,7 +235,7 @@ describe('reportExports styled', () => {
     };
     const filters: TrialBalanceReportFilters = { as_of: '2026-03-31' };
 
-    await exportTrialBalance(data, filters);
+    await exportTrialBalance(data, filters, fakeDeps);
 
     expect(capturedFilename).toBe('trial_balance_2026-03-31.xlsx');
 
@@ -274,24 +250,16 @@ describe('reportExports styled', () => {
     ]);
     expect(rows).toContainEqual(['TOTALS', '', 100, 10]);
 
-    // Synthetic account indent
     const ws = wb.getWorksheet('Trial Balance');
     const synthCell = ws.getCell(6, 2);
     expect(synthCell.alignment?.indent).toBe(2);
 
-    // TOTALS row is bold with top border
     const totalsCell = ws.getCell(8, 1);
     expect(totalsCell.font?.bold).toBe(true);
     expect(totalsCell.border?.top?.style).toBe('thin');
   }, 30_000);
 
-  // ---- Donor Summary & Detail ----------------------------------------
-
   it('exports styled donor summary and donor detail with totals', async () => {
-    const { exportDonorDetail, exportDonorSummary } =
-      await import('../reportExports');
-
-    // -- Summary --
     const summaryData: DonorSummaryReportData = {
       donors: [{
         contact_id: 1, contact_name: 'Jane Doe',
@@ -304,7 +272,7 @@ describe('reportExports styled', () => {
       from: '2026-01-01', to: '2026-03-31',
     };
 
-    await exportDonorSummary(summaryData, summaryFilters);
+    await exportDonorSummary(summaryData, summaryFilters, fakeDeps);
     expect(capturedFilename).toBe('donor_summary_2026-01-01_2026-03-31.xlsx');
 
     let wb = capturedWorkbook;
@@ -312,12 +280,10 @@ describe('reportExports styled', () => {
     expect(rows).toContainEqual(['Income by Donor — Summary', '', '', '']);
     expect(rows).toContainEqual(['Grand Total', '', '', 250]);
 
-    // Grand total has medium top border
     const summaryWs = wb.getWorksheet('Donor Summary');
     const grandCell = summaryWs.getCell(8, 1);
     expect(grandCell.border?.top?.style).toBe('medium');
 
-    // -- Detail --
     capturedWorkbook = null;
     capturedFilename = '';
 
@@ -347,7 +313,7 @@ describe('reportExports styled', () => {
       from: '2026-01-01', to: '2026-03-31',
     };
 
-    await exportDonorDetail(detailData, detailFilters);
+    await exportDonorDetail(detailData, detailFilters, fakeDeps);
     expect(capturedFilename).toBe('donor_detail_2026-01-01_2026-03-31.xlsx');
 
     wb = capturedWorkbook;
@@ -355,19 +321,13 @@ describe('reportExports styled', () => {
     expect(rows).toContainEqual(['Income by Donor — Detail', '', '', '', '']);
     expect(rows).toContainEqual(['Grand Total', '', '', '', 250]);
 
-    // Donor name band is a section header
     const detailWs = wb.getWorksheet('Donor Detail');
     const donorHeader = detailWs.getCell(4, 1);
     expect(donorHeader.font?.bold).toBe(true);
     expect(donorHeader.fill?.type).toBe('pattern');
   }, 30_000);
 
-  // ---- Reconciliation ------------------------------------------------
-
   it('exports styled reconciliation with summary + detail sheets', async () => {
-    const { exportReconciliationReport } =
-      await import('../reportExports');
-
     const report: ReconciliationReport = {
       account_name: 'Checking', account_code: '1000',
       account_type: 'ASSET', is_closed: false, status: 'BALANCED',
@@ -393,7 +353,7 @@ describe('reportExports styled', () => {
       fund_activity: [],
     };
 
-    await exportReconciliationReport(report);
+    await exportReconciliationReport(report, fakeDeps);
 
     expect(capturedFilename).toBe(
       'reconciliation_report_1000_2026-03-31.xlsx',
@@ -414,7 +374,6 @@ describe('reportExports styled', () => {
     expect(detailRows.flat()).toContain('Reconciliation Detail');
     expect(detailRows.flat()).toContain('Beginning Balance');
 
-    // Title font on both sheets
     const sTitle = wb.getWorksheet('Summary').getCell(1, 1);
     expect(sTitle.font?.name).toBe('Arial');
     expect(sTitle.font?.size).toBe(14);
@@ -424,9 +383,6 @@ describe('reportExports styled', () => {
   }, 30_000);
 
   it('exports liability reconciliation with charge labels', async () => {
-    const { exportReconciliationReport } =
-      await import('../reportExports');
-
     const report: ReconciliationReport = {
       account_name: 'Credit Card', account_code: '2200',
       account_type: 'LIABILITY', is_closed: false, status: 'BALANCED',
@@ -447,7 +403,7 @@ describe('reportExports styled', () => {
       fund_activity: [],
     };
 
-    await exportReconciliationReport(report);
+    await exportReconciliationReport(report, fakeDeps);
 
     expect(capturedFilename).toBe(
       'reconciliation_report_2200_2026/03/31.xlsx',
@@ -457,7 +413,6 @@ describe('reportExports styled', () => {
     const summaryRows = await sheetRows(wb, 'Summary');
     const detailRows = await sheetRows(wb, 'Detail');
 
-    // Summary header rows: title merged, subtitle line without valid time
     expect(summaryRows[0]?.[0]).toBe('2200 — Credit Card');
     expect(summaryRows[1]?.[0]).toBe('Reconciliation Summary');
     expect(summaryRows.flat()).toContain('Charges - 1 items');
@@ -469,9 +424,6 @@ describe('reportExports styled', () => {
   }, 30_000);
 
   it('exports reconciliation detail rows for outstanding/in-transit items', async () => {
-    const { exportReconciliationReport } =
-      await import('../reportExports');
-
     const report: ReconciliationReport = {
       account_name: 'Checking', account_code: '1000',
       account_type: 'ASSET', is_closed: false, status: 'BALANCED',
@@ -497,7 +449,7 @@ describe('reportExports styled', () => {
       fund_activity: [],
     };
 
-    await exportReconciliationReport(report);
+    await exportReconciliationReport(report, fakeDeps);
 
     const wb = capturedWorkbook;
     const detailRows = await sheetRows(wb, 'Detail');
@@ -511,17 +463,8 @@ describe('reportExports styled', () => {
   }, 30_000);
 });
 
-// ---------------------------------------------------------------------------
-// Contacts export (unchanged — still on xlsx writeFile path)
-// ---------------------------------------------------------------------------
-
 describe('reportExports contacts', () => {
   it('exports active contacts with dated filename', async () => {
-    vi.resetModules();
-
-    // Browser‑mode vitest cannot spy on or mock ESM namespace exports
-    // like xlsx.writeFile.  Instead we verify the workbook content by
-    // intercepting the Blob constructor (which writeFile uses internally).
     const blobParts: any[] = [];
     const origBlob = globalThis.Blob;
     globalThis.Blob = class extends origBlob {
@@ -532,21 +475,6 @@ describe('reportExports contacts', () => {
     } as any;
 
     try {
-      // We need the real excelExportHelper, so mock it minimally
-      // (contacts export doesn't use any ExcelJS functions).
-      vi.doMock('../excelExportHelper', async () => {
-        const actual =
-          await vi.importActual<typeof import('../excelExportHelper')>(
-            '../excelExportHelper',
-          );
-        return {
-          ...actual,
-          downloadWorkbook: vi.fn(async (_wb: any, _fn: string) => {}),
-        };
-      });
-
-      const { exportContacts } = await import('../reportExports');
-
       const contacts: ContactSummary[] = [
         {
           id: 1, type: 'DONOR', contact_class: 'INDIVIDUAL',
@@ -571,8 +499,6 @@ describe('reportExports contacts', () => {
       await exportContacts(contacts);
 
       expect(blobParts.length).toBeGreaterThan(0);
-      // The xlsx library writes the workbook buffer into a Blob.
-      // In jsdom the buffer arrives as a Uint8Array inside an Array.
       const raw = blobParts[0];
       const u8: Uint8Array =
         raw instanceof Uint8Array
@@ -589,14 +515,12 @@ describe('reportExports contacts', () => {
         defval: '',
       }) as any[][];
 
-      // Verify the workbook has contact data (not empty, contains expected names)
       expect(rows.length).toBeGreaterThan(0);
       const allValues = rows.flat();
       expect(allValues).toContain('Jane Doe');
       expect(allValues).toContain('D-100');
       expect(allValues.includes('Inactive Household')).toBe(false);
 
-      // Verify Notes header and cell content
       const headerRow = rows[3] as string[];
       const notesCol = headerRow.indexOf('Notes');
       expect(notesCol).toBeGreaterThan(-1);
@@ -604,7 +528,6 @@ describe('reportExports contacts', () => {
       const dataRows = rows.slice(4);
       const notesValues = dataRows.map((r: any[]) => r[notesCol]);
       expect(notesValues).toContain('Preferred donor — monthly giver');
-      // Inactive contact's note should not appear
       expect(notesValues.includes('Should not appear in export')).toBe(false);
     } finally {
       globalThis.Blob = origBlob;
@@ -612,15 +535,194 @@ describe('reportExports contacts', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// reportMetadata (unchanged)
-// ---------------------------------------------------------------------------
+describe('exportFinancialReport', () => {
+  const reconciliation: ReconciliationReport = {
+    account_name: 'Checking', account_code: '1000',
+    account_type: 'ASSET', is_closed: true, status: 'BALANCED',
+    statement_period_start: '2026-03-01',
+    statement_period_end: '2026-03-31',
+    reconciliation_date: '2026-04-01T14:30:00.000Z',
+    reconciler_name: 'Admin',
+    opening_balance: 1000, cleared_in: 200, cleared_out: 150,
+    statement_ending_balance: 1050, in_transit: 100,
+    outstanding_out: 50, adjusted_bank_balance: 1100,
+    book_balance: 1100, difference: 0,
+    cleared_in_items: [{
+      date: '2026-03-05', reference_no: null, payee: 'Donor',
+      description: 'Deposit', memo: null, amount: 200,
+      fund_name: 'General',
+    }],
+    cleared_out_items: [{
+      date: '2026-03-06', reference_no: 'CHK100', payee: 'Vendor',
+      description: 'Expense', memo: null, amount: 150,
+      fund_name: 'General',
+    }],
+    in_transit_items: [],
+    outstanding_out_items: [],
+    fund_activity: [],
+  };
+
+  const plData: PLReportData = {
+    income: [{ id: 1, code: '4000', name: 'Donations', amount: 5000 }],
+    expenses: [{ id: 2, code: '5000', name: 'Rent', amount: 2000 }],
+    total_income: 5000,
+    total_expenses: 2000,
+    net_surplus: 3000,
+  };
+
+  const bsData: BalanceSheetReportData = {
+    assets: [{ id: 1, code: '1000', name: 'Checking', balance: 5000 }],
+    liabilities: [],
+    equity: [{ id: 3, code: '3000', name: 'Net Assets', balance: 5000 }],
+    total_assets: 5000,
+    total_liabilities: 0,
+    total_equity: 5000,
+    total_liabilities_and_equity: 5000,
+    is_balanced: true,
+    diagnostics: [],
+    last_hard_close_date: null,
+  };
+
+  const tbData: TrialBalanceReportData = {
+    accounts: [{
+      id: 1, code: '1000', name: 'Checking', type: 'ASSET' as any,
+      account_class: 'BALANCE_SHEET' as any, normal_balance: 'DEBIT' as any,
+      net_side: 'DEBIT' as any, net_debit: 5000, net_credit: 0,
+      total_debit: 6000, total_credit: 1000,
+      is_abnormal_balance: false, is_synthetic: false,
+      synthetic_note: null, investigate_filters: null,
+    }],
+    grand_total_debit: 5000,
+    grand_total_credit: 5000,
+    is_balanced: true,
+    as_of: '2026-08-03',
+    fiscal_year_start: '2026-01-01',
+    diagnostics: [],
+    last_hard_close_date: null,
+  };
+
+  beforeEach(() => {
+    capturedWorkbook = null;
+    capturedFilename = '';
+    vi.clearAllMocks();
+  });
+
+  it('exports combined financial report with correct filename and 5 sheets in order', async () => {
+    await exportFinancialReport({
+      reconciliation,
+      pl: { data: plData, filters: { from: '2026-01-01', to: '2026-08-03' } },
+      balanceSheet: { data: bsData, filters: { as_of: '2026-08-03' } },
+      trialBalance: { data: tbData, filters: { as_of: '2026-08-03' } },
+      reportDate: '2026-08-03',
+    }, fakeDeps);
+
+    expect(capturedFilename).toBe('financial_report_2026-08-03.xlsx');
+    expect(capturedWorkbook).toBeTruthy();
+
+    const wb = capturedWorkbook;
+    const names = wb.worksheets.map((s: any) => s.name);
+    expect(names).toEqual([
+      'Reconciliation Summary',
+      'Reconciliation Details',
+      'Profit & Loss',
+      'Balance Sheet',
+      'Trial Balance',
+    ]);
+  }, 30_000);
+
+  it('includes reconciliation summary and detail content in combined export', async () => {
+    await exportFinancialReport({
+      reconciliation,
+      pl: { data: plData, filters: { from: '2026-01-01', to: '2026-08-03' } },
+      balanceSheet: { data: bsData, filters: { as_of: '2026-08-03' } },
+      trialBalance: { data: tbData, filters: { as_of: '2026-08-03' } },
+      reportDate: '2026-08-03',
+    }, fakeDeps);
+
+    const wb = capturedWorkbook;
+
+    const summaryRows = await sheetRows(wb, 'Reconciliation Summary');
+    expect(summaryRows[0]?.[0]).toBe('1000 — Checking');
+    expect(summaryRows.flat()).toContain('Reconciliation Summary');
+    expect(summaryRows.flat()).toContain('Cleared Balance');
+
+    const detailRows = await sheetRows(wb, 'Reconciliation Details');
+    expect(detailRows[0]?.[0]).toBe('1000 — Checking');
+    expect(detailRows.flat()).toContain('Reconciliation Detail');
+    expect(detailRows.flat()).toContain('Beginning Balance');
+  }, 30_000);
+
+  it('includes P&L, Balance Sheet, and Trial Balance content', async () => {
+    await exportFinancialReport({
+      reconciliation,
+      pl: { data: plData, filters: { from: '2026-01-01', to: '2026-08-03' } },
+      balanceSheet: { data: bsData, filters: { as_of: '2026-08-03' } },
+      trialBalance: { data: tbData, filters: { as_of: '2026-08-03' } },
+      reportDate: '2026-08-03',
+    }, fakeDeps);
+
+    const wb = capturedWorkbook;
+
+    const plRows = await sheetRows(wb, 'Profit & Loss');
+    expect(plRows).toContainEqual(['Profit & Loss', '', '']);
+    expect(plRows).toContainEqual(['', '4000 - Donations', 5000]);
+    expect(plRows).toContainEqual(['Net Surplus / (Deficit)', '', 3000]);
+
+    const bsRows = await sheetRows(wb, 'Balance Sheet');
+    expect(bsRows).toContainEqual(['Balance Sheet', '', '']);
+    expect(bsRows).toContainEqual(['', 'Checking', 5000]);
+    expect(bsRows).toContainEqual(['Balanced', '', 'YES']);
+
+    const tbRows = await sheetRows(wb, 'Trial Balance');
+    expect(tbRows).toContainEqual(['Trial Balance', '', '', '']);
+    expect(tbRows).toContainEqual(['TOTALS', '', 5000, 5000]);
+  }, 30_000);
+
+  it('retains styles and number formats from standalone builders', async () => {
+    await exportFinancialReport({
+      reconciliation,
+      pl: { data: plData, filters: { from: '2026-01-01', to: '2026-08-03' } },
+      balanceSheet: { data: bsData, filters: { as_of: '2026-08-03' } },
+      trialBalance: { data: tbData, filters: { as_of: '2026-08-03' } },
+      reportDate: '2026-08-03',
+    }, fakeDeps);
+
+    const wb = capturedWorkbook;
+
+    for (const name of ['Reconciliation Summary', 'Reconciliation Details', 'Profit & Loss', 'Balance Sheet', 'Trial Balance']) {
+      const titleCell = wb.getWorksheet(name).getCell(1, 1);
+      expect(titleCell.font?.name).toBe('Arial');
+      expect(titleCell.font?.size).toBe(14);
+    }
+  }, 30_000);
+
+  it('standalone exports still use original filenames and sheet names', async () => {
+    await exportReconciliationReport(reconciliation, fakeDeps);
+    expect(capturedFilename).toBe('reconciliation_report_1000_2026-03-31.xlsx');
+    expect(capturedWorkbook.worksheets.map((s: any) => s.name)).toEqual(['Summary', 'Detail']);
+
+    capturedWorkbook = null; capturedFilename = '';
+    await exportPL(plData, { from: '2026-01-01', to: '2026-08-03' }, fakeDeps);
+    expect(capturedFilename).toBe('pl_2026-01-01_2026-08-03.xlsx');
+    expect(capturedWorkbook.worksheets.map((s: any) => s.name)).toEqual(['Profit & Loss']);
+  }, 30_000);
+
+  it('throws contextual error when sheet builder fails and does not download', async () => {
+    await expect(exportFinancialReport({
+      reconciliation,
+      pl: { data: null as any, filters: { from: '2026-01-01', to: '2026-08-03' } },
+      balanceSheet: { data: bsData, filters: { as_of: '2026-08-03' } },
+      trialBalance: { data: tbData, filters: { as_of: '2026-08-03' } },
+      reportDate: '2026-08-03',
+    }, fakeDeps)).rejects.toThrow('Failed to build Profit & Loss sheet');
+
+    expect(capturedFilename).toBe('');
+    expect(capturedWorkbook).toBeNull();
+  }, 30_000);
+});
 
 describe('reportMetadata', () => {
-  it('has canonical UI titles for all six report types', async () => {
-    const { REPORT_META, getReportMeta, getReportTypeOptions } =
-      await import('../reportMetadata');
-
+  it('has canonical UI titles for all six report types', () => {
     expect(REPORT_META['pl'].title).toBe('Profit & Loss');
     expect(REPORT_META['pl'].tabName).toBe('Profit & Loss');
     expect(REPORT_META['pl'].filenamePrefix).toBe('pl');

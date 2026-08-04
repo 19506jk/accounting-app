@@ -5,6 +5,7 @@ import {
   addSheetToWorkbook,
   createWorkbook,
   downloadWorkbook,
+  ReportSheetBuilder,
   type ColumnConfig,
   type XlsxValue,
 } from './excelExportHelper';
@@ -25,9 +26,9 @@ import type {
   TrialBalanceReportFilters,
 } from '@shared/contracts';
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
+export interface ReportExportDependencies {
+  downloadWorkbook: typeof downloadWorkbook;
+}
 
 function formatReferenceForExport(referenceNo: string | null | undefined) {
   if (referenceNo === null || referenceNo === undefined || referenceNo === '') return '-';
@@ -44,88 +45,91 @@ const TXT: ColumnConfig = { type: 'text' };
 // Profit & Loss
 // ---------------------------------------------------------------------------
 
+function buildPLSheet(b: ReportSheetBuilder, data: PLReportData, filters: PLReportFilters): void {
+  const meta = REPORT_META['pl'];
+  b.title(meta.title);
+  b.metadata(`Period: ${filters.from} to ${filters.to}`);
+  b.blankRow();
+
+  b.sectionHeader('Income');
+  (data.income || []).forEach((a) =>
+    b.dataRow(['', `${a.code} - ${a.name}`, a.amount]),
+  );
+  b.totalRow(['', 'Total Income', data.total_income]);
+  b.blankRow();
+
+  b.sectionHeader('Expenses');
+  (data.expenses || []).forEach((a) =>
+    b.dataRow(['', `${a.code} - ${a.name}`, a.amount]),
+  );
+  b.totalRow(['', 'Total Expenses', data.total_expenses]);
+  b.blankRow();
+
+  b.totalRow(['Net Surplus / (Deficit)', '', data.net_surplus], {
+    grandTotal: true,
+  });
+}
+
 export async function exportPL(
   data: PLReportData,
   filters: PLReportFilters,
+  deps: ReportExportDependencies = { downloadWorkbook },
 ): Promise<void> {
   const meta = REPORT_META['pl'];
   const cols: (ColumnConfig | null)[] = [TXT, TXT, AMT];
   const filename = `${meta.filenamePrefix}_${filters.from}_${filters.to}.xlsx`;
 
   const wb = await createWorkbook();
-  addSheetToWorkbook(wb, meta.tabName, 3, cols, (b) => {
-    b.title(meta.title);
-    b.metadata(`Period: ${filters.from} to ${filters.to}`);
-    b.blankRow();
+  addSheetToWorkbook(wb, meta.tabName, 3, cols, (b) => buildPLSheet(b, data, filters));
 
-    // Income section
-    b.sectionHeader('Income');
-    (data.income || []).forEach((a) =>
-      b.dataRow(['', `${a.code} - ${a.name}`, a.amount]),
-    );
-    b.totalRow(['', 'Total Income', data.total_income]);
-    b.blankRow();
-
-    // Expenses section
-    b.sectionHeader('Expenses');
-    (data.expenses || []).forEach((a) =>
-      b.dataRow(['', `${a.code} - ${a.name}`, a.amount]),
-    );
-    b.totalRow(['', 'Total Expenses', data.total_expenses]);
-    b.blankRow();
-
-    b.totalRow(['Net Surplus / (Deficit)', '', data.net_surplus], {
-      grandTotal: true,
-    });
-  });
-
-  await downloadWorkbook(wb, filename);
+  await deps.downloadWorkbook(wb, filename);
 }
 
 // ---------------------------------------------------------------------------
 // Balance Sheet
 // ---------------------------------------------------------------------------
 
+function buildBalanceSheetSheet(b: ReportSheetBuilder, data: BalanceSheetReportData, filters: BalanceSheetReportFilters): void {
+  const meta = REPORT_META['balance-sheet'];
+  b.title(meta.title);
+  b.metadata(`As of: ${filters.as_of}`);
+  b.blankRow();
+
+  b.sectionHeader('Assets');
+  (data.assets || []).forEach((a) => b.dataRow(['', a.name, a.balance]));
+  b.totalRow(['', 'Total Assets', data.total_assets]);
+  b.blankRow();
+
+  b.sectionHeader('Liabilities');
+  (data.liabilities || []).forEach((a) => b.dataRow(['', a.name, a.balance]));
+  b.totalRow(['', 'Total Liabilities', data.total_liabilities]);
+  b.blankRow();
+
+  b.sectionHeader('Equity');
+  (data.equity || []).forEach((a) => b.dataRow(['', a.name, a.balance]));
+  b.totalRow(['', 'Total Equity', data.total_equity]);
+  b.blankRow();
+
+  b.totalRow(
+    ['Total Liabilities + Equity', '', data.total_liabilities_and_equity],
+    { grandTotal: true },
+  );
+  b.statusRow(['Balanced', '', data.is_balanced ? 'YES' : 'NO']);
+}
+
 export async function exportBalanceSheet(
   data: BalanceSheetReportData,
   filters: BalanceSheetReportFilters,
+  deps: ReportExportDependencies = { downloadWorkbook },
 ): Promise<void> {
   const meta = REPORT_META['balance-sheet'];
   const cols: (ColumnConfig | null)[] = [TXT, TXT, AMT];
   const filename = `${meta.filenamePrefix}_${filters.as_of}.xlsx`;
 
   const wb = await createWorkbook();
-  addSheetToWorkbook(wb, meta.tabName, 3, cols, (b) => {
-    b.title(meta.title);
-    b.metadata(`As of: ${filters.as_of}`);
-    b.blankRow();
+  addSheetToWorkbook(wb, meta.tabName, 3, cols, (b) => buildBalanceSheetSheet(b, data, filters));
 
-    // Assets
-    b.sectionHeader('Assets');
-    (data.assets || []).forEach((a) => b.dataRow(['', a.name, a.balance]));
-    b.totalRow(['', 'Total Assets', data.total_assets]);
-    b.blankRow();
-
-    // Liabilities
-    b.sectionHeader('Liabilities');
-    (data.liabilities || []).forEach((a) => b.dataRow(['', a.name, a.balance]));
-    b.totalRow(['', 'Total Liabilities', data.total_liabilities]);
-    b.blankRow();
-
-    // Equity
-    b.sectionHeader('Equity');
-    (data.equity || []).forEach((a) => b.dataRow(['', a.name, a.balance]));
-    b.totalRow(['', 'Total Equity', data.total_equity]);
-    b.blankRow();
-
-    b.totalRow(
-      ['Total Liabilities + Equity', '', data.total_liabilities_and_equity],
-      { grandTotal: true },
-    );
-    b.statusRow(['Balanced', '', data.is_balanced ? 'YES' : 'NO']);
-  });
-
-  await downloadWorkbook(wb, filename);
+  await deps.downloadWorkbook(wb, filename);
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +139,7 @@ export async function exportBalanceSheet(
 export async function exportLedger(
   data: LedgerReportData,
   filters: LedgerReportFilters,
+  deps: ReportExportDependencies = { downloadWorkbook },
 ): Promise<void> {
   const meta = REPORT_META['ledger'];
   const cols: (ColumnConfig | null)[] = [
@@ -192,53 +197,57 @@ export async function exportLedger(
     }
   }
 
-  await downloadWorkbook(wb, filename);
+  await deps.downloadWorkbook(wb, filename);
 }
 
 // ---------------------------------------------------------------------------
 // Trial Balance
 // ---------------------------------------------------------------------------
 
+function buildTrialBalanceSheet(b: ReportSheetBuilder, data: TrialBalanceReportData, filters: TrialBalanceReportFilters): void {
+  const meta = REPORT_META['trial-balance'];
+  const orderedAccounts = getVisibleTrialBalanceAccounts(data.accounts || []);
+
+  b.title(meta.title);
+  b.metadata(`As of: ${filters.as_of}`);
+  b.blankRow();
+
+  b.headerRow(['Code', 'Account', 'Debit', 'Credit']);
+
+  orderedAccounts.forEach((a) => {
+    const indent = a.is_synthetic ? 2 : undefined;
+    b.dataRow(
+      [
+        a.code,
+        `${a.name}${a.is_synthetic ? ' [Synthetic]' : ''}`,
+        a.net_debit,
+        a.net_credit,
+      ],
+      indent !== undefined ? { indentCol: 1, indent } : undefined,
+    );
+  });
+
+  b.blankRow();
+  b.totalRow([
+    'TOTALS', '', data.grand_total_debit, data.grand_total_credit,
+  ]);
+  b.statusRow(['Balanced', '', '', data.is_balanced ? 'YES' : 'NO']);
+}
+
 export async function exportTrialBalance(
   data: TrialBalanceReportData,
   filters: TrialBalanceReportFilters,
+  deps: ReportExportDependencies = { downloadWorkbook },
 ): Promise<void> {
   const meta = REPORT_META['trial-balance'];
   const cols: (ColumnConfig | null)[] = [TXT, TXT, AMT, AMT];
   const colWidths = [14, 44, 14, 14];
   const filename = `${meta.filenamePrefix}_${filters.as_of}.xlsx`;
 
-  const orderedAccounts = getVisibleTrialBalanceAccounts(data.accounts || []);
-
   const wb = await createWorkbook();
-  addSheetToWorkbook(wb, meta.tabName, 4, cols, (b) => {
-    b.title(meta.title);
-    b.metadata(`As of: ${filters.as_of}`);
-    b.blankRow();
+  addSheetToWorkbook(wb, meta.tabName, 4, cols, (b) => buildTrialBalanceSheet(b, data, filters), colWidths);
 
-    b.headerRow(['Code', 'Account', 'Debit', 'Credit']);
-
-    orderedAccounts.forEach((a) => {
-      const indent = a.is_synthetic ? 2 : undefined;
-      b.dataRow(
-        [
-          a.code,
-          `${a.name}${a.is_synthetic ? ' [Synthetic]' : ''}`,
-          a.net_debit,
-          a.net_credit,
-        ],
-        indent !== undefined ? { indentCol: 1, indent } : undefined,
-      );
-    });
-
-    b.blankRow();
-    b.totalRow([
-      'TOTALS', '', data.grand_total_debit, data.grand_total_credit,
-    ]);
-    b.statusRow(['Balanced', '', '', data.is_balanced ? 'YES' : 'NO']);
-  }, colWidths);
-
-  await downloadWorkbook(wb, filename);
+  await deps.downloadWorkbook(wb, filename);
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +257,7 @@ export async function exportTrialBalance(
 export async function exportDonorSummary(
   data: DonorSummaryReportData,
   filters: DonorSummaryReportFilters,
+  deps: ReportExportDependencies = { downloadWorkbook },
 ): Promise<void> {
   const meta = REPORT_META['donors-summary'];
   // 4 columns: donor name, donation count, spacer, total amount
@@ -281,7 +291,7 @@ export async function exportDonorSummary(
     });
   }, colWidths);
 
-  await downloadWorkbook(wb, filename);
+  await deps.downloadWorkbook(wb, filename);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +301,7 @@ export async function exportDonorSummary(
 export async function exportDonorDetail(
   data: DonorDetailReportData,
   filters: DonorDetailReportFilters,
+  deps: ReportExportDependencies = { downloadWorkbook },
 ): Promise<void> {
   const meta = REPORT_META['donors-detail'];
   const cols: (ColumnConfig | null)[] = [TXT, TXT, TXT, TXT, AMT];
@@ -344,7 +355,7 @@ export async function exportDonorDetail(
     });
   }, colWidths);
 
-  await downloadWorkbook(wb, filename);
+  await deps.downloadWorkbook(wb, filename);
 }
 
 // ---------------------------------------------------------------------------
@@ -460,248 +471,317 @@ function formatReportDateTime(isoTimestamp: string): string {
 // Reconciliation Report
 // ---------------------------------------------------------------------------
 
-export async function exportReconciliationReport(
-  report: ReconciliationReport,
-): Promise<void> {
-  const labels = getQbLabels(report.account_type);
-  const clearedNet = dec(report.cleared_in).minus(report.cleared_out);
-  const clearedBalance = dec(report.opening_balance).plus(clearedNet);
-  const unclearedNet = dec(report.in_transit).minus(report.outstanding_out);
-  const registerNet = dec(report.book_balance).minus(report.opening_balance);
+function recLabels(report: ReconciliationReport) { return getQbLabels(report.account_type); }
+function recClearedNet(report: ReconciliationReport) { return dec(report.cleared_in).minus(report.cleared_out); }
+function recClearedBalance(report: ReconciliationReport) { return dec(report.opening_balance).plus(recClearedNet(report)); }
+function recUnclearedNet(report: ReconciliationReport) { return dec(report.in_transit).minus(report.outstanding_out); }
+function recRegisterNet(report: ReconciliationReport) { return dec(report.book_balance).minus(report.opening_balance); }
+
+export function buildReconciliationSummarySheet(b: ReportSheetBuilder, report: ReconciliationReport): void {
+  const labels = recLabels(report);
+  const clearedNet = recClearedNet(report);
+  const clearedBalance = recClearedBalance(report);
+  const unclearedNet = recUnclearedNet(report);
   const reportTime = formatReportDateTime(report.reconciliation_date);
   const statementDate = formatQbDate(report.statement_period_end);
   const accountLabel = formatReconciliationAccountTitle(report);
   const periodLabel = `${report.account_code}-${report.account_name}, Period Ending ${report.statement_period_end}`;
 
-  const filename = `reconciliation_report_${report.account_code}_${report.statement_period_end}.xlsx`;
+  b.title(accountLabel);
+  b.dataRow(['Reconciliation Summary', '', '', '', reportTime]);
+  b.dataRow([periodLabel, '', '', '', statementDate]);
+  b.blankRow();
 
-  // ---- Summary sheet ---------------------------------------------------
+  b.dataRow(['Beginning Balance', '', '', '', report.opening_balance]);
+
+  b.sectionHeader('Cleared Transactions');
+  b.dataRow([
+    '',
+    `${labels.clearedOut} - ${report.cleared_out_items.length} items`,
+    '',
+    '',
+    Number(dec(report.cleared_out).negated()),
+  ]);
+  b.dataRow([
+    '',
+    `${labels.clearedIn} - ${report.cleared_in_items.length} items`,
+    '',
+    '',
+    report.cleared_in,
+  ]);
+  b.totalRow(['', 'Total Cleared Transactions', '', '', Number(clearedNet)]);
+  b.totalRow(['Cleared Balance', '', '', '', Number(clearedBalance)]);
+
+  b.sectionHeader('Uncleared Transactions');
+  b.dataRow([
+    '',
+    `${labels.outstandingOut} - ${report.outstanding_out_items.length} items`,
+    '',
+    '',
+    Number(dec(report.outstanding_out).negated()),
+  ]);
+  b.dataRow([
+    '',
+    `${labels.inTransit} - ${report.in_transit_items.length} items`,
+    '',
+    '',
+    report.in_transit,
+  ]);
+  b.totalRow([
+    '', 'Total Uncleared Transactions', '', '', Number(unclearedNet),
+  ]);
+
+  b.totalRow([
+    `Register Balance as of ${report.statement_period_end}`,
+    '', '', '', report.book_balance,
+  ]);
+  b.totalRow(['Ending Balance', '', '', '', report.book_balance], {
+    grandTotal: true,
+  });
+}
+
+export function buildReconciliationDetailSheet(b: ReportSheetBuilder, report: ReconciliationReport): void {
+  const labels = recLabels(report);
+  const clearedNet = recClearedNet(report);
+  const clearedBalance = recClearedBalance(report);
+  const unclearedNet = recUnclearedNet(report);
+  const registerNet = recRegisterNet(report);
+  const reportTime = formatReportDateTime(report.reconciliation_date);
+  const statementDate = formatQbDate(report.statement_period_end);
+  const accountLabel = formatReconciliationAccountTitle(report);
+  const periodLabel = `${report.account_code}-${report.account_name}, Period Ending ${report.statement_period_end}`;
+
+  b.title(accountLabel);
+  b.dataRow(['Reconciliation Detail', '', '', '', '', '', '', '', '', '', reportTime]);
+  b.dataRow([periodLabel, '', '', '', '', '', '', '', '', '', statementDate]);
+  b.blankRow();
+
+  b.headerRow([
+    '', '', '', '', 'Type', 'Date', 'Num', 'Name', 'Clr', 'Amount', 'Balance',
+  ]);
+  b.dataRow([
+    'Beginning Balance', '', '', '', '', '', '', '', '', '', report.opening_balance,
+  ]);
+
+  let running = dec(report.opening_balance);
+
+  b.sectionHeader('Cleared Transactions');
+  b.dataRow([
+    '', '', `${labels.clearedOut} - ${report.cleared_out_items.length} items`,
+    '', '', '', '', '', '', '', '',
+  ]);
+
+  report.cleared_out_items.forEach((item) => {
+    const signedAmount = dec(item.amount).negated();
+    running = running.plus(signedAmount);
+    b.dataRow([
+      '', '', '', '',
+      labels.outType,
+      item.date,
+      formatReferenceForExport(item.reference_no),
+      item.payee || '',
+      'x',
+      Number(signedAmount),
+      Number(running),
+    ]);
+  });
+  b.totalRow([
+    '', '', '', `Total ${labels.clearedOut}`,
+    '', '', '', '', '',
+    Number(dec(report.cleared_out).negated()),
+    Number(running),
+  ]);
+
+  b.dataRow([
+    '', '', '', `${labels.clearedIn} - ${report.cleared_in_items.length} items`,
+    '', '', '', '', '', '', '',
+  ]);
+  report.cleared_in_items.forEach((item) => {
+    const signedAmount = dec(item.amount);
+    running = running.plus(signedAmount);
+    b.dataRow([
+      '', '', '', '',
+      labels.inType,
+      item.date,
+      formatReferenceForExport(item.reference_no),
+      item.payee || '',
+      'x',
+      item.amount,
+      Number(running),
+    ]);
+  });
+  b.totalRow([
+    '', '', '', `Total ${labels.clearedIn}`,
+    '', '', '', '', '',
+    report.cleared_in,
+    Number(running),
+  ]);
+
+  b.totalRow([
+    '', '', 'Total Cleared Transactions',
+    '', '', '', '', '', '',
+    Number(clearedNet),
+    Number(running),
+  ]);
+  b.totalRow([
+    'Cleared Balance', '', '', '',
+    '', '', '', '', '',
+    Number(clearedNet),
+    Number(clearedBalance),
+  ]);
+
+  b.sectionHeader('Uncleared Transactions');
+
+  b.dataRow([
+    '', '', '', `${labels.outstandingOut} - ${report.outstanding_out_items.length} items`,
+    '', '', '', '', '', '', '',
+  ]);
+  report.outstanding_out_items.forEach((item) => {
+    const signedAmount = dec(item.amount).negated();
+    running = running.plus(signedAmount);
+    b.dataRow([
+      '', '', '', '',
+      labels.outType,
+      item.date,
+      formatReferenceForExport(item.reference_no),
+      item.payee || '',
+      '',
+      Number(signedAmount),
+      Number(running),
+    ]);
+  });
+  b.totalRow([
+    '', '', '', `Total ${labels.outstandingOut}`,
+    '', '', '', '', '',
+    Number(dec(report.outstanding_out).negated()),
+    Number(running),
+  ]);
+
+  b.dataRow([
+    '', '', '', `${labels.inTransit} - ${report.in_transit_items.length} items`,
+    '', '', '', '', '', '', '',
+  ]);
+  report.in_transit_items.forEach((item) => {
+    const signedAmount = dec(item.amount);
+    running = running.plus(signedAmount);
+    b.dataRow([
+      '', '', '', '',
+      labels.inType,
+      item.date,
+      formatReferenceForExport(item.reference_no),
+      item.payee || '',
+      '',
+      item.amount,
+      Number(running),
+    ]);
+  });
+  b.totalRow([
+    '', '', '', `Total ${labels.inTransit}`,
+    '', '', '', '', '',
+    report.in_transit,
+    Number(running),
+  ]);
+
+  b.totalRow([
+    '', '', 'Total Uncleared Transactions',
+    '', '', '', '', '', '',
+    Number(unclearedNet),
+    Number(running),
+  ]);
+
+  b.totalRow([
+    `Register Balance as of ${report.statement_period_end}`,
+    '', '', '',
+    '', '', '', '', '',
+    Number(registerNet),
+    report.book_balance,
+  ]);
+  b.totalRow([
+    'Ending Balance', '', '', '',
+    '', '', '', '', '',
+    Number(registerNet),
+    report.book_balance,
+  ], { grandTotal: true });
+}
+
+export async function exportReconciliationReport(
+  report: ReconciliationReport,
+  deps: ReportExportDependencies = { downloadWorkbook },
+): Promise<void> {
   const summaryCols: (ColumnConfig | null)[] = [TXT, TXT, TXT, TXT, AMT];
   const summaryWidths = [40, 30, 30, 12, 16];
-
-  const wb = await createWorkbook();
-
-  addSheetToWorkbook(wb, 'Summary', 5, summaryCols, (b) => {
-    b.title(accountLabel);
-    b.dataRow(['Reconciliation Summary', '', '', '', reportTime]);
-    b.dataRow([periodLabel, '', '', '', statementDate]);
-    b.blankRow();
-
-    b.dataRow(['Beginning Balance', '', '', '', report.opening_balance]);
-
-    // Cleared transactions
-    b.sectionHeader('Cleared Transactions');
-    b.dataRow([
-      '',
-      `${labels.clearedOut} - ${report.cleared_out_items.length} items`,
-      '',
-      '',
-      Number(dec(report.cleared_out).negated()),
-    ]);
-    b.dataRow([
-      '',
-      `${labels.clearedIn} - ${report.cleared_in_items.length} items`,
-      '',
-      '',
-      report.cleared_in,
-    ]);
-    b.totalRow(['', 'Total Cleared Transactions', '', '', Number(clearedNet)]);
-    b.totalRow(['Cleared Balance', '', '', '', Number(clearedBalance)]);
-
-    // Uncleared transactions
-    b.sectionHeader('Uncleared Transactions');
-    b.dataRow([
-      '',
-      `${labels.outstandingOut} - ${report.outstanding_out_items.length} items`,
-      '',
-      '',
-      Number(dec(report.outstanding_out).negated()),
-    ]);
-    b.dataRow([
-      '',
-      `${labels.inTransit} - ${report.in_transit_items.length} items`,
-      '',
-      '',
-      report.in_transit,
-    ]);
-    b.totalRow([
-      '', 'Total Uncleared Transactions', '', '', Number(unclearedNet),
-    ]);
-
-    b.totalRow([
-      `Register Balance as of ${report.statement_period_end}`,
-      '', '', '', report.book_balance,
-    ]);
-    b.totalRow(['Ending Balance', '', '', '', report.book_balance], {
-      grandTotal: true,
-    });
-  }, summaryWidths);
-
-  // ---- Detail sheet ---------------------------------------------------
   const detailCols: (ColumnConfig | null)[] = [
     TXT, TXT, TXT, TXT, TXT, TXT, TXT, TXT, TXT, AMT, AMT,
   ];
   const detailWidths = [30, 4, 26, 30, 16, 12, 18, 24, 6, 14, 14];
 
-  addSheetToWorkbook(wb, 'Detail', 11, detailCols, (b) => {
-    b.title(accountLabel);
-    b.dataRow(['Reconciliation Detail', '', '', '', '', '', '', '', '', '', reportTime]);
-    b.dataRow([periodLabel, '', '', '', '', '', '', '', '', '', statementDate]);
-    b.blankRow();
+  const filename = `reconciliation_report_${report.account_code}_${report.statement_period_end}.xlsx`;
 
-    b.headerRow([
-      '', '', '', '', 'Type', 'Date', 'Num', 'Name', 'Clr', 'Amount', 'Balance',
-    ]);
-    b.dataRow([
-      'Beginning Balance', '', '', '', '', '', '', '', '', '', report.opening_balance,
-    ]);
+  const wb = await createWorkbook();
+  addSheetToWorkbook(wb, 'Summary', 5, summaryCols, (b) => buildReconciliationSummarySheet(b, report), summaryWidths);
+  addSheetToWorkbook(wb, 'Detail', 11, detailCols, (b) => buildReconciliationDetailSheet(b, report), detailWidths);
 
-    // Running balance tracker
-    let running = dec(report.opening_balance);
+  await deps.downloadWorkbook(wb, filename);
+}
 
-    // ---- Cleared out
-    b.sectionHeader('Cleared Transactions');
-    b.dataRow([
-      '', '', `${labels.clearedOut} - ${report.cleared_out_items.length} items`,
-      '', '', '', '', '', '', '', '',
-    ]);
+export interface FinancialReportExportInput {
+  reconciliation: ReconciliationReport;
+  pl: { data: PLReportData; filters: PLReportFilters };
+  balanceSheet: { data: BalanceSheetReportData; filters: BalanceSheetReportFilters };
+  trialBalance: { data: TrialBalanceReportData; filters: TrialBalanceReportFilters };
+  reportDate: string;
+}
 
-    report.cleared_out_items.forEach((item) => {
-      const signedAmount = dec(item.amount).negated();
-      running = running.plus(signedAmount);
-      b.dataRow([
-        '', '', '', '',
-        labels.outType,
-        item.date,
-        formatReferenceForExport(item.reference_no),
-        item.payee || '',
-        'x',
-        Number(signedAmount),
-        Number(running),
-      ]);
-    });
-    b.totalRow([
-      '', '', '', `Total ${labels.clearedOut}`,
-      '', '', '', '', '',
-      Number(dec(report.cleared_out).negated()),
-      Number(running),
-    ]);
+export async function exportFinancialReport(
+  input: FinancialReportExportInput,
+  deps: ReportExportDependencies = { downloadWorkbook },
+): Promise<void> {
+  const filename = `financial_report_${input.reportDate}.xlsx`;
 
-    // ---- Cleared in
-    b.dataRow([
-      '', '', '', `${labels.clearedIn} - ${report.cleared_in_items.length} items`,
-      '', '', '', '', '', '', '',
-    ]);
-    report.cleared_in_items.forEach((item) => {
-      const signedAmount = dec(item.amount);
-      running = running.plus(signedAmount);
-      b.dataRow([
-        '', '', '', '',
-        labels.inType,
-        item.date,
-        formatReferenceForExport(item.reference_no),
-        item.payee || '',
-        'x',
-        item.amount,
-        Number(running),
-      ]);
-    });
-    b.totalRow([
-      '', '', '', `Total ${labels.clearedIn}`,
-      '', '', '', '', '',
-      report.cleared_in,
-      Number(running),
-    ]);
+  const summaryCols: (ColumnConfig | null)[] = [TXT, TXT, TXT, TXT, AMT];
+  const summaryWidths = [40, 30, 30, 12, 16];
+  const detailCols: (ColumnConfig | null)[] = [
+    TXT, TXT, TXT, TXT, TXT, TXT, TXT, TXT, TXT, AMT, AMT,
+  ];
+  const detailWidths = [30, 4, 26, 30, 16, 12, 18, 24, 6, 14, 14];
+  const plCols: (ColumnConfig | null)[] = [TXT, TXT, AMT];
+  const bsCols: (ColumnConfig | null)[] = [TXT, TXT, AMT];
+  const tbCols: (ColumnConfig | null)[] = [TXT, TXT, AMT, AMT];
+  const tbWidths = [14, 44, 14, 14];
 
-    b.totalRow([
-      '', '', 'Total Cleared Transactions',
-      '', '', '', '', '', '',
-      Number(clearedNet),
-      Number(running),
-    ]);
-    b.totalRow([
-      'Cleared Balance', '', '', '',
-      '', '', '', '', '',
-      Number(clearedNet),
-      Number(clearedBalance),
-    ]);
+  const wb = await createWorkbook();
 
-    // ---- Uncleared
-    b.sectionHeader('Uncleared Transactions');
+  try {
+    addSheetToWorkbook(wb, 'Reconciliation Summary', 5, summaryCols, (b) => buildReconciliationSummarySheet(b, input.reconciliation), summaryWidths);
+  } catch (err) {
+    throw new Error(`Failed to build Reconciliation Summary sheet: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-    b.dataRow([
-      '', '', '', `${labels.outstandingOut} - ${report.outstanding_out_items.length} items`,
-      '', '', '', '', '', '', '',
-    ]);
-    report.outstanding_out_items.forEach((item) => {
-      const signedAmount = dec(item.amount).negated();
-      running = running.plus(signedAmount);
-      b.dataRow([
-        '', '', '', '',
-        labels.outType,
-        item.date,
-        formatReferenceForExport(item.reference_no),
-        item.payee || '',
-        '',
-        Number(signedAmount),
-        Number(running),
-      ]);
-    });
-    b.totalRow([
-      '', '', '', `Total ${labels.outstandingOut}`,
-      '', '', '', '', '',
-      Number(dec(report.outstanding_out).negated()),
-      Number(running),
-    ]);
+  try {
+    addSheetToWorkbook(wb, 'Reconciliation Details', 11, detailCols, (b) => buildReconciliationDetailSheet(b, input.reconciliation), detailWidths);
+  } catch (err) {
+    throw new Error(`Failed to build Reconciliation Details sheet: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-    b.dataRow([
-      '', '', '', `${labels.inTransit} - ${report.in_transit_items.length} items`,
-      '', '', '', '', '', '', '',
-    ]);
-    report.in_transit_items.forEach((item) => {
-      const signedAmount = dec(item.amount);
-      running = running.plus(signedAmount);
-      b.dataRow([
-        '', '', '', '',
-        labels.inType,
-        item.date,
-        formatReferenceForExport(item.reference_no),
-        item.payee || '',
-        '',
-        item.amount,
-        Number(running),
-      ]);
-    });
-    b.totalRow([
-      '', '', '', `Total ${labels.inTransit}`,
-      '', '', '', '', '',
-      report.in_transit,
-      Number(running),
-    ]);
+  try {
+    addSheetToWorkbook(wb, REPORT_META['pl'].tabName, 3, plCols, (b) => buildPLSheet(b, input.pl.data, input.pl.filters));
+  } catch (err) {
+    throw new Error(`Failed to build Profit & Loss sheet: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-    b.totalRow([
-      '', '', 'Total Uncleared Transactions',
-      '', '', '', '', '', '',
-      Number(unclearedNet),
-      Number(running),
-    ]);
+  try {
+    addSheetToWorkbook(wb, REPORT_META['balance-sheet'].tabName, 3, bsCols, (b) => buildBalanceSheetSheet(b, input.balanceSheet.data, input.balanceSheet.filters));
+  } catch (err) {
+    throw new Error(`Failed to build Balance Sheet sheet: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-    b.totalRow([
-      `Register Balance as of ${report.statement_period_end}`,
-      '', '', '',
-      '', '', '', '', '',
-      Number(registerNet),
-      report.book_balance,
-    ]);
-    b.totalRow([
-      'Ending Balance', '', '', '',
-      '', '', '', '', '',
-      Number(registerNet),
-      report.book_balance,
-    ], { grandTotal: true });
-  }, detailWidths);
+  try {
+    addSheetToWorkbook(wb, REPORT_META['trial-balance'].tabName, 4, tbCols, (b) => buildTrialBalanceSheet(b, input.trialBalance.data, input.trialBalance.filters), tbWidths);
+  } catch (err) {
+    throw new Error(`Failed to build Trial Balance sheet: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-  await downloadWorkbook(wb, filename);
+  await deps.downloadWorkbook(wb, filename);
 }
 
 // ---------------------------------------------------------------------------

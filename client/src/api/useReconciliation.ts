@@ -25,7 +25,7 @@ interface ClearItemPayload {
 
 function reconciliationReportQueryOptions(id: number) {
   return {
-    queryKey: ['reconciliation-report', id],
+    queryKey: ['reconciliation-report', id] as const,
     queryFn: async () => {
       const { data } = await client.get<ReconciliationReportResponse>(`/reconciliations/${id}/report`)
       return data.report
@@ -33,13 +33,19 @@ function reconciliationReportQueryOptions(id: number) {
   }
 }
 
-export function useReconciliations() {
-  return useQuery<ReconciliationSummary[]>({
-    queryKey: ['reconciliations'],
+export function reconciliationsQueryOptions() {
+  return {
+    queryKey: ['reconciliations'] as const,
     queryFn: async () => {
       const { data } = await client.get<{ reconciliations: ReconciliationSummary[] }>('/reconciliations')
       return data.reconciliations
     },
+  }
+}
+
+export function useReconciliations() {
+  return useQuery<ReconciliationSummary[]>({
+    ...reconciliationsQueryOptions(),
   })
 }
 
@@ -157,4 +163,8 @@ export function useReconciliationReport(id: number | null | undefined) {
 
 export async function getReconciliationReport(queryClient: QueryClient, id: number) {
   return queryClient.fetchQuery<ReconciliationReport>(reconciliationReportQueryOptions(id))
+}
+
+export async function getReconciliations(queryClient: QueryClient) {
+  return queryClient.fetchQuery<ReconciliationSummary[]>(reconciliationsQueryOptions())
 }

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import client from './client'
 
 import type {
@@ -16,27 +17,50 @@ import type {
   TrialBalanceReportResponse,
 } from '@shared/contracts'
 
-export function usePLReport(filters: PLReportFilters, enabled = true) {
-  return useQuery<PLReportResponse['report']>({
-    queryKey: ['reports', 'pl', filters.from, filters.to, filters.fund_id ?? null],
+export function plReportQueryOptions(filters: PLReportFilters) {
+  return {
+    queryKey: ['reports', 'pl', filters.from, filters.to, filters.fund_id ?? null] as const,
     queryFn: async () => {
       const { data } = await client.get<PLReportResponse>('/reports/pl', { params: filters })
       return data.report
     },
-    enabled,
     staleTime: 0,
+  }
+}
+
+export function balanceSheetReportQueryOptions(filters: BalanceSheetReportFilters) {
+  return {
+    queryKey: ['reports', 'balance-sheet', filters.as_of, filters.fund_id ?? null] as const,
+    queryFn: async () => {
+      const { data } = await client.get<BalanceSheetReportResponse>('/reports/balance-sheet', { params: filters })
+      return data.report
+    },
+    staleTime: 0,
+  }
+}
+
+export function trialBalanceReportQueryOptions(filters: TrialBalanceReportFilters) {
+  return {
+    queryKey: ['reports', 'trial-balance', filters.as_of, filters.fund_id ?? null] as const,
+    queryFn: async () => {
+      const { data } = await client.get<TrialBalanceReportResponse>('/reports/trial-balance', { params: filters })
+      return data.report
+    },
+    staleTime: 0,
+  }
+}
+
+export function usePLReport(filters: PLReportFilters, enabled = true) {
+  return useQuery<PLReportResponse['report']>({
+    ...plReportQueryOptions(filters),
+    enabled,
   })
 }
 
 export function useBalanceSheetReport(filters: BalanceSheetReportFilters, enabled = true) {
   return useQuery<BalanceSheetReportResponse['report']>({
-    queryKey: ['reports', 'balance-sheet', filters.as_of, filters.fund_id ?? null],
-    queryFn: async () => {
-      const { data } = await client.get<BalanceSheetReportResponse>('/reports/balance-sheet', { params: filters })
-      return data.report
-    },
+    ...balanceSheetReportQueryOptions(filters),
     enabled,
-    staleTime: 0,
   })
 }
 
@@ -54,14 +78,21 @@ export function useLedgerReport(filters: LedgerReportFilters, enabled = true) {
 
 export function useTrialBalanceReport(filters: TrialBalanceReportFilters, enabled = true) {
   return useQuery<TrialBalanceReportResponse['report']>({
-    queryKey: ['reports', 'trial-balance', filters.as_of, filters.fund_id ?? null],
-    queryFn: async () => {
-      const { data } = await client.get<TrialBalanceReportResponse>('/reports/trial-balance', { params: filters })
-      return data.report
-    },
+    ...trialBalanceReportQueryOptions(filters),
     enabled,
-    staleTime: 0,
   })
+}
+
+export async function getPLReport(queryClient: QueryClient, filters: PLReportFilters) {
+  return queryClient.fetchQuery<PLReportResponse['report']>(plReportQueryOptions(filters))
+}
+
+export async function getBalanceSheetReport(queryClient: QueryClient, filters: BalanceSheetReportFilters) {
+  return queryClient.fetchQuery<BalanceSheetReportResponse['report']>(balanceSheetReportQueryOptions(filters))
+}
+
+export async function getTrialBalanceReport(queryClient: QueryClient, filters: TrialBalanceReportFilters) {
+  return queryClient.fetchQuery<TrialBalanceReportResponse['report']>(trialBalanceReportQueryOptions(filters))
 }
 
 export function useDonorSummaryReport(filters: DonorSummaryReportFilters, enabled = true) {

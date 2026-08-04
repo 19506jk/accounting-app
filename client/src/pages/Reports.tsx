@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   usePLReport, useBalanceSheetReport, useLedgerReport,
   useTrialBalanceReport, useDonorSummaryReport, useDonorDetailReport,
+  getPLReport, getBalanceSheetReport, getTrialBalanceReport,
 } from '../api/useReports';
 import { useAccounts }  from '../api/useAccounts';
 import { useFunds }     from '../api/useFunds';
@@ -20,10 +22,12 @@ import {
   exportBalanceSheet,
   exportDonorDetail,
   exportDonorSummary,
+  exportFinancialReport,
   exportLedger,
   exportPL,
   exportTrialBalance,
 } from './reports/reportExports';
+import type { FinancialReportExportInput } from './reports/reportExports';
 import {
   BalanceSheetReport,
   DonorDetailReport,
@@ -32,6 +36,7 @@ import {
   PLReport,
   TrialBalanceReport,
 } from './reports/reportRenderers';
+import { getReconciliations, getReconciliationReport } from '../api/useReconciliation';
 import type {
   BalanceSheetReportFilters,
   DonorDetailReportFilters,
@@ -48,7 +53,13 @@ import { getReportMeta, getReportTypeOptions } from './reports/reportMetadata';
 
 const REPORT_TYPES = getReportTypeOptions();
 
-export default function Reports() {
+interface ReportsProps {
+  financialReportExporter?: (input: FinancialReportExportInput) => Promise<void>;
+}
+
+export default function Reports({
+  financialReportExporter = exportFinancialReport,
+}: ReportsProps = {}) {
   const [type,    setType]    = useState<ReportType>('pl');
   const [range,   setRange]   = useState(currentMonthRange());
   const [asOf,    setAsOf]    = useState(getChurchToday());
@@ -58,8 +69,9 @@ export default function Reports() {
   const [donorAcctIds, setDonorAcctIds] = useState<OptionValue[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [hardCloseOpen, setHardCloseOpen] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [exportingType, setExportingType] = useState<'single' | 'financial' | null>(null);
   const { addToast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: funds    } = useFunds();
   const { data: accounts } = useAccounts();
@@ -102,7 +114,7 @@ export default function Reports() {
   function handleRun() { setEnabled(false); setTimeout(() => setEnabled(true), 0); }
 
   async function handleExport() {
-    setIsExporting(true);
+    setExportingType('single');
     try {
       if (type === 'pl' && plData.data) await exportPL(plData.data.data, plFilters);
       if (type === 'balance-sheet' && bsData.data) await exportBalanceSheet(bsData.data.data, bsFilters);
@@ -116,7 +128,73 @@ export default function Reports() {
         : getErrorMessage(err, 'Failed to export report.');
       addToast(msg, 'error');
     } finally {
-      setIsExporting(false);
+      setExportingType(null);
+    }
+  }
+
+  async function handleFinancialExport() {
+    const churchToday = getChurchToday();
+    setExportingType('financial');
+    try {
+      const [reconciliations, trialBalance, balanceSheet] = await Promise.all([
+        getReconciliations(queryClient).catch((err) => {
+          throw new Error(`Failed to fetch reconciliation list: ${getErrorMessage(err, 'Unknown error')}`);
+        }),
+        getTrialBalanceReport(queryClient, { as_of: churchToday }).catch((err) => {
+          throw new Error(`Failed to fetch Trial Balance: ${getErrorMessage(err, 'Unknown error')}`);
+        }),
+        getBalanceSheetReport(queryClient, { as_of: churchToday }).catch((err) => {
+          throw new Error(`Failed to fetch Balance Sheet: ${getErrorMessage(err, 'Unknown error')}`);
+        }),
+      ]);
+
+      const latestRec = reconciliations
+        .filter((r) => r.account_code === '1000' && r.is_closed)
+        .sort((a, b) => {
+          const dateCmp = b.statement_date.localeCompare(a.statement_date);
+          if (dateCmp !== 0) return dateCmp;
+          return b.id - a.id;
+        })[0];
+
+      if (!latestRec) {
+        addToast('No closed reconciliation found for account 1000.', 'error');
+        return;
+      }
+
+      const fiscalYearStart = trialBalance.data.fiscal_year_start;
+      const [reconciliationReport, pl] = await Promise.all([
+        getReconciliationReport(queryClient, latestRec.id).catch((err) => {
+          throw new Error(`Failed to fetch Reconciliation Report: ${getErrorMessage(err, 'Unknown error')}`);
+        }),
+        getPLReport(queryClient, { from: fiscalYearStart, to: churchToday }).catch((err) => {
+          throw new Error(`Failed to fetch Profit & Loss: ${getErrorMessage(err, 'Unknown error')}`);
+        }),
+      ]);
+
+      const input: FinancialReportExportInput = {
+        reconciliation: reconciliationReport,
+        pl: { data: pl.data, filters: { from: fiscalYearStart, to: churchToday } },
+        balanceSheet: { data: balanceSheet.data, filters: { as_of: churchToday } },
+        trialBalance: { data: trialBalance.data, filters: { as_of: churchToday } },
+        reportDate: churchToday,
+      };
+
+      await financialReportExporter(input);
+    } catch (err) {
+      let msg = 'Failed to export financial report.';
+      if (err instanceof Error) {
+        if (err.message.includes('Failed to fetch dynamically imported module')) {
+          msg = 'Failed to load Excel export tools.';
+        } else if (
+          err.message.startsWith('Failed to fetch ') ||
+          err.message.startsWith('Failed to build ')
+        ) {
+          msg = err.message;
+        }
+      }
+      addToast(msg, 'error');
+    } finally {
+      setExportingType(null);
     }
   }
 
@@ -201,8 +279,17 @@ export default function Reports() {
             <Button onClick={handleRun} isLoading={isLoading} style={{ marginTop: 'auto' }}>
               Run Report
             </Button>
+            <Button variant="secondary" onClick={handleFinancialExport}
+              disabled={exportingType !== null}
+              isLoading={exportingType === 'financial'}
+              style={{ marginTop: 'auto' }}>
+              Export Financial Report
+            </Button>
             {hasReportData && (
-              <Button variant="secondary" onClick={handleExport} isLoading={isExporting} style={{ marginTop: 'auto' }}>
+              <Button variant="secondary" onClick={handleExport}
+                disabled={exportingType !== null}
+                isLoading={exportingType === 'single'}
+                style={{ marginTop: 'auto' }}>
                 Export Excel
               </Button>
             )}
