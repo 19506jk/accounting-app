@@ -65,6 +65,7 @@ beforeAll(async () => {
     { name: 'funds', mountPath: '/api/funds', probePath: '/', router: fundsRouter.default as unknown as express.Router },
     { name: 'reconciliations', mountPath: '/api/reconciliations', probePath: '/', router: reconciliationRouter.default as unknown as express.Router },
     { name: 'reports', mountPath: '/api/reports', probePath: '/pl', router: reportsRouter.default as unknown as express.Router },
+    { name: 'reports monthly', mountPath: '/api/reports', probePath: '/pl/monthly', router: reportsRouter.default as unknown as express.Router },
     { name: 'settings', mountPath: '/api/settings', probePath: '/', router: settingsRouter.default as unknown as express.Router },
     { name: 'tax rates', mountPath: '/api/tax-rates', probePath: '/', router: taxRatesRouter.default as unknown as express.Router },
     { name: 'transactions', mountPath: '/api/transactions', probePath: '/', router: transactionsRouter.default as unknown as express.Router },

@@ -432,4 +432,43 @@ describe('direct DB reports integration smoke checks', () => {
       }),
     ]));
   });
+
+  it('returns monthly P&L points and validates monthly date parameters', async () => {
+    const fixture = await createDonationFixture();
+    const monthStart = `${fixture.date.slice(0, 7)}-01`;
+
+    const monthly = await requestRoute(`/pl/monthly?from=${fixture.date}&to=${fixture.date}`);
+
+    expect(monthly.status).toBe(200);
+    expect(monthly.body.report).toEqual(expect.objectContaining({
+      type: 'pl',
+      filters: { from: fixture.date, to: fixture.date },
+    }));
+    expect(monthly.body.report.data).toEqual({
+      points: [
+        expect.objectContaining({
+          month_start: monthStart,
+          total_income: 40,
+          total_expenses: 0,
+        }),
+      ],
+    });
+
+    const missing = await requestRoute('/pl/monthly');
+    expect(missing.status).toBe(400);
+    expect(missing.body).toEqual({ error: 'from and to query parameters are required' });
+
+    // An invalid month also sorts after a valid 'to', so validateDates reports
+    // both the invalid-date and reversed-range errors for this input.
+    const invalid = await requestRoute('/pl/monthly?from=2026-13-01&to=2026-12-31');
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.errors).toEqual(expect.arrayContaining([
+      'from is not a valid date (YYYY-MM-DD)',
+      'from must be before or equal to to',
+    ]));
+
+    const reversed = await requestRoute('/pl/monthly?from=2026-12-31&to=2026-01-01');
+    expect(reversed.status).toBe(400);
+    expect(reversed.body.errors).toContain('from must be before or equal to to');
+  });
 });

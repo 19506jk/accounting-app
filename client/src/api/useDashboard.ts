@@ -4,6 +4,8 @@ import client from './client'
 import type {
   BalanceSheetReportData,
   BalanceSheetReportResponse,
+  MonthlyPLData,
+  MonthlyPLReportResponse,
   PLReportData,
   PLReportResponse,
   TransactionListItem,
@@ -25,6 +27,21 @@ export function usePLSummary() {
       })
       return data.report.data
     },
+  })
+}
+
+export function useMonthlyPLSummary(from: string, to: string, enabled = true) {
+  return useQuery<MonthlyPLData>({
+    // Distinct from the ['reports', 'pl', ...] keys used by usePLSummary and
+    // usePLReport, which cache different payload shapes for /reports/pl.
+    queryKey: ['reports', 'pl', 'monthly', from, to],
+    queryFn: async () => {
+      const { data } = await client.get<MonthlyPLReportResponse>('/reports/pl/monthly', {
+        params: { from, to },
+      })
+      return data.report.data
+    },
+    enabled: enabled && Boolean(from) && Boolean(to),
   })
 }
 

@@ -1281,6 +1281,15 @@ export interface DateRangeReportFilters {
 
 export interface PLReportFilters extends DateRangeReportFilters {}
 
+// Dashboard-only monthly P&L dataset. Deliberately uses the existing 'pl'
+// envelope type rather than a new ReportType member: REPORT_META is a
+// Record<ReportType, ...> and getReportTypeOptions() surfaces every member in
+// the Reports page selector, which would expose this dashboard dataset there.
+export interface MonthlyPLFilters {
+  from: string;
+  to: string;
+}
+
 export interface BalanceSheetReportFilters {
   as_of: string;
   fund_id?: string | number;
@@ -1327,6 +1336,22 @@ export interface PLReportData {
   total_income: number;
   total_expenses: number;
   net_surplus: number;
+}
+
+export interface MonthlyPLPoint {
+  /** First day of the bucket, e.g. '2026-07-01'. */
+  month_start: string;
+  total_income: number;
+  total_expenses: number;
+}
+
+export interface MonthlyPLData {
+  /** One chronologically ordered point per calendar month in the range. */
+  points: MonthlyPLPoint[];
+}
+
+export interface MonthlyPLReportResponse {
+  report: ReportEnvelope<'pl', MonthlyPLFilters, MonthlyPLData>;
 }
 
 export interface BalanceSheetReportData {

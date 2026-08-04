@@ -8,6 +8,8 @@ import type {
   DonorDetailReportData,
   DonorSummaryReportData,
   LedgerReportData,
+  MonthlyPLData,
+  MonthlyPLFilters,
   PLReportData,
   ReportEnvelope,
   ReportType,
@@ -17,6 +19,7 @@ import type {
 const auth = require('../middleware/auth.js');
 import {
   getPL,
+  getMonthlyPL,
   getBalanceSheet,
   getLedger,
   getTrialBalance,
@@ -56,6 +59,10 @@ type DonorDetailFiltersResponse = DateRangeFiltersResponse & {
 
 type PLReportRouteResponse = {
   report: ReportEnvelope<'pl', DateRangeFiltersResponse, PLReportData>;
+};
+
+type MonthlyPLReportRouteResponse = {
+  report: ReportEnvelope<'pl', MonthlyPLFilters, MonthlyPLData>;
 };
 
 type BalanceSheetReportRouteResponse = {
@@ -165,6 +172,31 @@ router.get(
 
       const data = await getPL({ from, to, fundId: fund_id || null });
       res.json(envelope('pl', { from, to, fund_id: fund_id || null }, data));
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  '/pl/monthly',
+  async (
+    req: Request<{}, MonthlyPLReportRouteResponse | ReportErrorResponse, unknown, DateRangeQuery>,
+    res: Response<MonthlyPLReportRouteResponse | ReportErrorResponse>,
+    next: NextFunction
+  ) => {
+    try {
+      const { from, to } = req.query;
+
+      if (!from || !to) {
+        return res.status(400).json({ error: 'from and to query parameters are required' });
+      }
+
+      const errors = validateDates({ from, to });
+      if (errors.length) return res.status(400).json({ errors });
+
+      const data = await getMonthlyPL({ from, to });
+      res.json(envelope('pl', { from, to }, data));
     } catch (err) {
       next(err);
     }

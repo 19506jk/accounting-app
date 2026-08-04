@@ -9,6 +9,8 @@ import type {
   DonorDetailReportTransaction,
   DonorSummaryReportData,
   LedgerReportData,
+  MonthlyPLData,
+  MonthlyPLPoint,
   NormalBalanceSide,
   PLReportData,
   ReconciliationReport,
@@ -60,6 +62,12 @@ interface PLRow {
   type: AccountType;
   total_debit: Numeric;
   total_credit: Numeric;
+}
+
+interface MonthlyPLRow {
+  month_start: string;
+  income_net: Numeric;
+  expenses_net: Numeric;
 }
 
 interface BalanceSheetRow extends PLRow {}
@@ -293,6 +301,52 @@ async function getPL({ from, to, fundId }: DateRangeArgs): Promise<PLReportData>
     total_expenses: parseFloat(totalExpenses.toFixed(2)),
     net_surplus: parseFloat(net.toFixed(2)),
   };
+}
+
+function nextMonthKey(monthKey: string): string {
+  const year = Number(monthKey.slice(0, 4));
+  const month = Number(monthKey.slice(5, 7));
+  return month === 12
+    ? `${year + 1}-01`
+    : `${year}-${String(month + 1).padStart(2, '0')}`;
+}
+
+// Monthly P&L across an arbitrary inclusive range, one point per calendar
+// month in chronological order. Mirrors getPL's rules (voided and closing
+// entries excluded, income = credit - debit, expenses = debit - credit,
+// Decimal until the final two-decimal conversion) but buckets by month in a
+// single query. Months without activity are zero-filled so the dashboard
+// always sees the full fiscal year.
+async function getMonthlyPL({ from, to }: DateRangeArgs): Promise<MonthlyPLData> {
+  if (!from || !to) return { points: [] };
+
+  const rows = await baseQuery({ from, to })
+    .whereIn('a.type', ['INCOME', 'EXPENSE'])
+    .where('t.is_closing_entry', false)
+    .select(
+      db.raw("to_char(t.date, 'YYYY-MM-01') AS month_start"),
+      db.raw("COALESCE(SUM(CASE WHEN a.type = 'INCOME' THEN je.credit - je.debit END), 0) AS income_net"),
+      db.raw("COALESCE(SUM(CASE WHEN a.type = 'EXPENSE' THEN je.debit - je.credit END), 0) AS expenses_net")
+    )
+    .groupBy(db.raw("to_char(t.date, 'YYYY-MM-01')"))
+    .orderBy(db.raw("to_char(t.date, 'YYYY-MM-01')"), 'asc') as MonthlyPLRow[];
+
+  const byMonth = new Map(rows.map((row) => [row.month_start, row]));
+
+  const points: MonthlyPLPoint[] = [];
+  let monthKey = from.slice(0, 7);
+  const endKey = to.slice(0, 7);
+  while (monthKey <= endKey) {
+    const row = byMonth.get(`${monthKey}-01`);
+    points.push({
+      month_start: `${monthKey}-01`,
+      total_income: row ? parseFloat(dec(row.income_net).toFixed(2)) : 0,
+      total_expenses: row ? parseFloat(dec(row.expenses_net).toFixed(2)) : 0,
+    });
+    monthKey = nextMonthKey(monthKey);
+  }
+
+  return { points };
 }
 
 async function getBalanceSheet({ asOf, fundId }: BalanceSheetArgs): Promise<BalanceSheetReportData> {
@@ -1248,6 +1302,7 @@ async function buildReconciliationReport(id: number | string): Promise<Reconcili
 
 export {
   getPL,
+  getMonthlyPL,
   getBalanceSheet,
   getLedger,
   getTrialBalance,

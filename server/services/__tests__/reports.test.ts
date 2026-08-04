@@ -682,3 +682,196 @@ describe('reports service', () => {
     ]));
   });
 });
+
+describe('reports service monthly P&L', () => {
+  it('returns chronologically ordered YYYY-MM-01 buckets with zero-filled months', async () => {
+    const fixture = await createBaseFixture('MPL-A');
+
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-04-05',
+      description: 'Monthly income',
+      referenceNo: 'MPL-A-IN',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '100.00', credit: '0.00' },
+        { account_id: fixture.income.id, fund_id: fixture.fund.id, debit: '0.00', credit: '100.00' },
+      ],
+    });
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-04-06',
+      description: 'Monthly expense',
+      referenceNo: 'MPL-A-EX',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.expense.id, fund_id: fixture.fund.id, debit: '25.00', credit: '0.00' },
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '0.00', credit: '25.00' },
+      ],
+    });
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-06-10',
+      description: 'June income',
+      referenceNo: 'MPL-A-JUN',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '200.00', credit: '0.00' },
+        { account_id: fixture.income.id, fund_id: fixture.fund.id, debit: '0.00', credit: '200.00' },
+      ],
+    });
+
+    const monthly = await reports.getMonthlyPL({ from: '2026-01-01', to: '2026-12-31' });
+
+    expect(monthly.points.map((point) => point.month_start)).toEqual(
+      Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}-01`)
+    );
+    expect(monthly.points[0]).toEqual({ month_start: '2026-01-01', total_income: 0, total_expenses: 0 });
+    expect(monthly.points[3]).toEqual({ month_start: '2026-04-01', total_income: 100, total_expenses: 25 });
+    expect(monthly.points[5]).toEqual({ month_start: '2026-06-01', total_income: 200, total_expenses: 0 });
+  });
+
+  it('handles fiscal-year-spanning ranges with leading and trailing zero months', async () => {
+    const fixture = await createBaseFixture('MPL-B');
+
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2025-07-15',
+      description: 'FY-start income',
+      referenceNo: 'MPL-B-JUL',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '100.00', credit: '0.00' },
+        { account_id: fixture.income.id, fund_id: fixture.fund.id, debit: '0.00', credit: '100.00' },
+      ],
+    });
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-06-20',
+      description: 'FY-end expense',
+      referenceNo: 'MPL-B-JUN',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.expense.id, fund_id: fixture.fund.id, debit: '40.00', credit: '0.00' },
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '0.00', credit: '40.00' },
+      ],
+    });
+
+    const monthly = await reports.getMonthlyPL({ from: '2025-07-01', to: '2026-06-30' });
+
+    expect(monthly.points).toHaveLength(12);
+    expect(monthly.points[0]).toEqual({ month_start: '2025-07-01', total_income: 100, total_expenses: 0 });
+    expect(monthly.points[6]).toEqual({ month_start: '2026-01-01', total_income: 0, total_expenses: 0 });
+    expect(monthly.points[11]).toEqual({ month_start: '2026-06-01', total_income: 0, total_expenses: 40 });
+  });
+
+  it('applies income credit-minus-debit and expense debit-minus-credit signs per month', async () => {
+    const fixture = await createBaseFixture('MPL-C');
+
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-04-05',
+      description: 'Income and refund',
+      referenceNo: 'MPL-C-APR',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '100.00', credit: '0.00' },
+        { account_id: fixture.income.id, fund_id: fixture.fund.id, debit: '0.00', credit: '100.00' },
+        { account_id: fixture.income.id, fund_id: fixture.fund.id, debit: '30.00', credit: '0.00' },
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '0.00', credit: '30.00' },
+      ],
+    });
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-05-06',
+      description: 'Expense reversal',
+      referenceNo: 'MPL-C-MAY',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.expense.id, fund_id: fixture.fund.id, debit: '25.00', credit: '0.00' },
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '0.00', credit: '25.00' },
+        { account_id: fixture.expense.id, fund_id: fixture.fund.id, debit: '0.00', credit: '10.00' },
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '10.00', credit: '0.00' },
+      ],
+    });
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-06-07',
+      description: 'Refund-only month',
+      referenceNo: 'MPL-C-JUN',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.income.id, fund_id: fixture.fund.id, debit: '50.00', credit: '0.00' },
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '0.00', credit: '50.00' },
+      ],
+    });
+
+    const monthly = await reports.getMonthlyPL({ from: '2026-04-01', to: '2026-06-30' });
+
+    expect(monthly.points[0]).toEqual({ month_start: '2026-04-01', total_income: 70, total_expenses: 0 });
+    expect(monthly.points[1]).toEqual({ month_start: '2026-05-01', total_income: 0, total_expenses: 15 });
+    expect(monthly.points[2]).toEqual({ month_start: '2026-06-01', total_income: -50, total_expenses: 0 });
+  });
+
+  it('preserves cents and excludes voided and closing entries', async () => {
+    const fixture = await createBaseFixture('MPL-D');
+
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-04-05',
+      description: 'Cents income',
+      referenceNo: 'MPL-D-CENTS',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '100.55', credit: '0.00' },
+        { account_id: fixture.income.id, fund_id: fixture.fund.id, debit: '0.00', credit: '100.55' },
+      ],
+    });
+    await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-04-30',
+      description: 'Closing entry',
+      referenceNo: 'MPL-D-CLOSE',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      isClosingEntry: true,
+      entries: [
+        { account_id: fixture.income.id, fund_id: fixture.fund.id, debit: '100.55', credit: '0.00' },
+        { account_id: fixture.equity.id, fund_id: fixture.fund.id, debit: '0.00', credit: '100.55' },
+      ],
+    });
+    const voidedId = await createTransaction({
+      suffix: fixture.suffix,
+      date: '2026-04-10',
+      description: 'Voided income',
+      referenceNo: 'MPL-D-VOID',
+      fundId: fixture.fund.id,
+      userId: fixture.userId,
+      entries: [
+        { account_id: fixture.bank.id, fund_id: fixture.fund.id, debit: '500.00', credit: '0.00' },
+        { account_id: fixture.income.id, fund_id: fixture.fund.id, debit: '0.00', credit: '500.00' },
+      ],
+    });
+    await db('transactions').where('id', voidedId).update({ is_voided: true });
+
+    const monthly = await reports.getMonthlyPL({ from: '2026-04-01', to: '2026-04-30' });
+
+    expect(monthly.points).toEqual([
+      { month_start: '2026-04-01', total_income: 100.55, total_expenses: 0 },
+    ]);
+  });
+
+  it('returns an empty points array when dates are missing', async () => {
+    const monthly = await reports.getMonthlyPL({});
+    expect(monthly.points).toEqual([]);
+  });
+});

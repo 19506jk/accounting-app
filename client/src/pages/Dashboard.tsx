@@ -1,16 +1,15 @@
 import { useState } from 'react';
-import { usePLSummary, useBalanceSheet, useRecentTransactions } from '../api/useDashboard';
+import { usePLSummary, useBalanceSheet, useRecentTransactions, useMonthlyPLSummary } from '../api/useDashboard';
 import Card  from '../components/ui/Card';
+import MonthlyPLChart from '../components/MonthlyPLChart';
 import TransactionTable, { TYPE_BADGE, txFmt } from '../components/ui/TransactionTable';
-import { formatDateOnlyForDisplay, lastMonthLabelInChurchZone } from '../utils/date';
+import { useChurchDateConfig } from '../context/DateContext';
+import { useSettings } from '../api/useSettings';
+import { getFiscalYearFromDate, getFiscalYearRange } from '../utils/fiscalYear';
+import { formatDateOnlyForDisplay, getChurchToday, lastMonthLabelInChurchZone } from '../utils/date';
+import { formatMoney } from '../utils/format';
 import type { TransactionListItem } from '@shared/contracts';
 import type { TableColumn } from '../components/ui/types';
-
-function fmt(n: number | null | undefined): string {
-  return typeof n === 'number'
-    ? '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2 })
-    : '—';
-}
 
 function lastMonthLabel() {
   return lastMonthLabelInChurchZone();
@@ -78,6 +77,27 @@ export default function Dashboard() {
   const bs     = useBalanceSheet();
   const recent = useRecentTransactions(10);
 
+  const { data: settings, isError: settingsError } = useSettings();
+  const { churchTimeZone } = useChurchDateConfig();
+  const fiscalStartMonth = Math.max(1, Math.min(12, parseInt(settings?.fiscal_year_start || '1', 10) || 1));
+  // Stay at null until settings has loaded — avoids locking in the January
+  // fallback on the first render and then missing the real start month when
+  // it arrives (same pattern as Budget).
+  const fiscal = settings !== undefined
+    ? (() => {
+        const fiscalYear = getFiscalYearFromDate(getChurchToday(churchTimeZone), fiscalStartMonth);
+        const { from, to } = getFiscalYearRange(fiscalYear, fiscalStartMonth);
+        return { fiscalYear, from, to };
+      })()
+    : null;
+  const monthly = useMonthlyPLSummary(fiscal?.from ?? '', fiscal?.to ?? '', fiscal !== null);
+  // A stale refetch can fail while React Query still holds the last good
+  // data (settings or monthly points) — only treat a failure as fatal for
+  // the chart when there is no data at all; otherwise it stays rendered.
+  const chartError =
+    (monthly.isError && monthly.data === undefined)
+    || (settingsError && settings === undefined);
+
   const checkingBalance = bs.data?.assets?.find(
     (a) => a.name.toLowerCase().includes('checking')
   )?.balance ?? null;
@@ -93,14 +113,23 @@ export default function Dashboard() {
       <div style={{ display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
         gap: '1rem', marginBottom: '2rem' }}>
-        <SummaryCard label="Total Income"    value={fmt(pl.data?.total_income)}
+        <SummaryCard label="Total Income"    value={formatMoney(pl.data?.total_income)}
           isLoading={pl.isLoading} color="#15803d" sub={lastMonthLabel()} />
-        <SummaryCard label="Total Expenses"  value={fmt(pl.data?.total_expenses)}
+        <SummaryCard label="Total Expenses"  value={formatMoney(pl.data?.total_expenses)}
           isLoading={pl.isLoading} color="#b91c1c" sub={lastMonthLabel()} />
-        <SummaryCard label="Net Surplus"     value={fmt(pl.data?.net_surplus)}
+        <SummaryCard label="Net Surplus"     value={formatMoney(pl.data?.net_surplus)}
           isLoading={pl.isLoading} color={surplusColor} sub={lastMonthLabel()} />
-        <SummaryCard label="Checking Balance" value={fmt(checkingBalance)}
+        <SummaryCard label="Checking Balance" value={formatMoney(checkingBalance)}
           isLoading={bs.isLoading} color="#1d4ed8" sub="As of today" />
+      </div>
+
+      <div style={{ marginBottom: '2rem' }}>
+        <MonthlyPLChart
+          points={monthly.data?.points ?? null}
+          fiscalYear={fiscal?.fiscalYear ?? null}
+          isLoading={monthly.isLoading}
+          isError={chartError}
+        />
       </div>
 
       <Card>
