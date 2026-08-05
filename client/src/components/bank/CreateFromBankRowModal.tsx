@@ -267,7 +267,11 @@ export default function CreateFromBankRowModal({
             <Input label="Date" value={row.date} disabled />
             <Input label="Amount" value={row.amount.toFixed(2)} disabled />
           </div>
-          <Input label="Description" value={row.description} />
+          <Input
+            label="Description"
+            value={row.description}
+            onChange={(event) => setRow((prev) => ({ ...prev, description: event.target.value }))}
+          />
           <Input
             label="Reference Number"
             value={row.reference_no || ''}

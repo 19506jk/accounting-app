@@ -90,6 +90,63 @@ describe('CreateFromBankRowModal', () => {
     })
   })
 
+  it('submits an edited description in the create payload', async () => {
+    let requestBody: unknown = null
+    const onClose = vi.fn()
+    const onSuccess = vi.fn()
+
+    worker.use(
+      http.get('/api/accounts', () => HttpResponse.json({
+        accounts: [
+          { id: 1, code: '1000', name: 'Main Bank', type: 'ASSET', is_active: true },
+          { id: 2, code: '2050', name: 'Donations Clearing', type: 'ASSET', is_active: true },
+        ],
+      })),
+      http.get('/api/funds', () => HttpResponse.json({ funds: [{ id: 1, name: 'General', is_active: true }] })),
+      http.get('/api/settings', () => HttpResponse.json({ values: {} })),
+      http.get('/api/contacts', ({ request }) => {
+        const type = new URL(request.url).searchParams.get('type')
+        return HttpResponse.json({
+          contacts: [{ id: type === 'DONOR' ? 11 : 12, donor_id: null, name: 'Contact', is_active: true }],
+        })
+      }),
+      http.post('/api/bank-transactions/:id/create', async ({ request, params }) => {
+        requestBody = await request.json()
+        return HttpResponse.json({ item: { id: Number(params.id) } })
+      }),
+    )
+
+    const screen = await renderWithProviders(
+      <CreateFromBankRowModal
+        bankTransaction={{
+          id: 84,
+          account_id: 1,
+          amount: 120,
+          bank_posted_date: '2026-03-17',
+          raw_description: 'Sunday donation',
+          bank_description_2: '',
+          payment_method: 'DEPOSIT',
+          sender_email: null,
+          sender_name: null,
+          bank_transaction_id: 'BTX-6',
+          fund_id: 1,
+          create_proposal: { description: 'Sunday donation', offset_account_id: 2 },
+        } as never}
+        onClose={onClose}
+        onSuccess={onSuccess}
+      />,
+    )
+
+    await userEvent.fill(screen.getByLabelText('Description'), 'Corrected description')
+    await userEvent.click(screen.getByRole('button', { name: 'Create Journal Entry' }))
+
+    await vi.waitFor(() => {
+      expect(requestBody).toEqual(expect.objectContaining({
+        description: 'Corrected description',
+      }))
+    })
+  })
+
   it('shows payee selection for withdrawals', async () => {
     worker.use(
       http.get('/api/accounts', () => HttpResponse.json({

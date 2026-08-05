@@ -4,6 +4,7 @@ exports.seed = async function seed(knex) {
   await knex('users')
     .insert({
       id: 1,
+      google_id: 'e2e-admin',
       email: 'e2e-admin@test.local',
       name: 'E2E Admin',
       role: 'admin',
