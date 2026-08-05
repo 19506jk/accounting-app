@@ -207,10 +207,13 @@ describe('DEFAULT_HTML_TEMPLATE', () => {
       total_amount: '$40.00',
     };
     const html = substituteTemplate(tree!, values);
-    expect(html).toContain('<h1>Official Donation Receipt</h1>');
+    expect(html).toContain('<h1 style="text-align:center">Official Receipt for Income Tax Purposes</h1>');
     expect(html).toContain('Test Church');
     expect(html).toContain('$40.00');
-    expect(html).toContain('5-001');
+    expect(html).toContain('Receipt No. 5-001');
     expect(html).toContain('Ana Donor');
+    expect(html).toContain('Eligible amount of gift for tax purposes');
+    expect(html).toContain('Location receipt issued: Ottawa');
+    expect(html).toContain('Date receipt issued: 2026-08-05');
   });
 });

@@ -62,22 +62,48 @@ Donor ID: {{donor_id}}
 **Total eligible amount: {{total_amount}}**
 `;
 
-/** Equivalent of the legacy Markdown default, authored as an HTML fragment. */
-export const DEFAULT_HTML_TEMPLATE = `<h1>Official Donation Receipt</h1>
-<p><strong>{{church_name}}</strong><br>
-{{church_address}}<br>
+/** Equivalent of the supplied tax receipt sample, authored as an HTML fragment. */
+export const DEFAULT_HTML_TEMPLATE = `<p style="text-align:right"><strong>Receipt No. {{receipt_serial_number}}</strong></p>
+<h1 style="text-align:center">Official Receipt for Income Tax Purposes</h1>
+<hr>
+<h2 style="text-align:center">{{church_name}}</h2>
+<p style="text-align:center">{{church_address}}<br>
 {{church_city}}, {{church_province}} {{church_postal_code}}<br>
-Phone: {{church_phone}}<br>
-CRA Charitable Registration No: {{cra_charitable_registration_number}}</p>
-<p>Receipt for fiscal year {{fiscal_year}}<br>
-Receipt serial number: {{receipt_serial_number}}<br>
-Generated: {{generated_date}}</p>
-<h2>Donor</h2>
-<p>{{donor_name}}<br>
-Donor ID: {{donor_id}}<br>
+Tel: {{church_phone}}<br>
+<strong>Registration Number: {{cra_charitable_registration_number}}</strong></p>
+<p style="text-align:center">Donations Received: January 1 – December 31, {{fiscal_year}}</p>
+<table>
+<tbody>
+<tr>
+<td><strong>Donated By:</strong><br>
+{{donor_name}}<br>
 {{donor_address}}<br>
-{{donor_city}}, {{donor_province}} {{donor_postal_code}}</p>
-<p><strong>Total eligible amount: {{total_amount}}</strong></p>`;
+{{donor_city}}, {{donor_province}} {{donor_postal_code}}</td>
+<td><strong>Account No.</strong><br>{{donor_id}}</td>
+</tr>
+</tbody>
+</table>
+<p>Thank you very much for your continued support and your donation to {{church_name}}.</p>
+<table>
+<tbody>
+<tr>
+<th>Eligible amount of gift for tax purposes</th>
+<td style="text-align:right"><strong>{{total_amount}}</strong></td>
+</tr>
+</tbody>
+</table>
+<table>
+<tbody>
+<tr>
+<td>Location receipt issued: {{church_city}}</td>
+<td>Date receipt issued: {{generated_date}}</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Authorized Signature:</strong></p>
+<p style="text-align:right">__________________________________________<br>
+Authorized representative</p>
+<p>For information on all registered charities in Canada under the Income Tax Act, visit the Canada Revenue Agency at <a href="https://www.canada.ca/en/services/taxes/charities.html">canada.ca/charities-giving</a>.</p>`;
 
 const BLOCK_TAGS = new Set([
   'h1', 'h2', 'h3', 'p', 'div', 'ul', 'ol', 'li',

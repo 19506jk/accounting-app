@@ -393,10 +393,10 @@ describe('direct DB donation-receipt template lazy conversion', () => {
     const template = await requestRoute({ probePath: '/template', method: 'GET' });
 
     expect(template.status).toBe(200);
-    expect(template.body.template.html_body).toContain('Official Donation Receipt');
+    expect(template.body.template.html_body).toContain('Official Receipt for Income Tax Purposes');
 
     const row = await snapshotTemplateRow();
-    expect(row?.html_body).toContain('Official Donation Receipt');
+    expect(row?.html_body).toContain('Official Receipt for Income Tax Purposes');
   });
 
   it('saves canonical HTML and keeps legacy markdown for rollback', async () => {
