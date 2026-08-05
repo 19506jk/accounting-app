@@ -108,7 +108,10 @@ describe('donationReceiptPdf DOM walker', () => {
   });
 
   it('renders the default template with br newlines without blank lines', async () => {
-    await expectPdf(DEFAULT_HTML_TEMPLATE);
+    const base64 = await expectPdf(DEFAULT_HTML_TEMPLATE);
+    const buffer = Buffer.from(base64, 'base64');
+    const pageObjects = (buffer.toString('latin1').match(/\/Type\s*\/Page(?![a-zA-Z])/g) || []).length;
+    expect(pageObjects).toBe(1);
   });
 
   it('renders alignment inherited from containers on lists, blockquotes, and tables', async () => {
@@ -189,6 +192,17 @@ describe('tableRowModel', () => {
       'right',
     );
     expect(tableWins[0]?.align).toBe('right');
+  });
+
+  it('uses safe percentage widths from table cells', () => {
+    const model = tableRowModel(
+      cellsFromRowHtml('<td style="width:62%">Donor</td><td style="width:38%">Account</td>'),
+      2,
+      elementFrom('<tr></tr>'),
+      undefined,
+      'left',
+    );
+    expect(model.map((entry) => entry.width)).toEqual(['62%', '38%']);
   });
 });
 

@@ -64,6 +64,7 @@ Donor ID: {{donor_id}}
 
 /** Equivalent of the supplied tax receipt sample, authored as an HTML fragment. */
 export const DEFAULT_HTML_TEMPLATE = `<p style="text-align:right"><strong>Receipt No. {{receipt_serial_number}}</strong></p>
+<hr>
 <h1 style="text-align:center">Official Receipt for Income Tax Purposes</h1>
 <hr>
 <h2 style="text-align:center">{{church_name}}</h2>
@@ -75,11 +76,12 @@ Tel: {{church_phone}}<br>
 <table>
 <tbody>
 <tr>
-<td><strong>Donated By:</strong><br>
+<td style="width:62%"><strong>Donated By:</strong><br>
 {{donor_name}}<br>
 {{donor_address}}<br>
 {{donor_city}}, {{donor_province}} {{donor_postal_code}}</td>
-<td><strong>Account No.</strong><br>{{donor_id}}</td>
+<td style="width:21%">Account No.</td>
+<td style="width:17%">{{donor_id}}</td>
 </tr>
 </tbody>
 </table>
@@ -87,22 +89,24 @@ Tel: {{church_phone}}<br>
 <table>
 <tbody>
 <tr>
-<th>Eligible amount of gift for tax purposes</th>
-<td style="text-align:right"><strong>{{total_amount}}</strong></td>
+<th style="width:83%">Eligible amount of gift for tax purposes</th>
+<td style="text-align:right;width:17%">{{total_amount}}</td>
 </tr>
 </tbody>
 </table>
 <table>
 <tbody>
 <tr>
-<td>Location receipt issued: {{church_city}}</td>
-<td>Date receipt issued: {{generated_date}}</td>
+<td style="width:52%">Location receipt issued: {{church_city}}</td>
+<td style="width:48%">Date receipt issued: {{generated_date}}</td>
 </tr>
 </tbody>
 </table>
 <p><strong>Authorized Signature:</strong></p>
 <p style="text-align:right">__________________________________________<br>
-Authorized representative</p>
+Branch Accountant</p>
+<p style="text-align:right">__________________________________________<br>
+Treasurer</p>
 <p>For information on all registered charities in Canada under the Income Tax Act, visit the Canada Revenue Agency at <a href="https://www.canada.ca/en/services/taxes/charities.html">canada.ca/charities-giving</a>.</p>`;
 
 const BLOCK_TAGS = new Set([
@@ -127,7 +131,11 @@ const DROPPED_TAGS = new Set([
 
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
-const TEXT_ALIGN_RE = /^\s*text-align\s*:\s*(left|center|right)\s*;?\s*$/i;
+const SAFE_STYLE_VALUES = {
+  'text-align': /^(left|center|right)$/i,
+  width: /^(?:100|[1-9]?\d)%$/,
+  'background-color': /^#[0-9a-f]{6}$/i,
+} as const;
 
 export class TemplateValidationError extends Error {
   status = 400;
@@ -236,8 +244,16 @@ function sanitizeAttribs(attribs: Record<string, string>): Record<string, string
   const sanitized: Record<string, string> = {};
   const style = attribs.style;
   if (style !== undefined) {
-    const match = style.match(TEXT_ALIGN_RE);
-    if (match) sanitized.style = `text-align:${match[1]}`;
+    const declarations: string[] = [];
+    for (const declaration of style.split(';')) {
+      const colon = declaration.indexOf(':');
+      if (colon === -1) continue;
+      const property = declaration.slice(0, colon).trim().toLowerCase();
+      const value = declaration.slice(colon + 1).trim();
+      const pattern = SAFE_STYLE_VALUES[property as keyof typeof SAFE_STYLE_VALUES];
+      if (pattern?.test(value)) declarations.push(`${property}:${value.toLowerCase()}`);
+    }
+    if (declarations.length) sanitized.style = declarations.join(';');
   }
   return sanitized;
 }
@@ -254,7 +270,7 @@ function sanitizeChildren(nodes: AnyNode[], legacy: boolean): AnyNode[] {
  * Returns the sanitized replacement nodes for one source node.
  * - Text nodes are kept verbatim.
  * - Dropped tags (script, img, form, ...) are removed with their subtree.
- * - Allowed tags keep only `style` (text-align only) and link `href`.
+ * - Allowed tags keep only safe presentation styles and link `href`.
  * - Unknown benign tags are unwrapped, preserving their children.
  * - Legacy links whose href contains a template variable are unwrapped and the
  *   templated URL is appended as visible text, so the variable stays

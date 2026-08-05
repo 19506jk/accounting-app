@@ -26,37 +26,37 @@ export type InlineToken =
 
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 54,
-    paddingBottom: 54,
-    paddingHorizontal: 54,
-    fontFamily: 'Helvetica',
-    fontSize: 11,
-    color: '#111827',
-    lineHeight: 1.45,
+    paddingTop: 72,
+    paddingBottom: 72,
+    paddingHorizontal: 90,
+    fontFamily: 'Times-Roman',
+    fontSize: 12,
+    color: '#000000',
+    lineHeight: 1.2,
   },
   heading1: {
-    fontFamily: 'Helvetica-Bold',
-    fontSize: 22,
-    marginBottom: 14,
-    lineHeight: 1.25,
+    fontFamily: 'Times-Bold',
+    fontSize: 16,
+    marginBottom: 5,
+    lineHeight: 1.2,
   },
   heading2: {
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Times-Bold',
     fontSize: 16,
-    marginTop: 10,
-    marginBottom: 8,
-    lineHeight: 1.25,
+    marginTop: 8,
+    marginBottom: 3,
+    lineHeight: 1.2,
   },
   heading3: {
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Times-Bold',
     fontSize: 14,
-    marginTop: 8,
-    marginBottom: 6,
-    lineHeight: 1.25,
+    marginTop: 6,
+    marginBottom: 3,
+    lineHeight: 1.2,
   },
   paragraph: {
-    fontSize: 11,
-    marginBottom: 8,
+    fontSize: 12,
+    marginBottom: 6,
   },
   centerBlock: {
     textAlign: 'center',
@@ -97,53 +97,53 @@ const styles = StyleSheet.create({
     display: 'flex',
     width: '100%',
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    marginBottom: 10,
+    borderColor: '#ffffff',
+    backgroundColor: '#ced7e7',
+    marginTop: 9,
+    marginBottom: 9,
   },
   tableRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#d1d5db',
+    borderBottomColor: '#ffffff',
   },
   tableLastRow: {
     borderBottomWidth: 0,
   },
   tableCell: {
-    flex: 1,
     borderRightWidth: 1,
-    borderRightColor: '#d1d5db',
-    paddingHorizontal: 6,
-    paddingVertical: 5,
+    borderRightColor: '#ffffff',
+    padding: 5,
   },
   tableLastCell: {
     borderRightWidth: 0,
   },
   tableHeaderCell: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: 'transparent',
   },
   tableCellText: {
-    fontSize: 10,
-    lineHeight: 1.4,
+    fontSize: 12,
+    lineHeight: 1.2,
   },
   tableHeaderText: {
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Times-Bold',
   },
   empty: {
     fontSize: 12,
   },
   hr: {
     borderBottomWidth: 1,
-    borderBottomColor: '#9ca3af',
-    marginTop: 6,
-    marginBottom: 10,
+    borderBottomColor: '#000000',
+    marginTop: 3,
+    marginBottom: 8,
   },
 })
 
 function resolveInlineFontFamily(ctx: InlineContext): string {
-  if (ctx.bold && ctx.italic) return 'Helvetica-BoldOblique'
-  if (ctx.bold) return 'Helvetica-Bold'
-  if (ctx.italic) return 'Helvetica-Oblique'
-  return 'Helvetica'
+  if (ctx.bold && ctx.italic) return 'Times-BoldItalic'
+  if (ctx.bold) return 'Times-Bold'
+  if (ctx.italic) return 'Times-Italic'
+  return 'Times-Roman'
 }
 
 function isText(node: AnyNode | undefined): node is DomText {
@@ -166,6 +166,16 @@ function textAlignOf(node: Element): 'left' | 'center' | 'right' | undefined {
   if (!style) return undefined
   const match = /text-align\s*:\s*(left|center|right)/i.exec(style)
   return match ? (match[1] as 'left' | 'center' | 'right') : undefined
+}
+
+function percentageWidthOf(node: Element): `${number}%` | undefined {
+  const match = /(?:^|;)\s*width\s*:\s*((?:100|[1-9]?\d)%)(?:;|$)/i.exec(node.attribs.style || '')
+  return match?.[1] as `${number}%` | undefined
+}
+
+function backgroundColorOf(node: Element): string | undefined {
+  const match = /(?:^|;)\s*background-color\s*:\s*(#[0-9a-f]{6})(?:;|$)/i.exec(node.attribs.style || '')
+  return match?.[1]
 }
 
 const INLINE_TAGS = new Set(['strong', 'em', 'del', 'code', 'br', 'a'])
@@ -368,6 +378,7 @@ export type TableCellModel = {
   cell: Element | null;
   isHeader: boolean;
   align: 'left' | 'center' | 'right';
+  width?: `${number}%`;
 };
 
 /**
@@ -391,6 +402,7 @@ export function tableRowModel(
       cell,
       isHeader: cell !== null && cell.name === 'th',
       align: cell ? textAlignOf(cell) ?? rowAlign : rowAlign,
+      width: cell ? percentageWidthOf(cell) : undefined,
     }
   })
 }
@@ -404,10 +416,17 @@ function renderRowCells(
   section: Element | undefined,
   tableAlign: 'left' | 'center' | 'right'
 ): React.ReactNode[] {
-  return tableRowModel(cells, columnCount, row, section, tableAlign).map(({ cell, isHeader, align }, index) => {
+  return tableRowModel(cells, columnCount, row, section, tableAlign).map(({ cell, isHeader, align, width }, index) => {
     const cellKey = `${keyPrefix}-cell-${index}`
     const base: Style[] = isHeader ? [styles.tableCell, styles.tableHeaderCell] : [styles.tableCell]
-    const style = index === columnCount - 1 ? [...base, styles.tableLastCell] : base
+    const sizing: Style = width
+      ? { width, flexGrow: 0, flexShrink: 0 }
+      : { flexGrow: 1, flexBasis: 0 }
+    const cellBackground = cell ? backgroundColorOf(cell) : undefined
+    const background: Style = cellBackground ? { backgroundColor: cellBackground } : {}
+    const style = index === columnCount - 1
+      ? [...base, styles.tableLastCell, sizing, background]
+      : [...base, sizing, background]
     if (!cell) return <View key={cellKey} style={style} />
     return (
       <View key={cellKey} style={style}>
@@ -489,7 +508,7 @@ function renderBlocks(
       const columnCount = Math.max(1, ...rows.map(({ row }) => cellsOf(row).length))
 
       return [(
-        <View key={key} style={styles.table}>
+        <View key={key} style={[styles.table, { backgroundColor: backgroundColorOf(node) ?? '#ced7e7' }]}>
           {rows.map(({ row, section }, rowIndex) => (
             <View
               key={`${key}-row-${rowIndex}`}
