@@ -31,10 +31,10 @@ export PNPM_STORE_DIR="${PNPM_STORE_DIR:-$HOME/.local/share/pnpm/store}"
 
 corepack pnpm install --frozen-lockfile
 corepack pnpm -r --if-present run build
-corepack pnpm --filter ./server run migrate -- --env production
-corepack pnpm --filter ./server run seed -- --env production --specific=01_chart_of_accounts.js
-corepack pnpm --filter ./server run seed -- --env production --specific=02_settings.js
-corepack pnpm --filter ./server run seed -- --env production --specific=03_tax_rates.js
+corepack pnpm --filter ./server run migrate --env production
+corepack pnpm --filter ./server run seed --env production --specific=01_chart_of_accounts.js
+corepack pnpm --filter ./server run seed --env production --specific=02_settings.js
+corepack pnpm --filter ./server run seed --env production --specific=03_tax_rates.js
 if pm2 describe accounting-app > /dev/null 2>&1; then
   pm2 delete accounting-app
 fi
