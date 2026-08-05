@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { marked } from 'marked'
 import {
   useDonationReceiptAccounts,
   useDonationReceiptTemplate,
@@ -88,28 +87,7 @@ const previewStyles = `
     color: #1d4ed8;
     text-decoration: underline;
   }
-  .receipt-preview-center {
-    text-align: center;
-  }
 `
-
-
-function renderPreviewHtml(markdown: string) {
-  const centerBlocks: string[] = []
-  const withPlaceholders = markdown.replace(/^:::center\s*\n([\s\S]*?)^:::\s*$/gm, (_match, content: string) => {
-    const token = `@@CENTER_BLOCK_${centerBlocks.length}@@`
-    centerBlocks.push(`<div class="receipt-preview-center">${marked.parse(content.trim(), { gfm: true, breaks: false })}</div>`)
-    return token
-  })
-
-  let html = marked.parse(withPlaceholders, { gfm: true, breaks: false }) as string
-  centerBlocks.forEach((block, index) => {
-    html = html
-      .replace(`<p>@@CENTER_BLOCK_${index}@@</p>`, () => block)
-      .replace(`@@CENTER_BLOCK_${index}@@`, () => block)
-  })
-  return html
-}
 
 function base64ToBlob(base64: string, type: string) {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
@@ -127,13 +105,17 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url)
 }
 
-function ReceiptMarkdownPreview({ markdown }: { markdown: string }) {
-  const html = useMemo(() => renderPreviewHtml(markdown), [markdown])
+function ReceiptHtmlPreview({ html }: { html: string }) {
+  const srcdoc = useMemo(() => (
+    `<!DOCTYPE html><html><head><style>${previewStyles}</style></head><body><div class="receipt-preview">${html}</div></body></html>`
+  ), [html])
   return (
-    <>
-      <style>{previewStyles}</style>
-      <div className="receipt-preview" dangerouslySetInnerHTML={{ __html: html }} />
-    </>
+    <iframe
+      title="Receipt preview"
+      sandbox=""
+      srcDoc={srcdoc}
+      style={{ width: '100%', height: '520px', border: 'none', background: 'white', display: 'block' }}
+    />
   )
 }
 
@@ -144,7 +126,7 @@ export default function DonationReceipts() {
 
   const [fiscalYear, setFiscalYear] = useState(currentFiscalYear)
   const [accountIds, setAccountIds] = useState<OptionValue[]>([])
-  const [markdownBody, setMarkdownBody] = useState('')
+  const [htmlBody, setHtmlBody] = useState('')
   const [status, setStatus] = useState<{ message: string; type: ReceiptStatusType }>({ message: '', type: null })
 
   useEffect(() => {
@@ -162,10 +144,10 @@ export default function DonationReceipts() {
   const generateReceiptPdf = useGenerateDonationReceiptPdf()
 
   useEffect(() => {
-    if (templateQuery.data?.template?.markdown_body) {
-      setMarkdownBody(templateQuery.data.template.markdown_body)
+    if (templateQuery.data?.template?.html_body) {
+      setHtmlBody(templateQuery.data.template.html_body)
     }
-  }, [templateQuery.data?.template?.markdown_body])
+  }, [templateQuery.data?.template?.html_body])
 
   const accounts = accountsQuery.data?.accounts || []
   const selectedAccounts = new Set(accountIds)
@@ -192,7 +174,7 @@ export default function DonationReceipts() {
   async function handleSaveTemplate() {
     setStatus({ message: '', type: null })
     try {
-      await saveTemplate.mutateAsync({ markdown_body: markdownBody })
+      await saveTemplate.mutateAsync({ html_body: htmlBody })
       setStatus({ message: 'Template saved.', type: 'success' })
     } catch (error) {
       setStatus({ message: getErrorMessage(error, 'Request failed'), type: 'error' })
@@ -205,7 +187,7 @@ export default function DonationReceipts() {
       await previewReceipt.mutateAsync({
         fiscal_year: fiscalYear,
         account_ids: numericAccountIds,
-        markdown_body: markdownBody,
+        html_body: htmlBody,
       })
     } catch (error) {
       setStatus({ message: getErrorMessage(error, 'Request failed'), type: 'error' })
@@ -218,7 +200,7 @@ export default function DonationReceipts() {
       const result = await generateReceiptPdf.mutateAsync({
         fiscal_year: fiscalYear,
         account_ids: numericAccountIds,
-        markdown_body: markdownBody,
+        html_body: htmlBody,
       })
       downloadBlob(base64ToBlob(result.pdf_base64, 'application/pdf'), result.filename)
       const warnings = result.meta?.warnings || []
@@ -233,9 +215,9 @@ export default function DonationReceipts() {
     }
   }
 
-  const previewMarkdown = previewReceipt.data?.markdown || null
+  const previewHtml = previewReceipt.data?.html || null
   const hasPreviewResult = Boolean(previewReceipt.data)
-  const hasNoDonorResult = hasPreviewResult && previewMarkdown === null
+  const hasNoDonorResult = hasPreviewResult && previewHtml === null
 
   return (
     <div>
@@ -307,20 +289,20 @@ export default function DonationReceipts() {
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', marginBottom: '0.75rem' }}>
             <div>
-              <h2 style={{ margin: 0, fontSize: '1rem', color: '#1e293b' }}>Markdown Template</h2>
+              <h2 style={{ margin: 0, fontSize: '1rem', color: '#1e293b' }}>HTML Template</h2>
               <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.2rem' }}>
-                Use the variables listed below. Unknown variables are rejected by the server.
+                Use the variables listed below. Unknown variables are rejected by the server, and HTML is sanitized — only text-align styles, safe links, and basic formatting are kept.
               </div>
             </div>
-            <Button onClick={handleSaveTemplate} isLoading={saveTemplate.isPending} disabled={!markdownBody.trim()}>
+            <Button onClick={handleSaveTemplate} isLoading={saveTemplate.isPending} disabled={!htmlBody.trim()}>
               Save Template
             </Button>
           </div>
 
           <textarea
-            value={markdownBody}
+            value={htmlBody}
             onChange={(event) => {
-              setMarkdownBody(event.target.value)
+              setHtmlBody(event.target.value)
               previewReceipt.reset()
             }}
             style={{
@@ -346,7 +328,7 @@ export default function DonationReceipts() {
                 <button
                   key={variable}
                   type="button"
-                  onClick={() => setMarkdownBody((body) => `${body}${body.endsWith('\n') || !body ? '' : ' '}{{${variable}}}`)}
+                  onClick={() => setHtmlBody((body) => `${body}${body.endsWith('\n') || !body ? '' : ' '}{{${variable}}}`)}
                   style={{
                     border: '1px solid #e5e7eb',
                     background: '#f9fafb',
@@ -376,7 +358,7 @@ export default function DonationReceipts() {
               variant="secondary"
               onClick={handlePreview}
               isLoading={previewReceipt.isPending}
-              disabled={!numericAccountIds.length || !markdownBody.trim()}
+              disabled={!numericAccountIds.length || !htmlBody.trim()}
             >
               Preview
             </Button>
@@ -400,8 +382,8 @@ export default function DonationReceipts() {
           )}
 
           <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', minHeight: '520px' }}>
-            {previewMarkdown ? (
-              <ReceiptMarkdownPreview markdown={previewMarkdown} />
+            {previewHtml ? (
+              <ReceiptHtmlPreview html={previewHtml} />
             ) : hasNoDonorResult ? (
               <div style={{ padding: '2rem', color: '#9ca3af', textAlign: 'center' }}>
                 No donors found for the selected fiscal year and accounts.
@@ -420,7 +402,7 @@ export default function DonationReceipts() {
             <Button
               onClick={handleGenerate}
               isLoading={generateReceiptPdf.isPending}
-              disabled={!numericAccountIds.length || !markdownBody.trim()}
+              disabled={!numericAccountIds.length || !htmlBody.trim()}
             >
               Download PDF
             </Button>

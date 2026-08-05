@@ -1530,7 +1530,7 @@ export interface DonationReceiptAccountsResponse {
 }
 
 export interface DonationReceiptTemplate {
-  markdown_body: string;
+  html_body: string;
   updated_at: string | null;
 }
 
@@ -1540,17 +1540,17 @@ export interface DonationReceiptTemplateResponse {
 }
 
 export interface UpdateDonationReceiptTemplateInput {
-  markdown_body: string;
+  html_body: string;
 }
 
 export interface DonationReceiptPreviewInput {
   fiscal_year: number;
   account_ids: number[];
-  markdown_body?: string;
+  html_body?: string;
 }
 
 export interface DonationReceiptPreviewResponse {
-  markdown: string | null;
+  html: string | null;
   warnings: string[];
   donor_count: number;
 }
@@ -1558,7 +1558,7 @@ export interface DonationReceiptPreviewResponse {
 export interface DonationReceiptGenerateInput {
   fiscal_year: number;
   account_ids: number[];
-  markdown_body?: string;
+  html_body?: string;
 }
 
 export interface DonationReceiptGenerateMeta {

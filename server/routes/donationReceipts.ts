@@ -89,12 +89,12 @@ router.put(
     next: NextFunction
   ) => {
     try {
-      const markdownBody = req.body?.markdown_body;
-      if (typeof markdownBody !== 'string' || !markdownBody.trim()) {
-        return res.status(400).json({ error: 'markdown_body is required' });
+      const htmlBody = req.body?.html_body;
+      if (typeof htmlBody !== 'string' || !htmlBody.trim()) {
+        return res.status(400).json({ error: 'html_body is required' });
       }
 
-      res.json(await saveReceiptTemplate(markdownBody, req.user!.id));
+      res.json(await saveReceiptTemplate(htmlBody, req.user!.id));
     } catch (err) {
       next(err);
     }
@@ -119,7 +119,7 @@ router.post(
         return res.status(400).json({ error: accountIdsError || 'Invalid account_ids' });
       }
 
-      res.json(await previewReceipt(fiscalYear, accountIds, req.body?.markdown_body));
+      res.json(await previewReceipt(fiscalYear, accountIds, req.body?.html_body));
     } catch (err) {
       next(err);
     }
@@ -144,7 +144,7 @@ router.post(
         return res.status(400).json({ error: accountIdsError || 'Invalid account_ids' });
       }
 
-      res.json(await generateReceiptPdf(fiscalYear, accountIds, req.body?.markdown_body));
+      res.json(await generateReceiptPdf(fiscalYear, accountIds, req.body?.html_body));
     } catch (err) {
       next(err);
     }

@@ -1,7 +1,6 @@
 import { Document, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer'
-import { marked } from 'marked'
+import type { AnyNode, Document as DomDocument, Element, Text as DomText } from 'domhandler'
 import type React from 'react'
-import type { Token, Tokens } from 'marked'
 import type { Style } from '@react-pdf/types'
 
 type InlineContext = {
@@ -10,17 +9,20 @@ type InlineContext = {
 }
 
 type BlockContext = {
-  textAlign: 'left' | 'center'
+  textAlign: 'left' | 'center' | 'right'
 }
 
-type CenterToken = {
-  type: 'center'
-  tokens: Token[]
+/** Extra inline styling carried through flattening (del/code/link wrappers). */
+type InlineStyle = {
+  del?: boolean
+  code?: boolean
+  link?: boolean
 }
 
-type BlockToken = Token | CenterToken
-type InlineToken = Token | string
-type TableCell = Tokens.TableCell | string | { text?: string; tokens?: Token[] }
+/** One flat inline unit: styled text, or a hard break from `<br>`. */
+export type InlineToken =
+  | { kind: 'text'; text: string; ctx: InlineContext; extra: InlineStyle }
+  | { kind: 'break' }
 
 const styles = StyleSheet.create({
   page: {
@@ -137,19 +139,6 @@ const styles = StyleSheet.create({
   },
 })
 
-function splitTextWithBreaks(text: unknown): string[] {
-  const value = String(text || '')
-  const lines = value.split('\n')
-  const chunks: string[] = []
-
-  lines.forEach((line, index) => {
-    if (index > 0) chunks.push('\n')
-    chunks.push(line)
-  })
-
-  return chunks
-}
-
 function resolveInlineFontFamily(ctx: InlineContext): string {
   if (ctx.bold && ctx.italic) return 'Helvetica-BoldOblique'
   if (ctx.bold) return 'Helvetica-Bold'
@@ -157,307 +146,391 @@ function resolveInlineFontFamily(ctx: InlineContext): string {
   return 'Helvetica'
 }
 
-function textToken(text: string): Tokens.Text {
-  return { type: 'text', raw: text, text }
+function isText(node: AnyNode | undefined): node is DomText {
+  return Boolean(node) && node!.type === 'text'
 }
 
-function tokenText(token: Token | CenterToken | undefined): string {
-  return token && 'text' in token && typeof token.text === 'string' ? token.text : ''
+function isElement(node: AnyNode | undefined, name?: string): node is Element {
+  if (!node || node.type !== 'tag') return false
+  return name === undefined || node.name === name
 }
 
-function childTokens(token: Token | CenterToken | undefined): Token[] | undefined {
-  return token && 'tokens' in token && Array.isArray(token.tokens) ? token.tokens : undefined
+function textOf(node: AnyNode | undefined): string {
+  if (isText(node)) return node.data
+  if (isElement(node)) return node.children.map(textOf).join('')
+  return ''
 }
 
-function inlineFallback(token: Token): Token[] {
-  return childTokens(token) || [textToken(tokenText(token))]
+function textAlignOf(node: Element): 'left' | 'center' | 'right' | undefined {
+  const style = node.attribs.style
+  if (!style) return undefined
+  const match = /text-align\s*:\s*(left|center|right)/i.exec(style)
+  return match ? (match[1] as 'left' | 'center' | 'right') : undefined
 }
 
-function lexBlocks(markdown: string): Token[] {
-  return marked.lexer(markdown, { gfm: true, breaks: false })
+const INLINE_TAGS = new Set(['strong', 'em', 'del', 'code', 'br', 'a'])
+
+function isInlineNode(node: AnyNode): boolean {
+  if (isText(node)) return true
+  return isElement(node) && INLINE_TAGS.has(node.name)
 }
 
-function renderInlineText(
-  text: unknown,
-  keyPrefix: string,
-  ctx: InlineContext,
-  extraStyle?: Style
-): React.ReactNode[] {
-  const chunks = splitTextWithBreaks(text)
-  return chunks.map((chunk, index) => (
-    <Text
-      key={`${keyPrefix}-${index}`}
-      style={extraStyle
-        ? [{ fontFamily: resolveInlineFontFamily(ctx) }, extraStyle]
-        : { fontFamily: resolveInlineFontFamily(ctx) }}
-    >
-      {chunk}
-    </Text>
-  ))
-}
-
-function renderInlineTokens(
-  tokens: InlineToken[] | undefined,
-  keyPrefix: string,
-  ctx: InlineContext = { bold: false, italic: false }
-): React.ReactNode {
-  if (!Array.isArray(tokens)) return null
-
-  return tokens.flatMap((token, index) => {
-    const key = `${keyPrefix}-${index}`
-
-    if (!token || typeof token !== 'object') {
-      return renderInlineText(String(token || ''), key, ctx)
-    }
-
-    if (token.type === 'text' || token.type === 'escape') {
-      return renderInlineText(token.text || '', key, ctx)
-    }
-
-    if (token.type === 'strong') {
-      return renderInlineTokens(
-        inlineFallback(token),
-        `${key}-strong`,
-        { bold: true, italic: ctx.italic },
-      )
-    }
-
-    if (token.type === 'em') {
-      return renderInlineTokens(
-        inlineFallback(token),
-        `${key}-em`,
-        { bold: ctx.bold, italic: true },
-      )
-    }
-
-    if (token.type === 'del') {
-      return (
-        <Text key={key} style={styles.del}>
-          {renderInlineTokens(inlineFallback(token), `${key}-del`, ctx)}
-        </Text>
-      )
-    }
-
-    if (token.type === 'codespan') {
-      return (
-        <Text key={key} style={styles.code}>
-          {token.text || ''}
-        </Text>
-      )
-    }
-
-    if (token.type === 'br') {
-      return '\n'
-    }
-
-    if (token.type === 'link') {
-      return (
-        <Text key={key} style={styles.link}>
-          {renderInlineTokens(childTokens(token) || [textToken(tokenText(token) || token.href || '')], `${key}-link`, ctx)}
-        </Text>
-      )
-    }
-
-    return renderInlineText(tokenText(token), key, ctx)
-  })
-}
-
-function renderTableCell(cell: TableCell, key: string, isHeader: boolean) {
-  const tokens = typeof cell === 'object' && Array.isArray(cell?.tokens)
-    ? cell.tokens
-    : typeof cell === 'object' && cell !== null && typeof cell.text === 'string'
-      ? [textToken(cell.text)]
-      : typeof cell === 'string'
-        ? [textToken(cell)]
-        : [textToken('')]
-
-  const style = isHeader ? [styles.tableCellText, styles.tableHeaderText] : styles.tableCellText
-
-  return (
-    <Text style={style}>
-      {renderInlineTokens(tokens, `${key}-inline`, { bold: isHeader, italic: false })}
-    </Text>
-  )
-}
-
-function parseMarkdownBlocks(markdown: unknown): BlockToken[] {
-  const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n')
-  const tokens: BlockToken[] = []
-  let buffer: string[] = []
-  let centerBuffer: string[] | null = null
-
-  function flushBuffer() {
-    if (!buffer.length) return
-    tokens.push(...lexBlocks(buffer.join('\n')))
-    buffer = []
-  }
-
-  for (const line of lines) {
-    if (line.trim() === ':::center') {
-      flushBuffer()
-      centerBuffer = []
-      continue
-    }
-
-    if (line.trim() === ':::' && centerBuffer !== null) {
-      tokens.push({
-        type: 'center',
-        tokens: lexBlocks(centerBuffer.join('\n')),
-      })
-      centerBuffer = null
-      continue
-    }
-
-    if (centerBuffer !== null) {
-      centerBuffer.push(line)
-    } else {
-      buffer.push(line)
+/** Flattens an inline run into styled text tokens, unwrapping inline elements. */
+function flattenInline(nodes: AnyNode[] | undefined, ctx: InlineContext, extra: InlineStyle = {}): InlineToken[] {
+  const tokens: InlineToken[] = []
+  for (const node of nodes ?? []) {
+    if (isText(node)) {
+      tokens.push({ kind: 'text', text: node.data, ctx, extra })
+    } else if (isElement(node)) {
+      switch (node.name) {
+        case 'strong':
+          tokens.push(...flattenInline(node.children, { bold: true, italic: ctx.italic }, extra))
+          break
+        case 'em':
+          tokens.push(...flattenInline(node.children, { bold: ctx.bold, italic: true }, extra))
+          break
+        case 'del':
+          tokens.push(...flattenInline(node.children, ctx, { ...extra, del: true }))
+          break
+        case 'code':
+          tokens.push({ kind: 'text', text: textOf(node), ctx, extra: { ...extra, code: true } })
+          break
+        case 'a':
+          tokens.push(...flattenInline(node.children, ctx, { ...extra, link: true }))
+          break
+        case 'br':
+          tokens.push({ kind: 'break' })
+          break
+        default:
+          // Unknown inline tags are unwrapped, preserving their content.
+          tokens.push(...flattenInline(node.children, ctx, extra))
+      }
     }
   }
-
-  if (centerBuffer !== null) {
-    buffer.push(':::center', ...centerBuffer)
-  }
-  flushBuffer()
   return tokens
 }
 
-function renderBlocks(
-  tokens: BlockToken[] | undefined,
+/**
+ * Applies HTML whitespace semantics to a flat inline run: runs of whitespace
+ * collapse to a single space, whitespace at the run's edges or around a hard
+ * break disappears, and line breaks come only from `<br>` tokens. Whitespace
+ * between inline elements (e.g. `Hello<strong> world</strong>`) is preserved.
+ */
+export function normalizeTokens(tokens: InlineToken[]): InlineToken[] {
+  const out: InlineToken[] = []
+  let pendingSpace = false
+  let atEdge = true // start of the run or directly after a hard break
+  for (const token of tokens) {
+    if (token.kind === 'break') {
+      // Whitespace adjacent to a hard break collapses away (HTML semantics),
+      // so `<br>\n` in the template cannot produce a blank line.
+      pendingSpace = false
+      atEdge = true
+      out.push(token)
+      continue
+    }
+    const collapsed = token.text.replace(/[ \t\n\r\f]+/g, ' ')
+    const trimmed = collapsed.trim()
+    if (!trimmed) {
+      // Whitespace-only text contributes a collapsible space between content.
+      if (!atEdge) pendingSpace = true
+      continue
+    }
+    let text = trimmed
+    if (pendingSpace) {
+      text = ` ${text}`
+    } else if (!atEdge && collapsed.startsWith(' ')) {
+      // Leading whitespace on this token (e.g. `Hello<strong> world</strong>`)
+      // survives mid-run; only block edges and hard breaks drop it.
+      text = ` ${text}`
+    }
+    out.push({ ...token, text })
+    pendingSpace = collapsed.endsWith(' ')
+    atEdge = false
+  }
+  // A trailing pending space sits at the block edge and disappears.
+  return out
+}
+
+function tokenStyle(ctx: InlineContext, extra: InlineStyle): Style[] {
+  const style: Style[] = [{ fontFamily: resolveInlineFontFamily(ctx) }]
+  if (extra.del) style.push(styles.del)
+  if (extra.code) style.push(styles.code)
+  if (extra.link) style.push(styles.link)
+  return style
+}
+
+function renderInlineNodes(
+  nodes: AnyNode[] | undefined,
   keyPrefix: string,
-  inList = false,
-  blockCtx: BlockContext = { textAlign: 'left' }
+  ctx: InlineContext = { bold: false, italic: false }
 ): React.ReactNode {
-  if (!Array.isArray(tokens)) return null
+  if (!Array.isArray(nodes)) return null
+
+  const tokens = normalizeTokens(flattenInline(nodes, ctx))
+  if (!tokens.length) return null
 
   return tokens.map((token, index) => {
     const key = `${keyPrefix}-${index}`
-
-    if (!token || token.type === 'space') return null
-
-    if (token.type === 'center') {
-      return (
-        <View key={key} style={styles.centerBlock}>
-          {renderBlocks(token.tokens || [], `${key}-center`, inList, { textAlign: 'center' })}
-        </View>
-      )
-    }
-
-    const markedToken = token as Token
-
-    if (markedToken.type === 'heading') {
-      const headingStyle = markedToken.depth === 1 ? styles.heading1 : markedToken.depth === 2 ? styles.heading2 : styles.heading3
-      return (
-        <Text key={key} style={[headingStyle, { textAlign: blockCtx.textAlign }]}>
-          {renderInlineTokens(inlineFallback(markedToken), `${key}-inline`, { bold: true, italic: false })}
-        </Text>
-      )
-    }
-
-    if (markedToken.type === 'paragraph' || markedToken.type === 'text') {
-      return (
-        <Text key={key} style={[inList ? styles.listParagraph : styles.paragraph, { textAlign: blockCtx.textAlign }]}>
-          {renderInlineTokens(inlineFallback(markedToken), `${key}-inline`, { bold: false, italic: false })}
-        </Text>
-      )
-    }
-
-    if (markedToken.type === 'list') {
-      const listToken = markedToken as Tokens.List
-      return (
-        <View key={key} style={styles.list}>
-          {listToken.items?.map((item, itemIndex) => {
-            const bulletLabel = listToken.ordered ? `${itemIndex + (Number(listToken.start) || 1)}.` : '\u2022'
-            const itemTokens = Array.isArray(item?.tokens) && item.tokens.length
-              ? item.tokens
-              : [textToken(item?.text || '')]
-
-            return (
-              <View key={`${key}-item-${itemIndex}`} style={styles.listItem}>
-                <Text style={styles.listBullet}>{bulletLabel}</Text>
-                <View style={styles.listContent}>{renderBlocks(itemTokens, `${key}-item-${itemIndex}`, true, { textAlign: 'left' })}</View>
-              </View>
-            )
-          })}
-        </View>
-      )
-    }
-
-    if (markedToken.type === 'table') {
-      const tableToken = markedToken as Tokens.Table
-      const headerCells = Array.isArray(tableToken.header) ? tableToken.header : []
-      const rows = Array.isArray(tableToken.rows) ? tableToken.rows : []
-      const columnCount = Math.max(1, headerCells.length, ...rows.map((row) => Array.isArray(row) ? row.length : 0))
-
-      const normalizeRow = (row: TableCell[]) => Array.from({ length: columnCount }, (_, cellIndex) => row[cellIndex] || { text: '' })
-      const normalizedHeader = normalizeRow(headerCells)
-      const normalizedRows = rows.map((row) => normalizeRow(Array.isArray(row) ? row : []))
-
-      return (
-        <View key={key} style={styles.table}>
-          <View style={styles.tableRow}>
-            {normalizedHeader.map((cell, cellIndex) => (
-              <View
-                key={`${key}-header-${cellIndex}`}
-                style={cellIndex === columnCount - 1
-                  ? [styles.tableCell, styles.tableHeaderCell, styles.tableLastCell]
-                  : [styles.tableCell, styles.tableHeaderCell]}
-              >
-                {renderTableCell(cell, `${key}-header-${cellIndex}`, true)}
-              </View>
-            ))}
-          </View>
-          {normalizedRows.map((row, rowIndex) => (
-            <View
-              key={`${key}-row-${rowIndex}`}
-              style={rowIndex === normalizedRows.length - 1 ? [styles.tableRow, styles.tableLastRow] : styles.tableRow}
-            >
-              {row.map((cell, cellIndex) => (
-                <View
-                  key={`${key}-row-${rowIndex}-cell-${cellIndex}`}
-                  style={cellIndex === columnCount - 1 ? [styles.tableCell, styles.tableLastCell] : styles.tableCell}
-                >
-                  {renderTableCell(cell, `${key}-row-${rowIndex}-cell-${cellIndex}`, false)}
-                </View>
-              ))}
-            </View>
-          ))}
-        </View>
-      )
-    }
-
-    if (markedToken.type === 'blockquote') {
-      return (
-        <View key={key} style={{ borderLeftWidth: 3, borderLeftColor: '#9ca3af', paddingLeft: 8, marginBottom: 8 }}>
-          {renderBlocks(childTokens(markedToken) || [], `${key}-blockquote`, inList, blockCtx)}
-        </View>
-      )
-    }
-
-    if (markedToken.type === 'hr') {
-      return <View key={key} style={styles.hr} />
-    }
-
+    if (token.kind === 'break') return '\n'
     return (
-      <Text key={key} style={[inList ? styles.listParagraph : styles.paragraph, { textAlign: blockCtx.textAlign }]}>
-        {renderInlineTokens(inlineFallback(markedToken), `${key}-inline`, { bold: false, italic: false })}
+      <Text key={key} style={tokenStyle(token.ctx, token.extra)}>
+        {token.text}
       </Text>
     )
   })
 }
 
-function ReceiptPage({ markdown, index }: { markdown: string; index: number }) {
-  const tokens = parseMarkdownBlocks(markdown)
-  return <Page size="LETTER" style={styles.page}>{renderBlocks(tokens, `page-${index}`)}</Page>
+/** Renders a run of inline content as one paragraph; null when it is empty after normalization. */
+function renderParagraph(
+  nodes: AnyNode[] | undefined,
+  key: string,
+  inList: boolean,
+  blockCtx: BlockContext
+): React.ReactNode {
+  const inline = renderInlineNodes(nodes, `${key}-inline`)
+  if (inline == null) return null
+  return (
+    <Text key={key} style={[inList ? styles.listParagraph : styles.paragraph, { textAlign: blockCtx.textAlign }]}>
+      {inline}
+    </Text>
+  )
 }
 
-export default function DonationReceiptsPdfDocument({ receipts }: { receipts?: string[] }) {
+/**
+ * Renders a block container's children, grouping consecutive inline children
+ * into a single paragraph so inline formatting (strong/em/...) is preserved.
+ */
+function renderBlockChildren(
+  nodes: AnyNode[] | undefined,
+  keyPrefix: string,
+  inList: boolean,
+  blockCtx: BlockContext
+): React.ReactNode[] {
+  if (!Array.isArray(nodes)) return []
+  const views: React.ReactNode[] = []
+  let inlineRun: AnyNode[] = []
+  const flush = () => {
+    if (!inlineRun.length) return
+    const paragraph = renderParagraph(inlineRun, `${keyPrefix}-inline-${views.length}`, inList, blockCtx)
+    if (paragraph != null) views.push(paragraph)
+    inlineRun = []
+  }
+  for (const node of nodes) {
+    if (isInlineNode(node)) {
+      inlineRun.push(node)
+    } else {
+      flush()
+      views.push(...renderBlocks([node], `${keyPrefix}-block-${views.length}`, inList, blockCtx))
+    }
+  }
+  flush()
+  return views
+}
+
+function renderTableCell(cell: Element, key: string, isHeader: boolean, align: 'left' | 'center' | 'right') {
+  const style: Style[] = isHeader
+    ? [styles.tableCellText, styles.tableHeaderText]
+    : [styles.tableCellText]
+
+  return (
+    <Text style={[...style, { textAlign: align }]}>
+      {renderInlineNodes(cell.children, `${key}-inline`, { bold: isHeader, italic: false })}
+    </Text>
+  )
+}
+
+/**
+ * Collects table rows with their containing section (thead/tbody/tfoot), so
+ * the section's inherited text-align is not lost when rendering cells.
+ */
+function collectTableRows(table: Element): Array<{ row: Element; section: Element | undefined }> {
+  const rows: Array<{ row: Element; section: Element | undefined }> = []
+  for (const child of table.children) {
+    if (isElement(child)) {
+      if (child.name === 'tr') {
+        rows.push({ row: child, section: undefined })
+      } else if (child.name === 'thead' || child.name === 'tbody' || child.name === 'tfoot') {
+        for (const row of child.children) {
+          if (isElement(row, 'tr')) rows.push({ row, section: child })
+        }
+      }
+    }
+  }
+  return rows
+}
+
+function cellsOf(row: Element): Element[] {
+  return row.children.filter((cell) => isElement(cell) && (cell.name === 'th' || cell.name === 'td')) as Element[]
+}
+
+export type TableCellModel = {
+  cell: Element | null;
+  isHeader: boolean;
+  align: 'left' | 'center' | 'right';
+};
+
+/**
+ * Pure row model for one table row: pads the row to `columnCount` (short rows
+ * get null cells so uneven rows keep consistent column widths), styles cells
+ * by their own tag (`<th>` is a header wherever it appears, `<td>` never is),
+ * and resolves text alignment through the HTML inheritance chain:
+ * cell → row → section (thead/tbody/tfoot) → table.
+ */
+export function tableRowModel(
+  cells: Element[],
+  columnCount: number,
+  row: Element,
+  section: Element | undefined,
+  tableAlign: 'left' | 'center' | 'right'
+): TableCellModel[] {
+  const rowAlign = textAlignOf(row) ?? (section ? textAlignOf(section) ?? tableAlign : tableAlign)
+  return Array.from({ length: columnCount }, (_, index) => {
+    const cell = cells[index] ?? null
+    return {
+      cell,
+      isHeader: cell !== null && cell.name === 'th',
+      align: cell ? textAlignOf(cell) ?? rowAlign : rowAlign,
+    }
+  })
+}
+
+/** Renders one table row from its `tableRowModel` entries. */
+function renderRowCells(
+  cells: Element[],
+  columnCount: number,
+  keyPrefix: string,
+  row: Element,
+  section: Element | undefined,
+  tableAlign: 'left' | 'center' | 'right'
+): React.ReactNode[] {
+  return tableRowModel(cells, columnCount, row, section, tableAlign).map(({ cell, isHeader, align }, index) => {
+    const cellKey = `${keyPrefix}-cell-${index}`
+    const base: Style[] = isHeader ? [styles.tableCell, styles.tableHeaderCell] : [styles.tableCell]
+    const style = index === columnCount - 1 ? [...base, styles.tableLastCell] : base
+    if (!cell) return <View key={cellKey} style={style} />
+    return (
+      <View key={cellKey} style={style}>
+        {renderTableCell(cell, cellKey, isHeader, align)}
+      </View>
+    )
+  })
+}
+
+function renderBlocks(
+  nodes: AnyNode[] | undefined,
+  keyPrefix: string,
+  inList = false,
+  blockCtx: BlockContext = { textAlign: 'left' }
+): React.ReactNode[] {
+  if (!Array.isArray(nodes)) return []
+
+  return nodes.flatMap((node, index) => {
+    const key = `${keyPrefix}-${index}`
+
+    if (isText(node)) {
+      if (!node.data.trim()) return []
+      return [renderParagraph([node], key, inList, blockCtx)]
+    }
+
+    if (!isElement(node)) return []
+
+    const align = textAlignOf(node) ?? blockCtx.textAlign
+
+    if (node.name === 'h1' || node.name === 'h2' || node.name === 'h3') {
+      const headingStyle = node.name === 'h1' ? styles.heading1 : node.name === 'h2' ? styles.heading2 : styles.heading3
+      return [(
+        <Text key={key} style={[headingStyle, { textAlign: align }]}>
+          {renderInlineNodes(node.children, `${key}-inline`, { bold: true, italic: false })}
+        </Text>
+      )]
+    }
+
+    if (node.name === 'p') {
+      const rendered = renderParagraph(node.children, key, inList, { textAlign: align })
+      return rendered ? [rendered] : []
+    }
+
+    if (node.name === 'div') {
+      return [(
+        <View key={key} style={align === 'center' ? styles.centerBlock : undefined}>
+          {renderBlockChildren(node.children, `${key}-div`, inList, { textAlign: align })}
+        </View>
+      )]
+    }
+
+    if (node.name === 'ul' || node.name === 'ol') {
+      const ordered = node.name === 'ol'
+      const start = ordered ? parseInt(node.attribs.start || '', 10) || 1 : 1
+      const items = node.children.filter((item) => isElement(item, 'li')) as Element[]
+
+      return [(
+        <View key={key} style={styles.list}>
+          {items.map((item, itemIndex) => {
+            const bulletLabel = ordered ? `${itemIndex + start}.` : '•'
+            // Items inherit the list's calculated alignment (like text-align in HTML).
+            const itemAlign = textAlignOf(item) ?? align
+            return (
+              <View key={`${key}-item-${itemIndex}`} style={styles.listItem}>
+                <Text style={styles.listBullet}>{bulletLabel}</Text>
+                <View style={styles.listContent}>
+                  {renderBlockChildren(item.children, `${key}-item-${itemIndex}`, true, { textAlign: itemAlign })}
+                </View>
+              </View>
+            )
+          })}
+        </View>
+      )]
+    }
+
+    if (node.name === 'table') {
+      const rows = collectTableRows(node)
+      if (!rows.length) return []
+      const columnCount = Math.max(1, ...rows.map(({ row }) => cellsOf(row).length))
+
+      return [(
+        <View key={key} style={styles.table}>
+          {rows.map(({ row, section }, rowIndex) => (
+            <View
+              key={`${key}-row-${rowIndex}`}
+              style={rowIndex === rows.length - 1 ? [styles.tableRow, styles.tableLastRow] : styles.tableRow}
+            >
+              {renderRowCells(cellsOf(row), columnCount, `${key}-row-${rowIndex}`, row, section, align)}
+            </View>
+          ))}
+        </View>
+      )]
+    }
+
+    if (node.name === 'blockquote') {
+      return [(
+        <View key={key} style={{ borderLeftWidth: 3, borderLeftColor: '#9ca3af', paddingLeft: 8, marginBottom: 8 }}>
+          {renderBlockChildren(node.children, `${key}-blockquote`, inList, { textAlign: align })}
+        </View>
+      )]
+    }
+
+    if (node.name === 'hr') {
+      return [<View key={key} style={styles.hr} />]
+    }
+
+    // Unknown block-level tags: walk children, grouping inline runs, and
+    // inherit the element's calculated alignment.
+    return renderBlockChildren(node.children, key, inList, { textAlign: align })
+  })
+}
+
+function ReceiptPage({ document, index }: { document: DomDocument; index: number }) {
+  return <Page size="LETTER" style={styles.page}>{renderBlockChildren(document.children, `page-${index}`, false, { textAlign: 'left' })}</Page>
+}
+
+export default function DonationReceiptsPdfDocument({ receipts }: { receipts?: DomDocument[] }) {
   const items = Array.isArray(receipts) ? receipts : []
 
   return (
     <Document>
       {items.length
-        ? items.map((markdown, index) => <ReceiptPage key={`receipt-${index}`} markdown={markdown} index={index} />)
+        ? items.map((document, index) => <ReceiptPage key={`receipt-${index}`} document={document} index={index} />)
         : (
           <Page size="LETTER" style={styles.page}>
             <Text style={styles.empty}>No donor receipts available.</Text>
@@ -467,7 +540,7 @@ export default function DonationReceiptsPdfDocument({ receipts }: { receipts?: s
   )
 }
 
-export async function renderDonationReceiptsPdfBase64(receipts: string[]) {
+export async function renderDonationReceiptsPdfBase64(receipts: DomDocument[]) {
   const buffer = await renderToBuffer(<DonationReceiptsPdfDocument receipts={receipts} />)
   return buffer.toString('base64')
 }

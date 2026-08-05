@@ -228,7 +228,7 @@ describe('service-backed happy path smoke checks', () => {
   });
 
   it('returns donation receipt template from service', async () => {
-    const template = { markdown_body: 'Hello {{donor_name}}' };
+    const template = { html_body: '<p>Hello {{donor_name}}</p>' };
     donationReceiptServiceMocks.getReceiptTemplate.mockResolvedValue(template);
 
     const res = await requestRoute({
@@ -245,7 +245,7 @@ describe('service-backed happy path smoke checks', () => {
   });
 
   it('returns donation receipt preview from service', async () => {
-    const payload = { fiscal_year: 2025, account_ids: [1, 2], markdown_body: 'preview body' };
+    const payload = { fiscal_year: 2025, account_ids: [1, 2], html_body: '<p>preview body</p>' };
     const preview = { receipts: [{ contact_id: 1, amount: 50 }], totals: { amount: 50, count: 1 } };
     donationReceiptServiceMocks.previewReceipt.mockResolvedValue(preview);
 
@@ -260,6 +260,6 @@ describe('service-backed happy path smoke checks', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(preview);
-    expect(donationReceiptServiceMocks.previewReceipt).toHaveBeenCalledWith(2025, [1, 2], 'preview body');
+    expect(donationReceiptServiceMocks.previewReceipt).toHaveBeenCalledWith(2025, [1, 2], '<p>preview body</p>');
   });
 });

@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import type { Router } from 'express';
 import type { Knex } from 'knex';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { requestMountedRoute } from '../routeTestHelpers.js';
 
 
@@ -57,7 +57,7 @@ async function requestRoute({
   body,
 }: {
   probePath: string;
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PUT';
   role?: 'admin' | 'editor' | 'viewer';
   body?: unknown;
 }) {
@@ -238,7 +238,7 @@ describe('direct DB donation-receipts integration smoke checks', () => {
 
     expect(template.status).toBe(200);
     expect(template.body.template).toEqual(expect.objectContaining({
-      markdown_body: expect.any(String),
+      html_body: expect.any(String),
     }));
     expect(template.body.variables).toEqual(expect.arrayContaining([
       'donor_name',
@@ -254,7 +254,7 @@ describe('direct DB donation-receipts integration smoke checks', () => {
       body: {
         fiscal_year: fixture.fiscalYear,
         account_ids: [fixture.incomeAccount.id],
-        markdown_body: 'Donor {{donor_name}} / {{donor_id}} gave {{total_amount}} in {{fiscal_year}}',
+        html_body: 'Donor {{donor_name}} / {{donor_id}} gave {{total_amount}} in {{fiscal_year}}',
       },
     });
 
@@ -262,11 +262,11 @@ describe('direct DB donation-receipts integration smoke checks', () => {
     expect(preview.body).toEqual(expect.objectContaining({
       donor_count: 1,
       warnings: expect.any(Array),
-      markdown: expect.stringContaining(fixture.contact.name),
+      html: expect.stringContaining(fixture.contact.name),
     }));
-    expect(preview.body.markdown).toContain(fixture.contact.donor_id);
-    expect(preview.body.markdown).toContain('$40.00');
-    expect(preview.body.markdown).toContain(String(fixture.fiscalYear));
+    expect(preview.body.html).toContain(fixture.contact.donor_id);
+    expect(preview.body.html).toContain('$40.00');
+    expect(preview.body.html).toContain(String(fixture.fiscalYear));
   });
 
   it('rejects invalid donation receipt account ids before building receipts', async () => {
@@ -277,11 +277,173 @@ describe('direct DB donation-receipts integration smoke checks', () => {
       body: {
         fiscal_year: Number(todayDateOnly().slice(0, 4)),
         account_ids: [999999999],
-        markdown_body: 'Donor {{donor_name}}',
+        html_body: 'Donor {{donor_name}}',
       },
     });
 
     expect(rejected.status).toBe(400);
     expect(rejected.body).toEqual({ error: 'Selected account IDs are not income accounts: 999999999' });
+  });
+});
+
+interface TemplateRowSnapshot {
+  id: number;
+  markdown_body: string | null;
+  html_body: string | null;
+  updated_by: number | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+async function snapshotTemplateRow(): Promise<TemplateRowSnapshot | undefined> {
+  return await db('donation_receipt_templates').orderBy('id', 'asc').first() as TemplateRowSnapshot | undefined;
+}
+
+async function setTemplateRow(partial: Partial<TemplateRowSnapshot>) {
+  const row = await snapshotTemplateRow();
+  if (row) {
+    await db('donation_receipt_templates').where({ id: row.id }).update(partial);
+  } else {
+    await db('donation_receipt_templates').insert({
+      markdown_body: null,
+      html_body: null,
+      ...partial,
+      created_at: db.fn.now(),
+      updated_at: db.fn.now(),
+    });
+  }
+}
+
+async function restoreTemplateRow(snapshot: TemplateRowSnapshot | undefined) {
+  if (snapshot) {
+    await db('donation_receipt_templates').where({ id: snapshot.id }).update({
+      markdown_body: snapshot.markdown_body,
+      html_body: snapshot.html_body,
+      updated_by: snapshot.updated_by,
+      created_at: snapshot.created_at,
+      updated_at: snapshot.updated_at,
+    });
+  } else {
+    await db('donation_receipt_templates').del();
+  }
+}
+
+const LEGACY_MARKDOWN = `# Legacy Title
+
+**Bold {{donor_name}}**
+
+:::center
+Centered line
+:::
+
+[details](https://example.com/{{church_phone}})`;
+
+describe('direct DB donation-receipt template lazy conversion', () => {
+  let templateSnapshot: TemplateRowSnapshot | undefined;
+
+  beforeEach(async () => {
+    templateSnapshot = await snapshotTemplateRow();
+    await setTemplateRow({ markdown_body: LEGACY_MARKDOWN, html_body: null });
+  });
+
+  afterEach(async () => {
+    await restoreTemplateRow(templateSnapshot);
+  });
+
+  it('converts and persists canonical HTML on first read, preserving legacy markdown', async () => {
+    const template = await requestRoute({ probePath: '/template', method: 'GET' });
+
+    expect(template.status).toBe(200);
+    const htmlBody = template.body.template.html_body as string;
+    expect(htmlBody).toContain('<h1>Legacy Title</h1>');
+    expect(htmlBody).toContain('Bold {{donor_name}}');
+    expect(htmlBody).toContain('text-align:center');
+    expect(htmlBody).toContain('Centered line');
+    // Legacy link with attribute placeholder is unwrapped and its templated
+    // URL becomes visible text.
+    expect(htmlBody).toContain('details');
+    expect(htmlBody).toContain('(https://example.com/{{church_phone}})');
+    expect(htmlBody).not.toContain('<a href');
+
+    const row = await snapshotTemplateRow();
+    expect(row?.html_body).toBe(htmlBody);
+    expect(row?.markdown_body).toBe(LEGACY_MARKDOWN);
+  });
+
+  it('returns a saved html_body without running conversion', async () => {
+    // A template saved by another writer (e.g. during the lazy-conversion
+    // race) is served as-is. The conditional-update/refetch path itself is
+    // unit-tested in services/__tests__/donationReceipts.test.ts, because the
+    // read → save → update interleaving cannot be forced through the HTTP layer.
+    await setTemplateRow({ markdown_body: LEGACY_MARKDOWN, html_body: '<p>Concurrent save</p>' });
+
+    const template = await requestRoute({ probePath: '/template', method: 'GET' });
+
+    expect(template.status).toBe(200);
+    expect(template.body.template.html_body).toBe('<p>Concurrent save</p>');
+
+    const row = await snapshotTemplateRow();
+    expect(row?.html_body).toBe('<p>Concurrent save</p>');
+    expect(row?.markdown_body).toBe(LEGACY_MARKDOWN);
+  });
+
+  it('falls back to the default template when converted legacy content is unusable', async () => {
+    await setTemplateRow({ markdown_body: '<script>alert(1)</script>', html_body: null });
+
+    const template = await requestRoute({ probePath: '/template', method: 'GET' });
+
+    expect(template.status).toBe(200);
+    expect(template.body.template.html_body).toContain('Official Donation Receipt');
+
+    const row = await snapshotTemplateRow();
+    expect(row?.html_body).toContain('Official Donation Receipt');
+  });
+
+  it('saves canonical HTML and keeps legacy markdown for rollback', async () => {
+    const saved = await requestRoute({
+      probePath: '/template',
+      method: 'PUT',
+      role: 'admin',
+      body: { html_body: '<p>New {{donor_name}}</p><script>alert(1)</script>' },
+    });
+
+    expect(saved.status).toBe(200);
+    expect(saved.body.template.html_body).toBe('<p>New {{donor_name}}</p>');
+
+    const row = await snapshotTemplateRow();
+    expect(row?.html_body).toBe('<p>New {{donor_name}}</p>');
+    expect(row?.markdown_body).toBe(LEGACY_MARKDOWN);
+  });
+
+  it('rejects unknown variables on save', async () => {
+    const rejected = await requestRoute({
+      probePath: '/template',
+      method: 'PUT',
+      role: 'admin',
+      body: { html_body: '<p>{{bogus}}</p>' },
+    });
+
+    expect(rejected.status).toBe(400);
+    expect(rejected.body).toEqual({ error: 'Unknown template variables: bogus' });
+  });
+
+  it('rejects placeholders inside attributes and empty-after-sanitization content on save', async () => {
+    const attrRejected = await requestRoute({
+      probePath: '/template',
+      method: 'PUT',
+      role: 'admin',
+      body: { html_body: '<a href="{{donor_id}}">x</a>' },
+    });
+    expect(attrRejected.status).toBe(400);
+    expect(attrRejected.body.error).toContain('not allowed inside HTML attributes');
+
+    const emptyRejected = await requestRoute({
+      probePath: '/template',
+      method: 'PUT',
+      role: 'admin',
+      body: { html_body: '<script>alert(1)</script>' },
+    });
+    expect(emptyRejected.status).toBe(400);
+    expect(emptyRejected.body.error).toContain('empty after sanitization');
   });
 });
