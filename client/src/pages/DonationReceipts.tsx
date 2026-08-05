@@ -21,32 +21,30 @@ const fmt = (n: number | string | null | undefined) => '$' + Number(n || 0).toLo
 
 const previewStyles = `
   .receipt-preview {
-    box-sizing: border-box;
-    min-height: 11in;
-    padding: 1in 1.25in;
-    color: #000;
-    font-family: "Times New Roman", Times, serif;
-    font-size: 12pt;
-    line-height: 1.2;
+    padding: 2.5rem;
+    color: #111827;
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 0.9rem;
+    line-height: 1.55;
     background: white;
   }
   .receipt-preview h1 {
-    margin: 0 0 0.35rem;
-    font-size: 16pt;
-    line-height: 1.2;
+    margin: 0 0 1rem;
+    font-size: 1.55rem;
+    line-height: 1.25;
   }
   .receipt-preview h2 {
-    margin: 0.65rem 0 0.25rem;
-    font-size: 16pt;
-    line-height: 1.2;
+    margin: 1rem 0 0.6rem;
+    font-size: 1.15rem;
+    line-height: 1.3;
   }
   .receipt-preview h3 {
-    margin: 0.5rem 0 0.25rem;
-    font-size: 14pt;
-    line-height: 1.2;
+    margin: 0.85rem 0 0.5rem;
+    font-size: 1rem;
+    line-height: 1.3;
   }
   .receipt-preview p {
-    margin: 0 0 0.5rem;
+    margin: 0 0 0.75rem;
   }
   .receipt-preview ul,
   .receipt-preview ol {
@@ -59,20 +57,17 @@ const previewStyles = `
   .receipt-preview table {
     width: 100%;
     border-collapse: collapse;
-    table-layout: fixed;
-    margin: 0.9rem 0;
-    font-size: 12pt;
-    background: #ced7e7;
+    margin-bottom: 0.9rem;
+    font-size: 0.82rem;
   }
   .receipt-preview th,
   .receipt-preview td {
-    border: 1px solid white;
-    padding: 0.35rem;
+    border: 1px solid #d1d5db;
+    padding: 0.45rem 0.55rem;
     text-align: left;
-    vertical-align: top;
   }
   .receipt-preview th {
-    background: transparent;
+    background: #f3f4f6;
   }
   .receipt-preview blockquote {
     margin: 0 0 0.75rem;
@@ -81,8 +76,8 @@ const previewStyles = `
   }
   .receipt-preview hr {
     border: 0;
-    border-top: 1px solid #000;
-    margin: 0.3rem 0 0.65rem;
+    border-top: 1px solid #9ca3af;
+    margin: 0.75rem 0;
   }
   .receipt-preview code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;

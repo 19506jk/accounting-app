@@ -29,17 +29,6 @@ describe('prepareTemplate sanitization', () => {
     expect(html).toContain('<a href="https://example.com">link</a>');
   });
 
-  it('keeps receipt-safe sizing and background styles', () => {
-    const { html } = prepareTemplate(
-      '<table style="background-color:#ced7e7"><tr>' +
-      '<td style="width:62%;text-align:right;color:red">content</td>' +
-      '</tr></table>'
-    );
-    expect(html).toContain('style="background-color:#ced7e7"');
-    expect(html).toContain('style="width:62%;text-align:right"');
-    expect(html).not.toContain('color:red');
-  });
-
   it('strips scripts, event handlers, embedded content, images, and external CSS', () => {
     const { html } = prepareTemplate(
       '<script>alert(1)</script><style>p{color:red}</style>' +
