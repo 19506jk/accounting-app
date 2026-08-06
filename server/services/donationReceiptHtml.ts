@@ -35,9 +35,38 @@ export const TEMPLATE_VARIABLES = [
   'fiscal_year',
   'total_amount',
   'generated_date',
+  'branch_accountant_signature',
+  'branch_accountant_name',
+  'treasurer_signature',
+  'treasurer_name',
 ] as const;
 
 const VARIABLE_SET = new Set<string>(TEMPLATE_VARIABLES);
+
+/** All optional signer variables; empty values are pruned, not rendered. */
+const SIGNER_VARIABLES = new Set<string>([
+  'branch_accountant_signature',
+  'branch_accountant_name',
+  'treasurer_signature',
+  'treasurer_name',
+]);
+
+/** Signer variables that render as trusted image nodes when configured. */
+const SIGNER_SIGNATURE_VARIABLES = new Set<string>([
+  'branch_accountant_signature',
+  'treasurer_signature',
+]);
+
+/**
+ * Marker left in a text node when an optional signer variable is empty. The
+ * pruning pass removes it together with one adjacent `<br>` so an absent
+ * signer line never leaves a blank spacer line.
+ */
+const SIGNER_EMPTY_MARKER = '\u0000';
+
+/** Authoritative signature image size, read by both the HTML preview and PDF. */
+const SIGNATURE_IMAGE_WIDTH = '180';
+const SIGNATURE_IMAGE_HEIGHT = '70';
 
 /** Legacy Markdown default, used only to seed lazy conversion of old rows. */
 export const DEFAULT_TEMPLATE = `# Official Donation Receipt
@@ -62,8 +91,29 @@ Donor ID: {{donor_id}}
 **Total eligible amount: {{total_amount}}**
 `;
 
-/** Equivalent of the supplied tax receipt sample, authored as an HTML fragment. */
-export const DEFAULT_HTML_TEMPLATE = `<p style="text-align:right"><strong>Receipt No. {{receipt_serial_number}}</strong></p>
+/**
+ * Historical built-in HTML defaults that existed before the two-signer
+ * default. Saved templates whose canonical form matches one of these are
+ * lazily upgraded (see donationReceipts.ts); the constants are kept authored
+ * and canonicalized with the same pipeline used for stored templates.
+ */
+export const LEGACY_DEFAULT_HTML_TEMPLATE_V0 = `<h1>Official Donation Receipt</h1>
+<p><strong>{{church_name}}</strong><br>
+{{church_address}}<br>
+{{church_city}}, {{church_province}} {{church_postal_code}}<br>
+Phone: {{church_phone}}<br>
+CRA Charitable Registration No: {{cra_charitable_registration_number}}</p>
+<p>Receipt for fiscal year {{fiscal_year}}<br>
+Receipt serial number: {{receipt_serial_number}}<br>
+Generated: {{generated_date}}</p>
+<h2>Donor</h2>
+<p>{{donor_name}}<br>
+Donor ID: {{donor_id}}<br>
+{{donor_address}}<br>
+{{donor_city}}, {{donor_province}} {{donor_postal_code}}</p>
+<p><strong>Total eligible amount: {{total_amount}}</strong></p>`;
+
+export const LEGACY_DEFAULT_HTML_TEMPLATE_V1 = `<p style="text-align:right"><strong>Receipt No. {{receipt_serial_number}}</strong></p>
 <h1 style="text-align:center">Official Receipt for Income Tax Purposes</h1>
 <hr>
 <h2 style="text-align:center">{{church_name}}</h2>
@@ -103,6 +153,66 @@ Tel: {{church_phone}}<br>
 <p><strong>Authorized Signature:</strong></p>
 <p style="text-align:right">__________________________________________<br>
 Authorized representative</p>
+<hr>
+<p>For information on all registered charities in Canada under the Income Tax Act, visit the Canada Revenue Agency at <a href="https://www.canada.ca/en/services/taxes/charities.html">canada.ca/charities-giving</a>.</p>`;
+
+/**
+ * Equivalent of the supplied tax receipt sample, authored as an HTML fragment.
+ * The signer area is a two-column table whose cells carry the fixed role
+ * labels; signer lines are pruned at substitution time, so the labels keep
+ * each cell alive even when no signer is configured.
+ */
+export const DEFAULT_HTML_TEMPLATE = `<h2 style="text-align:center">{{church_name}}</h2>
+<p style="text-align:center">{{church_address}}<br>
+{{church_city}}, {{church_province}} {{church_postal_code}}<br>
+Tel: {{church_phone}}<br>
+<strong>Registration Number: {{cra_charitable_registration_number}}</strong></p>
+<hr>
+<p style="text-align:right"><strong>Receipt No. {{receipt_serial_number}}</strong></p>
+<h1 style="text-align:center">Official Receipt for Income Tax Purposes</h1>
+<p style="text-align:center">Donations Received: January 1 – December 31, {{fiscal_year}}</p>
+<table>
+<tbody>
+<tr>
+<td><strong>Donated By:</strong><br>
+{{donor_name}}<br>
+{{donor_address}}<br>
+{{donor_city}}, {{donor_province}} {{donor_postal_code}}</td>
+<td><strong>Account No.</strong><br>{{donor_id}}</td>
+</tr>
+</tbody>
+</table>
+<p style="text-align:center">Thank you very much for your continued support and your donation to {{church_name}}.</p>
+<table>
+<tbody>
+<tr>
+<th>Eligible amount of gift for tax purposes</th>
+<td style="text-align:right"><strong>{{total_amount}}</strong></td>
+</tr>
+</tbody>
+</table>
+<table>
+<tbody>
+<tr>
+<td>Location receipt issued: {{church_city}}</td>
+<td>Date receipt issued: {{generated_date}}</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Authorized Signature:</strong></p>
+<table>
+<tbody>
+<tr>
+<td style="text-align:center"><strong>Branch Accountant</strong><br>
+{{branch_accountant_signature}}<br>
+{{branch_accountant_name}}</td>
+<td style="text-align:center"><strong>Treasurer</strong><br>
+{{treasurer_signature}}<br>
+{{treasurer_name}}</td>
+</tr>
+</tbody>
+</table>
+<hr>
 <p>For information on all registered charities in Canada under the Income Tax Act, visit the Canada Revenue Agency at <a href="https://www.canada.ca/en/services/taxes/charities.html">canada.ca/charities-giving</a>.</p>`;
 
 const BLOCK_TAGS = new Set([
@@ -168,9 +278,11 @@ function isElement(node: AnyNode): node is Element {
  * Elements that are visible on their own, even with no text content. All
  * other elements count as content only if they contain meaningful text, so
  * structural shells like `<p></p>`, `<div></div>`, or `<p><br></p>` do not
- * satisfy the empty-after-sanitization check.
+ * satisfy the empty-after-sanitization check. `img` is trusted-signature
+ * images: authored `<img>` tags are stripped during sanitization, so the only
+ * imgs ever present are injected post-sanitization.
  */
-const SELF_VISIBLE_TAGS = new Set(['hr']);
+const SELF_VISIBLE_TAGS = new Set(['hr', 'img']);
 
 function hasVisibleContent(nodes: AnyNode[]): boolean {
   for (const node of nodes) {
@@ -376,18 +488,59 @@ function substituteChildren(nodes: AnyNode[], values: Record<string, string>): A
   return out;
 }
 
+/** Builds the trusted image node for a configured signer signature. */
+function createSignatureImage(variable: string, src: string): Element {
+  const alt = variable === 'treasurer_signature' ? 'Treasurer signature' : 'Branch Accountant signature';
+  return new Element('img', {
+    src,
+    width: SIGNATURE_IMAGE_WIDTH,
+    height: SIGNATURE_IMAGE_HEIGHT,
+    alt,
+  });
+}
+
+/** True when everything outside the given variables is whitespace. */
+function remainderIsWhitespace(data: string, variables: Array<{ name: string; index: number; length: number }>): boolean {
+  let lastIndex = 0;
+  for (const variable of variables) {
+    if (data.slice(lastIndex, variable.index).trim()) return false;
+    lastIndex = variable.index + variable.length;
+  }
+  return !data.slice(lastIndex).trim();
+}
+
 function substituteText(data: string, values: Record<string, string>): AnyNode[] {
+  const variables = findVariables(data);
+  if (!variables.length) return [new Text(data)];
+
+  // A text node holding only whitespace and empty signer variables collapses
+  // into one pruning marker per empty variable: the whitespace remainder is
+  // dropped with it, and each marker consumes its own adjacent `<br>`.
+  const collapsesToMarkers = variables.every((variable) =>
+    SIGNER_VARIABLES.has(variable.name) && !(values[variable.name] ?? '')
+  ) && remainderIsWhitespace(data, variables);
+  if (collapsesToMarkers) {
+    return variables.map(() => new Text(SIGNER_EMPTY_MARKER));
+  }
+
   const parts: AnyNode[] = [];
   let lastIndex = 0;
-  for (const variable of findVariables(data)) {
+  for (const variable of variables) {
     if (variable.index > lastIndex) {
       parts.push(new Text(data.slice(lastIndex, variable.index)));
     }
     const value = values[variable.name] ?? '';
-    value.split('\n').forEach((part, index) => {
-      if (index > 0) parts.push(new Element('br', {}));
-      if (part) parts.push(new Text(part));
-    });
+    if (SIGNER_VARIABLES.has(variable.name) && !value) {
+      // Empty signer variable embedded in meaningful text: remove only the
+      // variable and retain the surrounding text and breaks.
+    } else if (SIGNER_SIGNATURE_VARIABLES.has(variable.name)) {
+      parts.push(createSignatureImage(variable.name, value));
+    } else {
+      value.split('\n').forEach((part, index) => {
+        if (index > 0) parts.push(new Element('br', {}));
+        if (part) parts.push(new Text(part));
+      });
+    }
     lastIndex = variable.index + variable.length;
   }
   if (lastIndex < data.length) {
@@ -397,14 +550,84 @@ function substituteText(data: string, values: Record<string, string>): AnyNode[]
 }
 
 /**
+ * Locates the `<br>` adjacent to a removed empty signer token. Scans forward
+ * first, then backward, skipping whitespace-only text siblings; stops at the
+ * first meaningful sibling. Returns the index in `nodes` or -1.
+ */
+function findAdjacentBreak(nodes: AnyNode[], afterIndex: number): number {
+  for (let i = afterIndex; i < nodes.length; i++) {
+    const node = nodes[i]!;
+    if (isText(node)) {
+      if (node.data.trim()) return -1;
+      continue;
+    }
+    if (isElement(node) && node.name === 'br') return i;
+    return -1;
+  }
+  for (let i = afterIndex - 1; i >= 0; i--) {
+    const node = nodes[i]!;
+    if (isText(node)) {
+      if (node.data.trim()) return -1;
+      continue;
+    }
+    if (isElement(node) && node.name === 'br') return i;
+    return -1;
+  }
+  return -1;
+}
+
+/**
+ * Removes empty signer variables from a substituted tree and prunes the
+ * containers left behind:
+ * - An empty signer token's marker text node is removed together with one
+ *   adjacent `<br>` (preferring the following sibling), so consecutive empty
+ *   signer lines each consume their own separator.
+ * - Inline wrappers (e.g. `<strong>`) and block containers (e.g. `<p>`,
+ *   `<td>`) emptied by that removal are dropped — whitespace and standalone
+ *   `<br>` elements are not meaningful content, matching the sanitizer's
+ *   visible-content rules. Only signer-affected containers are removed, so
+ *   unrelated empty substitutions keep their previous behavior.
+ * - A variable embedded in meaningful text is removed alone; surrounding
+ *   text and breaks are retained.
+ */
+function pruneEmptySignerVariables(nodes: AnyNode[]): { nodes: AnyNode[]; touched: boolean } {
+  const result: AnyNode[] = [];
+  let touched = false;
+  for (const node of nodes) {
+    if (isElement(node)) {
+      const childResult = pruneEmptySignerVariables(node.children);
+      node.children = childResult.nodes;
+      touched = touched || childResult.touched;
+      if (childResult.touched && !hasVisibleContent(node.children)) {
+        continue;
+      }
+    }
+    result.push(node);
+  }
+  for (let i = 0; i < result.length; i++) {
+    const node = result[i]!;
+    if (!isText(node) || node.data !== SIGNER_EMPTY_MARKER) continue;
+    result.splice(i, 1);
+    touched = true;
+    const breakIndex = findAdjacentBreak(result, i);
+    if (breakIndex !== -1) result.splice(breakIndex, 1);
+    i -= 1;
+  }
+  return { nodes: result, touched };
+}
+
+/**
  * Substitutes template variables into a sanitized tree and returns the
  * substituted tree, cloned per receipt. Multiline values (e.g. addresses)
- * become `br`-separated text nodes, so values can never inject markup. The
- * PDF renderer walks this tree directly (parse-once design).
+ * become `br`-separated text nodes, so values can never inject markup.
+ * Configured signer signatures become trusted image nodes; empty signer
+ * variables are pruned on the same tree, so serialized preview HTML and the
+ * PDF renderer (which walks this tree directly) agree on blank-line removal.
  */
 export function substituteTree(tree: Document, values: Record<string, string>): Document {
   const clone = cloneNode(tree) as Document;
   clone.children = substituteChildren(clone.children, values);
+  clone.children = pruneEmptySignerVariables(clone.children).nodes;
   return clone;
 }
 

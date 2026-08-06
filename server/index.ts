@@ -54,7 +54,9 @@ app.use(cors({
   ],
   credentials: true,
 }));
-app.use(express.json());
+// Full-form settings saves carry up to two base64 signature images
+// (~333 KB each), so the default 100 KB JSON limit is insufficient.
+app.use(express.json({ limit: '1mb' }));
 app.use(accessLog);
 
 app.get('/api/health', (_req, res) => {

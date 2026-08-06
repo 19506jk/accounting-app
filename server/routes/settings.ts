@@ -10,10 +10,14 @@ import type {
 } from '@shared/contracts';
 import { isValidTimeZone } from '../utils/date.js';
 import { setChurchTimeZone } from '../services/churchTimeZone.js';
+import { validateSignatureImage } from '../utils/signatureImage.js';
 
 const db = require('../db');
 const auth = require('../middleware/auth.js');
 const requireRole = require('../middleware/roles.js');
+
+/** Settings holding receipt-signer signature images (validated data URIs). */
+const SIGNATURE_SETTING_KEYS = ['church_signature_url', 'treasurer_signature_url'] as const;
 
 const router = express.Router();
 router.use(auth);
@@ -71,6 +75,37 @@ router.put(
         if (timezoneValue !== null && timezoneValue !== undefined && !isValidTimeZone(timezoneValue)) {
           return res.status(400).json({ error: 'church_timezone must be a valid IANA timezone (e.g., America/Toronto)' });
         }
+      }
+
+      // Signature images are validated before any update runs, so an invalid
+      // value never mutates anything (atomic rejection). A non-data value that
+      // exactly matches the currently stored one is a legacy remote URL being
+      // resubmitted by an old full-form save — it is coerced to null instead
+      // of blocking unrelated setting changes.
+      const signatureRows = await db('settings')
+        .whereIn('key', SIGNATURE_SETTING_KEYS)
+        .select('key', 'value') as Array<{ key: string; value: string | null }>;
+      const storedSignatures = new Map(signatureRows.map((row) => [row.key, row.value]));
+
+      for (const key of SIGNATURE_SETTING_KEYS) {
+        if (!(key in updates)) continue;
+        const value = updates[key];
+        if (value === null || value === undefined) continue; // clearing is allowed
+
+        if (typeof value !== 'string') {
+          return res.status(400).json({ error: `${key} must be a PNG/JPEG data URI or null` });
+        }
+        const result = validateSignatureImage(value);
+        if (result.ok) {
+          updates[key] = result.canonical;
+          continue;
+        }
+        const stored = storedSignatures.get(key);
+        if (stored !== null && stored !== undefined && value === stored) {
+          updates[key] = null; // unchanged legacy value — treat as unconfigured
+          continue;
+        }
+        return res.status(400).json({ error: result.error });
       }
 
       const updatePromises = Object.entries(updates)

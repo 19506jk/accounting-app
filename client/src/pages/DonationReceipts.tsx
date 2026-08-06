@@ -22,21 +22,23 @@ const fmt = (n: number | string | null | undefined) => '$' + Number(n || 0).toLo
 const previewStyles = `
   .receipt-preview {
     padding: 2.5rem;
-    color: #111827;
+    color: #243247;
     font-family: Helvetica, Arial, sans-serif;
-    font-size: 0.9rem;
-    line-height: 1.55;
+    font-size: 0.875rem;
+    line-height: 1.5;
     background: white;
   }
   .receipt-preview h1 {
-    margin: 0 0 1rem;
-    font-size: 1.55rem;
-    line-height: 1.25;
+    margin: 0.15rem 0 0.7rem;
+    color: #173b57;
+    font-size: 1.65rem;
+    line-height: 1.2;
   }
   .receipt-preview h2 {
-    margin: 1rem 0 0.6rem;
-    font-size: 1.15rem;
-    line-height: 1.3;
+    margin: 0.15rem 0 0.45rem;
+    color: #173b57;
+    font-size: 1.4rem;
+    line-height: 1.2;
   }
   .receipt-preview h3 {
     margin: 0.85rem 0 0.5rem;
@@ -44,7 +46,7 @@ const previewStyles = `
     line-height: 1.3;
   }
   .receipt-preview p {
-    margin: 0 0 0.75rem;
+    margin: 0 0 0.7rem;
   }
   .receipt-preview ul,
   .receipt-preview ol {
@@ -56,18 +58,21 @@ const previewStyles = `
   }
   .receipt-preview table {
     width: 100%;
+    overflow: hidden;
     border-collapse: collapse;
-    margin-bottom: 0.9rem;
+    margin: 0.15rem 0 0.9rem;
+    border: 1px solid #b9c8d4;
+    border-radius: 4px;
     font-size: 0.82rem;
   }
   .receipt-preview th,
   .receipt-preview td {
-    border: 1px solid #d1d5db;
-    padding: 0.45rem 0.55rem;
+    border: 1px solid #d8e1e8;
+    padding: 0.65rem 0.7rem;
     text-align: left;
   }
   .receipt-preview th {
-    background: #f3f4f6;
+    background: #e9f0f5;
   }
   .receipt-preview blockquote {
     margin: 0 0 0.75rem;
@@ -76,8 +81,8 @@ const previewStyles = `
   }
   .receipt-preview hr {
     border: 0;
-    border-top: 1px solid #9ca3af;
-    margin: 0.75rem 0;
+    border-top: 2px solid #2f6f89;
+    margin: 0.85rem 0;
   }
   .receipt-preview code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -86,6 +91,11 @@ const previewStyles = `
   .receipt-preview a {
     color: #1d4ed8;
     text-decoration: underline;
+  }
+  /* Trusted signer signatures carry their width/height attributes; only
+     non-dimensional styling is added here. */
+  .receipt-preview img {
+    object-fit: contain;
   }
 `
 

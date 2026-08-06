@@ -2,8 +2,16 @@ import { parseDocument } from 'htmlparser2';
 import type { Element } from 'domhandler';
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_HTML_TEMPLATE, prepareTemplate } from '../donationReceiptHtml.js';
-import { normalizeTokens, renderDonationReceiptsPdfBase64, tableRowModel, type InlineToken } from '../donationReceiptPdf.js';
+import { DEFAULT_HTML_TEMPLATE, prepareTemplate, substituteTree } from '../donationReceiptHtml.js';
+import {
+  normalizeTokens,
+  orderLineSegments,
+  renderDonationReceiptsPdfBase64,
+  tableRowModel,
+  type InlineToken,
+  type TextInlineToken,
+} from '../donationReceiptPdf.js';
+import { TINY_JPEG_DATA_URI, TINY_PNG_DATA_URI } from '../../utils/signatureImageFixtures.js';
 
 function elementFrom(html: string): Element {
   const doc = parseDocument(html);
@@ -40,6 +48,20 @@ function treeOf(html: string) {
 
 async function expectPdf(html: string) {
   const base64 = await renderDonationReceiptsPdfBase64([treeOf(html)]);
+  const buffer = Buffer.from(base64, 'base64');
+  expect(buffer.subarray(0, 4).toString()).toBe('%PDF');
+  return base64;
+}
+
+/** Prepares a template and substitutes signer values, like the receipt service. */
+function signedTreeOf(html: string, values: Record<string, string>) {
+  const { tree } = prepareTemplate(html);
+  if (!tree) throw new Error('test template produced no tree');
+  return substituteTree(tree, values);
+}
+
+async function expectSignedPdf(html: string, values: Record<string, string>) {
+  const base64 = await renderDonationReceiptsPdfBase64([signedTreeOf(html, values)]);
   const buffer = Buffer.from(base64, 'base64');
   expect(buffer.subarray(0, 4).toString()).toBe('%PDF');
   return base64;
@@ -122,6 +144,68 @@ describe('donationReceiptPdf DOM walker', () => {
   });
 });
 
+describe('donationReceiptPdf trusted signature images', () => {
+  const signerValues = {
+    branch_accountant_signature: TINY_PNG_DATA_URI,
+    branch_accountant_name: 'Jane Accountant',
+    treasurer_signature: TINY_PNG_DATA_URI,
+    treasurer_name: 'Tom Treasurer',
+  };
+
+  it('renders a PNG signature image in a right-aligned paragraph', async () => {
+    await expectSignedPdf('<p style="text-align:right">{{branch_accountant_signature}}</p>', signerValues);
+  });
+
+  it('renders a JPEG signature image', async () => {
+    await expectSignedPdf(
+      '<p>{{treasurer_signature}}</p>',
+      { ...signerValues, treasurer_signature: TINY_JPEG_DATA_URI }
+    );
+  });
+
+  it('renders signature images in table cells', async () => {
+    await expectSignedPdf(
+      '<table><tr>' +
+      '<td style="text-align:center">{{branch_accountant_signature}}</td>' +
+      '<td style="text-align:center">{{treasurer_signature}}</td>' +
+      '</tr></table>',
+      signerValues
+    );
+  });
+
+  it('renders signature images in headings', async () => {
+    await expectSignedPdf('<h1>{{branch_accountant_signature}}</h1>', signerValues);
+  });
+
+  it('renders signature images in list items', async () => {
+    await expectSignedPdf('<ul><li>{{branch_accountant_signature}}</li></ul>', signerValues);
+  });
+
+  it('renders mixed text/image/text runs in one line', async () => {
+    await expectSignedPdf('<p>Signed: {{branch_accountant_signature}} Done</p>', signerValues);
+  });
+
+  it('renders left, center, and right alignment for image paragraphs', async () => {
+    await expectSignedPdf(
+      '<p style="text-align:left">{{branch_accountant_signature}}</p>' +
+      '<p style="text-align:center">{{treasurer_signature}}</p>' +
+      '<p style="text-align:right">{{branch_accountant_signature}}</p>',
+      signerValues
+    );
+  });
+
+  it('renders the default template with both signers configured', async () => {
+    await expectSignedPdf(DEFAULT_HTML_TEMPLATE, signerValues);
+  });
+
+  it('renders pruned empty signer lines without phantom spacing', async () => {
+    await expectSignedPdf(
+      '<p>{{branch_accountant_signature}}<br>{{branch_accountant_name}}<br>Authorized representative</p>',
+      { branch_accountant_signature: '', branch_accountant_name: '' }
+    );
+  });
+});
+
 describe('tableRowModel', () => {
   it('pads short rows to columnCount with null cells', () => {
     const model = tableRowModel(
@@ -189,6 +273,60 @@ describe('tableRowModel', () => {
       'right',
     );
     expect(tableWins[0]?.align).toBe('right');
+  });
+});
+
+describe('image line segment ordering', () => {
+  const text = (value: string): TextInlineToken => ({
+    kind: 'text',
+    text: value,
+    ctx: { bold: false, italic: false },
+    extra: {},
+  });
+  const image = (): InlineToken => ({ kind: 'image', src: 'data:image/png;base64,x', width: 180, height: 70 });
+
+  it('keeps mixed text/image/text runs in their original order with their spaces', () => {
+    // `Signed: {{signature}} Done` — the spaces belong to their own side of
+    // the image, so the PDF reads `Signed: [img] Done`.
+    const tokens: InlineToken[] = [text('Signed: '), image(), text(' Done')];
+
+    expect(orderLineSegments(tokens)).toEqual([
+      { kind: 'text', tokens: [text('Signed:'), text(' ')] },
+      { kind: 'image', token: image() },
+      { kind: 'text', tokens: [text(' '), text('Done')] },
+    ]);
+  });
+
+  it('keeps the space on the image side of a one-sided text run', () => {
+    expect(orderLineSegments([text('Signed: '), image()])).toEqual([
+      { kind: 'text', tokens: [text('Signed:'), text(' ')] },
+      { kind: 'image', token: image() },
+    ]);
+    expect(orderLineSegments([image(), text(' Done')])).toEqual([
+      { kind: 'image', token: image() },
+      { kind: 'text', tokens: [text(' '), text('Done')] },
+    ]);
+  });
+
+  it('drops whitespace-only runs at the line edges, keeping only ones between images', () => {
+    expect(orderLineSegments([text('  '), image(), text('X')])).toEqual([
+      { kind: 'image', token: image() },
+      { kind: 'text', tokens: [text('X')] },
+    ]);
+    expect(orderLineSegments([image(), text('  '), image()])).toEqual([
+      { kind: 'image', token: image() },
+      { kind: 'text', tokens: [text(' ')] },
+      { kind: 'image', token: image() },
+    ]);
+  });
+
+  it('groups consecutive text tokens into a single segment before an image', () => {
+    const tokens: InlineToken[] = [text('Hello'), text(' world'), image()];
+
+    expect(orderLineSegments(tokens)).toEqual([
+      { kind: 'text', tokens: [text('Hello'), text(' world')] },
+      { kind: 'image', token: image() },
+    ]);
   });
 });
 

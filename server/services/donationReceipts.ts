@@ -12,6 +12,8 @@ import { getDonationLines, type DonationLine } from './donorDonations.js';
 import {
   DEFAULT_HTML_TEMPLATE,
   DEFAULT_TEMPLATE,
+  LEGACY_DEFAULT_HTML_TEMPLATE_V0,
+  LEGACY_DEFAULT_HTML_TEMPLATE_V1,
   TEMPLATE_VARIABLES,
   convertLegacyMarkdown,
   prepareTemplate,
@@ -21,6 +23,18 @@ import {
 } from './donationReceiptHtml.js';
 
 const db = require('../db') as Knex;
+
+/**
+ * Canonical forms of the built-in defaults. Stored `html_body` values are
+ * always canonical (serialized by `prepareTemplate`), so the authored legacy
+ * constants must go through the same pipeline before comparison.
+ */
+const LEGACY_DEFAULT_CANONICALS = [
+  LEGACY_DEFAULT_HTML_TEMPLATE_V0,
+  LEGACY_DEFAULT_HTML_TEMPLATE_V1,
+].map((template) => prepareTemplate(template).html);
+
+const NEW_DEFAULT_CANONICAL = prepareTemplate(DEFAULT_HTML_TEMPLATE).html;
 
 type SettingRow = { key: string; value: string | null };
 
@@ -84,11 +98,37 @@ async function getFiscalYearRange(fiscalYear: number) {
 }
 
 /**
+ * Lazily upgrades a stored template whose canonical HTML is one of the known
+ * built-in defaults (v0/v1) to the two-signer default. The update still
+ * matches the previously read value, so a concurrent save can never be
+ * overwritten; when the conditional update affects no rows the fresh value is
+ * returned. Customized templates never match and are left untouched.
+ *
+ * Returns the upgraded HTML, or null when the stored template is not a known
+ * historical default.
+ */
+async function maybeUpgradeDefaultTemplate(row: TemplateRow, dbClient: Knex): Promise<string | null> {
+  if (!row.html_body || !LEGACY_DEFAULT_CANONICALS.includes(row.html_body)) return null;
+
+  const updated = await dbClient('donation_receipt_templates')
+    .where({ id: row.id })
+    .where('html_body', row.html_body)
+    .update({ html_body: NEW_DEFAULT_CANONICAL });
+  if (!updated) {
+    // A concurrent template save won the race — use its value.
+    const fresh = await dbClient('donation_receipt_templates').where({ id: row.id }).first() as TemplateRow | undefined;
+    return fresh?.html_body ?? NEW_DEFAULT_CANONICAL;
+  }
+  return NEW_DEFAULT_CANONICAL;
+}
+
+/**
  * Returns the canonical sanitized HTML template, converting a legacy
- * `markdown_body` lazily if `html_body` is null. The conversion persists only
- * when no other writer has stored `html_body` first (conditional update); if
- * the update affects no rows, a concurrent save won and its value is used.
- * `markdown_body` is preserved unchanged for rollback.
+ * `markdown_body` lazily if `html_body` is null, and upgrading known
+ * historical built-in defaults to the two-signer default. The conversion and
+ * upgrade persist only via conditional updates; if an update affects no rows,
+ * a concurrent save won and its value is used. `markdown_body` is preserved
+ * unchanged for rollback.
  *
  * Exported for unit-testing the lazy-conversion race: `dbClient` lets a test
  * script the conditional update returning zero rows followed by a refetch.
@@ -98,7 +138,9 @@ export async function getTemplateHtml(row?: TemplateRow, dbClient: Knex = db): P
     row = await dbClient('donation_receipt_templates').orderBy('id', 'asc').first() as TemplateRow | undefined;
   }
   if (!row) return DEFAULT_HTML_TEMPLATE;
-  if (row.html_body) return row.html_body;
+  if (row.html_body) {
+    return (await maybeUpgradeDefaultTemplate(row, dbClient)) ?? row.html_body;
+  }
 
   const legacyMarkdown = row.markdown_body || DEFAULT_TEMPLATE;
   let prepared = prepareTemplate(convertLegacyMarkdown(legacyMarkdown), { legacy: true, allowEmpty: true });
@@ -202,6 +244,10 @@ function buildTemplateValues(
     fiscal_year: String(fiscalYear),
     total_amount: money(receipt.total),
     generated_date: new Date().toISOString().slice(0, 10),
+    branch_accountant_signature: settings.church_signature_url || '',
+    branch_accountant_name: settings.branch_accountant_name || '',
+    treasurer_signature: settings.treasurer_signature_url || '',
+    treasurer_name: settings.treasurer_name || '',
   };
 }
 

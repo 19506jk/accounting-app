@@ -3,10 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   convertLegacyMarkdown,
   DEFAULT_HTML_TEMPLATE,
+  LEGACY_DEFAULT_HTML_TEMPLATE_V0,
+  LEGACY_DEFAULT_HTML_TEMPLATE_V1,
+  TEMPLATE_VARIABLES,
   prepareTemplate,
   substituteTemplate,
   TemplateValidationError,
 } from '../donationReceiptHtml.js';
+
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 describe('prepareTemplate sanitization', () => {
   it('keeps supported tags and text-align styles', () => {
@@ -184,6 +189,118 @@ describe('substituteTemplate', () => {
   });
 });
 
+describe('signer variable substitution and pruning', () => {
+  it('substitutes a configured signature with a trusted image node', () => {
+    const { tree } = prepareTemplate('<p>{{branch_accountant_signature}}</p>');
+    const html = substituteTemplate(tree!, { branch_accountant_signature: PNG });
+    expect(html).toContain('<img');
+    expect(html).toContain(`src="${PNG}"`);
+    expect(html).toContain('width="180"');
+    expect(html).toContain('height="70"');
+    expect(html).toContain('alt="Branch Accountant signature"');
+    expect(html).not.toContain('{{');
+  });
+
+  it('uses role-specific alt text for the treasurer signature', () => {
+    const { tree } = prepareTemplate('<p>{{treasurer_signature}}</p>');
+    const html = substituteTemplate(tree!, { treasurer_signature: PNG });
+    expect(html).toContain('alt="Treasurer signature"');
+  });
+
+  it('escapes signer names as ordinary text', () => {
+    const { tree } = prepareTemplate('<p>{{branch_accountant_name}}</p>');
+    const html = substituteTemplate(tree!, { branch_accountant_name: '<b>Ana</b> & Co' });
+    expect(html).toContain('&lt;b&gt;Ana&lt;/b&gt; &amp; Co');
+    expect(html).not.toContain('<b>Ana</b>');
+  });
+
+  it('prunes an empty signer line together with its adjacent break', () => {
+    const { tree } = prepareTemplate('<p>Label<br>{{branch_accountant_name}}</p>');
+    expect(substituteTemplate(tree!, { branch_accountant_name: '' })).toBe('<p>Label</p>');
+  });
+
+  it('prefers the following break when pruning an empty signer line', () => {
+    const { tree } = prepareTemplate('<p>{{branch_accountant_name}}<br>Label</p>');
+    expect(substituteTemplate(tree!, { branch_accountant_name: '' })).toBe('<p>Label</p>');
+  });
+
+  it('consumes one separator per consecutive empty signer variable', () => {
+    const { tree } = prepareTemplate(
+      '<p>{{branch_accountant_signature}}<br>{{branch_accountant_name}}<br>Authorized representative</p>'
+    );
+    const html = substituteTemplate(tree!, { branch_accountant_signature: '', branch_accountant_name: '' });
+    expect(html).toBe('<p>Authorized representative</p>');
+  });
+
+  it('keeps the configured lines when only one signer value is empty', () => {
+    const { tree } = prepareTemplate(
+      '<p>{{branch_accountant_signature}}<br>{{branch_accountant_name}}</p>'
+    );
+    // Image present, name empty: the image line keeps its own break.
+    expect(substituteTemplate(tree!, { branch_accountant_signature: PNG, branch_accountant_name: '' }))
+      .toBe(`<p><img src="${PNG}" width="180" height="70" alt="Branch Accountant signature"></p>`);
+    // Image empty, name present: no spacer above the name.
+    expect(substituteTemplate(tree!, { branch_accountant_signature: '', branch_accountant_name: 'Ana' }))
+      .toBe('<p>Ana</p>');
+  });
+
+  it('ignores whitespace-only siblings when locating the adjacent break', () => {
+    const { tree } = prepareTemplate('<p>{{branch_accountant_name}} <br>Label</p>');
+    const html = substituteTemplate(tree!, { branch_accountant_name: '' });
+    expect(html).not.toContain('<br>');
+    expect(html).toContain('Label');
+  });
+
+  it('removes empty inline wrappers and their containers recursively', () => {
+    const { tree } = prepareTemplate('<p><strong>{{branch_accountant_name}}</strong></p>');
+    expect(substituteTemplate(tree!, { branch_accountant_name: '' })).toBe('');
+  });
+
+  it('keeps the container when the label survives pruning', () => {
+    const { tree } = prepareTemplate('<p><strong>Branch Accountant</strong><br>{{branch_accountant_name}}</p>');
+    expect(substituteTemplate(tree!, { branch_accountant_name: '' }))
+      .toBe('<p><strong>Branch Accountant</strong></p>');
+  });
+
+  it('removes only the variable when it is embedded in meaningful text', () => {
+    const { tree } = prepareTemplate('<p>Signed by: {{branch_accountant_name}} on file</p>');
+    expect(substituteTemplate(tree!, { branch_accountant_name: '' }))
+      .toBe('<p>Signed by:  on file</p>');
+  });
+
+  it('renders the built-in signer table with both signers configured', () => {
+    const { tree } = prepareTemplate(DEFAULT_HTML_TEMPLATE);
+    const html = substituteTemplate(tree!, {
+      branch_accountant_signature: PNG,
+      branch_accountant_name: 'Jane Accountant',
+      treasurer_signature: PNG,
+      treasurer_name: 'Tom Treasurer',
+    });
+    expect(html).toContain('<strong>Branch Accountant</strong>');
+    expect(html).toContain('<strong>Treasurer</strong>');
+    expect(html).toContain('Jane Accountant');
+    expect(html).toContain('Tom Treasurer');
+    expect(html.match(/<img/g)?.length).toBe(2);
+    expect(html).toContain('Authorized Signature');
+    expect(html).not.toContain('Authorized representative');
+  });
+
+  it('reduces unconfigured built-in signer cells to their labels without spacer lines', () => {
+    const { tree } = prepareTemplate(DEFAULT_HTML_TEMPLATE);
+    const html = substituteTemplate(tree!, { branch_accountant_signature: '', branch_accountant_name: '' });
+    expect(html).not.toContain('<img');
+    expect(html).toContain('Branch Accountant</strong></td>');
+    expect(html).toContain('Treasurer</strong></td>');
+  });
+
+  it('keeps authored img elements stripped even when signer variables are present', () => {
+    const result = prepareTemplate('<p><img src="https://evil.example/x.png">{{branch_accountant_signature}}</p>');
+    expect(result.html).not.toContain('evil.example');
+    expect(result.html).not.toContain('<img');
+    expect(result.html).toContain('{{branch_accountant_signature}}');
+  });
+});
+
 describe('DEFAULT_HTML_TEMPLATE', () => {
   it('is valid, sanitizes cleanly, and substitutes all variables', () => {
     const { tree } = prepareTemplate(DEFAULT_HTML_TEMPLATE);
@@ -205,6 +322,10 @@ describe('DEFAULT_HTML_TEMPLATE', () => {
       donor_province: 'ON',
       donor_postal_code: 'M1M 1M1',
       total_amount: '$40.00',
+      branch_accountant_signature: PNG,
+      branch_accountant_name: 'Jane Accountant',
+      treasurer_signature: PNG,
+      treasurer_name: 'Tom Treasurer',
     };
     const html = substituteTemplate(tree!, values);
     expect(html).toContain('<h1 style="text-align:center">Official Receipt for Income Tax Purposes</h1>');
@@ -215,5 +336,28 @@ describe('DEFAULT_HTML_TEMPLATE', () => {
     expect(html).toContain('Eligible amount of gift for tax purposes');
     expect(html).toContain('Location receipt issued: Ottawa');
     expect(html).toContain('Date receipt issued: 2026-08-05');
+    expect(html).toContain('Jane Accountant');
+    expect(html).toContain('Tom Treasurer');
+  });
+});
+
+describe('template variable catalog', () => {
+  it('includes the four signer variables', () => {
+    expect(TEMPLATE_VARIABLES).toEqual(expect.arrayContaining([
+      'branch_accountant_signature',
+      'branch_accountant_name',
+      'treasurer_signature',
+      'treasurer_name',
+    ]));
+  });
+});
+
+describe('historical default constants', () => {
+  it.each([
+    ['v0', LEGACY_DEFAULT_HTML_TEMPLATE_V0],
+    ['v1', LEGACY_DEFAULT_HTML_TEMPLATE_V1],
+  ])('prepares the %s default cleanly with the signer variables accepted', (_label, template) => {
+    const { tree } = prepareTemplate(template);
+    expect(substituteTemplate(tree!, {})).not.toContain('{{branch_accountant');
   });
 });

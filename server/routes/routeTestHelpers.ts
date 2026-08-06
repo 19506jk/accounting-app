@@ -30,7 +30,9 @@ export async function requestMountedRoute({
   body?: unknown;
 }) {
   const app = express();
-  app.use(express.json());
+  // Mirrors the production JSON limit (full-form settings saves carry up to
+  // two base64 signature images).
+  app.use(express.json({ limit: '1mb' }));
   app.use(mountPath, router);
   app.use((err: Error & { status?: number; statusCode?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     res.status(err.status || err.statusCode || 500).json({ error: err.message });

@@ -1,4 +1,4 @@
-import { Document, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer'
+import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer'
 import type { AnyNode, Document as DomDocument, Element, Text as DomText } from 'domhandler'
 import type React from 'react'
 import type { Style } from '@react-pdf/types'
@@ -19,33 +19,54 @@ type InlineStyle = {
   link?: boolean
 }
 
-/** One flat inline unit: styled text, or a hard break from `<br>`. */
-export type InlineToken =
-  | { kind: 'text'; text: string; ctx: InlineContext; extra: InlineStyle }
-  | { kind: 'break' }
+export type TextInlineToken = {
+  kind: 'text'
+  text: string
+  ctx: InlineContext
+  extra: InlineStyle
+}
+
+/** A trusted signature image injected by template substitution. */
+export type ImageInlineToken = {
+  kind: 'image'
+  src: string
+  width: number
+  height: number
+}
+
+/**
+ * One flat inline unit: styled text, a hard break from `<br>`, or a trusted
+ * signature image. Images are only ever produced by the sanitizer's
+ * substitution (authored `<img>` tags are stripped), and their numeric
+ * dimensions are the single source of truth for rendering size.
+ */
+export type InlineToken = TextInlineToken | ImageInlineToken | { kind: 'break' }
 
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 54,
-    paddingBottom: 54,
-    paddingHorizontal: 54,
+    paddingTop: 48,
+    paddingBottom: 48,
+    paddingHorizontal: 52,
     fontFamily: 'Helvetica',
-    fontSize: 11,
-    color: '#111827',
-    lineHeight: 1.45,
+    fontSize: 10.5,
+    color: '#243247',
+    lineHeight: 1.5,
   },
   heading1: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 22,
-    marginBottom: 14,
-    lineHeight: 1.25,
+    fontSize: 20,
+    color: '#173b57',
+    marginTop: 2,
+    marginBottom: 10,
+    lineHeight: 1.2,
   },
   heading2: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 16,
-    marginTop: 10,
-    marginBottom: 8,
-    lineHeight: 1.25,
+    fontSize: 18,
+    color: '#173b57',
+    marginTop: 2,
+    marginBottom: 6,
+    lineHeight: 1.2,
   },
   heading3: {
     fontFamily: 'Helvetica-Bold',
@@ -55,8 +76,8 @@ const styles = StyleSheet.create({
     lineHeight: 1.25,
   },
   paragraph: {
-    fontSize: 11,
-    marginBottom: 8,
+    fontSize: 10.5,
+    marginBottom: 9,
   },
   centerBlock: {
     textAlign: 'center',
@@ -97,13 +118,15 @@ const styles = StyleSheet.create({
     display: 'flex',
     width: '100%',
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    marginBottom: 10,
+    borderColor: '#b9c8d4',
+    borderRadius: 3,
+    marginTop: 2,
+    marginBottom: 12,
   },
   tableRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#d1d5db',
+    borderBottomColor: '#d8e1e8',
   },
   tableLastRow: {
     borderBottomWidth: 0,
@@ -111,19 +134,19 @@ const styles = StyleSheet.create({
   tableCell: {
     flex: 1,
     borderRightWidth: 1,
-    borderRightColor: '#d1d5db',
-    paddingHorizontal: 6,
-    paddingVertical: 5,
+    borderRightColor: '#d8e1e8',
+    paddingHorizontal: 9,
+    paddingVertical: 8,
   },
   tableLastCell: {
     borderRightWidth: 0,
   },
   tableHeaderCell: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#e9f0f5',
   },
   tableCellText: {
     fontSize: 10,
-    lineHeight: 1.4,
+    lineHeight: 1.45,
   },
   tableHeaderText: {
     fontFamily: 'Helvetica-Bold',
@@ -132,10 +155,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   hr: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#9ca3af',
-    marginTop: 6,
-    marginBottom: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: '#2f6f89',
+    marginTop: 8,
+    marginBottom: 12,
   },
 })
 
@@ -172,16 +195,42 @@ const INLINE_TAGS = new Set(['strong', 'em', 'del', 'code', 'br', 'a'])
 
 function isInlineNode(node: AnyNode): boolean {
   if (isText(node)) return true
-  return isElement(node) && INLINE_TAGS.has(node.name)
+  return isElement(node) && (INLINE_TAGS.has(node.name) || node.name === 'img')
 }
 
-/** Flattens an inline run into styled text tokens, unwrapping inline elements. */
+const TRUSTED_IMAGE_SRC_RE = /^data:image\/(png|jpeg);base64,/
+
+/**
+ * Converts a trusted image node into an image token. Only images injected by
+ * the sanitizer's substitution reach the walker; authored `<img>` tags are
+ * stripped before substitution. The data-URI source is re-validated and the
+ * numeric node dimensions are read as the authoritative size.
+ */
+function trustedImageToken(node: Element): ImageInlineToken | undefined {
+  const src = node.attribs.src
+  if (!src || !TRUSTED_IMAGE_SRC_RE.test(src)) return undefined
+  const width = Number(node.attribs.width)
+  const height = Number(node.attribs.height)
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return undefined
+  return { kind: 'image', src, width, height }
+}
+
+/**
+ * Flattens an inline run into styled text tokens, unwrapping inline elements.
+ * Image nodes are detected before the ordinary inline/default recursion so
+ * leaf image nodes are never silently dropped.
+ */
 function flattenInline(nodes: AnyNode[] | undefined, ctx: InlineContext, extra: InlineStyle = {}): InlineToken[] {
   const tokens: InlineToken[] = []
   for (const node of nodes ?? []) {
     if (isText(node)) {
       tokens.push({ kind: 'text', text: node.data, ctx, extra })
     } else if (isElement(node)) {
+      if (node.name === 'img') {
+        const image = trustedImageToken(node)
+        if (image) tokens.push(image)
+        continue
+      }
       switch (node.name) {
         case 'strong':
           tokens.push(...flattenInline(node.children, { bold: true, italic: ctx.italic }, extra))
@@ -229,6 +278,13 @@ export function normalizeTokens(tokens: InlineToken[]): InlineToken[] {
       out.push(token)
       continue
     }
+    if (token.kind === 'image') {
+      // Images are content: whitespace before/after is normalized by the
+      // surrounding text tokens, not the image itself.
+      out.push(token)
+      atEdge = false
+      continue
+    }
     const collapsed = token.text.replace(/[ \t\n\r\f]+/g, ' ')
     const trimmed = collapsed.trim()
     if (!trimmed) {
@@ -260,25 +316,192 @@ function tokenStyle(ctx: InlineContext, extra: InlineStyle): Style[] {
   return style
 }
 
-function renderInlineNodes(
-  nodes: AnyNode[] | undefined,
+const ALIGN_TO_MAIN: Record<'left' | 'center' | 'right', 'flex-start' | 'center' | 'flex-end'> = {
+  left: 'flex-start',
+  center: 'center',
+  right: 'flex-end',
+}
+
+/** Strips block margins so they apply once on the image container, not per segment. */
+function withoutBlockMargins(style: Style): Style {
+  const { marginTop, marginBottom, marginVertical, margin, ...rest } = style as Record<string, unknown>
+  return rest as Style
+}
+
+/** Splits a token run at hard breaks, dropping empty leading/trailing lines. */
+function splitInlineLines(tokens: InlineToken[]): InlineToken[][] {
+  const lines: InlineToken[][] = []
+  let current: InlineToken[] = []
+  const flush = () => {
+    if (current.length) {
+      lines.push(current)
+    } else if (lines.length) {
+      lines.push([]) // preserve a middle blank line
+    }
+    current = []
+  }
+  for (const token of tokens) {
+    if (token.kind === 'break') flush()
+    else current.push(token)
+  }
+  if (current.length) flush()
+  if (!lines.length) lines.push([])
+  return lines
+}
+
+export type LineSegment =
+  | { kind: 'text'; tokens: TextInlineToken[] }
+  | { kind: 'image'; token: ImageInlineToken }
+
+function textToken(text: string, ctx: InlineContext = { bold: false, italic: false }, extra: InlineStyle = {}): TextInlineToken {
+  return { kind: 'text', text, ctx, extra }
+}
+
+/**
+ * Normalizes one text run of an image-bearing line. Whitespace at the run's
+ * outer edges drops like block-edge whitespace, but whitespace adjacent to an
+ * image is a real separator and is kept as a single space on the image side.
+ */
+function normalizeTextRun(tokens: TextInlineToken[], imageBefore: boolean, imageAfter: boolean): TextInlineToken[] {
+  const normalized = normalizeTokens(tokens).filter((token): token is TextInlineToken => token.kind === 'text')
+  if (!normalized.length) {
+    // Whitespace-only run: only meaningful between two images.
+    return imageBefore && imageAfter ? [textToken(' ')] : []
+  }
+  const startsWithWhitespace = /^\s/.test(tokens[0]?.text ?? '')
+  const endsWithWhitespace = /\s$/.test(tokens[tokens.length - 1]?.text ?? '')
+  const first = normalized[0]!
+  const last = normalized[normalized.length - 1]!
+  let out = normalized
+  if (imageBefore && startsWithWhitespace) out = [textToken(' ', first.ctx, first.extra), ...out]
+  if (imageAfter && endsWithWhitespace) out = [...out, textToken(' ', last.ctx, last.extra)]
+  return out
+}
+
+/**
+ * Orders a line's content into text segments and images in the original
+ * token order. Each text run between images is normalized independently, so
+ * whitespace stays on its own side of an adjacent image. Exported for unit
+ * tests.
+ */
+export function orderLineSegments(tokens: InlineToken[]): LineSegment[] {
+  const parts: Array<{ kind: 'text'; tokens: TextInlineToken[] } | { kind: 'image'; token: ImageInlineToken }> = []
+  let textRun: TextInlineToken[] = []
+  const flushText = () => {
+    if (textRun.length) {
+      parts.push({ kind: 'text', tokens: textRun })
+      textRun = []
+    }
+  }
+  for (const token of tokens) {
+    if (token.kind === 'image') {
+      flushText()
+      parts.push({ kind: 'image', token })
+    } else if (token.kind === 'text') {
+      // Lines never contain breaks (they are split before this), so only
+      // text tokens can reach the run.
+      textRun.push(token)
+    }
+  }
+  flushText()
+
+  return parts.flatMap((part, index): LineSegment[] => {
+    if (part.kind === 'image') return [part]
+    const imageBefore = index > 0 && parts[index - 1]!.kind === 'image'
+    const imageAfter = index < parts.length - 1 && parts[index + 1]!.kind === 'image'
+    const tokens = normalizeTextRun(part.tokens, imageBefore, imageAfter)
+    return tokens.length ? [{ kind: 'text', tokens }] : []
+  })
+}
+
+/**
+ * Renders one line of an image-bearing run: `<Text>` segments and sibling
+ * `<Image>` elements in a row, aligned per the inherited text-align, in the
+ * original token order (text before and after an image stays in place). The
+ * images never sit inside a `<Text>`.
+ */
+function renderImageLine(
+  tokens: InlineToken[],
   keyPrefix: string,
-  ctx: InlineContext = { bold: false, italic: false }
-): React.ReactNode {
-  if (!Array.isArray(nodes)) return null
+  textStyle: Style[],
+  align: 'left' | 'center' | 'right'
+): React.ReactNode | null {
+  const segments = orderLineSegments(tokens)
+  if (!segments.length) return null
 
-  const tokens = normalizeTokens(flattenInline(nodes, ctx))
-  if (!tokens.length) return null
-
-  return tokens.map((token, index) => {
-    const key = `${keyPrefix}-${index}`
-    if (token.kind === 'break') return '\n'
+  const children = segments.map((segment, index) => {
+    if (segment.kind === 'image') {
+      return (
+        <Image
+          key={`${keyPrefix}-image-${index}`}
+          src={segment.token.src}
+          style={{ width: segment.token.width, height: segment.token.height, objectFit: 'contain' }}
+        />
+      )
+    }
     return (
-      <Text key={key} style={tokenStyle(token.ctx, token.extra)}>
-        {token.text}
+      <Text key={`${keyPrefix}-text-${index}`} style={[...textStyle, { textAlign: align }]}>
+        {segment.tokens.map((token, tokenIndex) => (
+          <Text key={`${keyPrefix}-seg-${tokenIndex}`} style={tokenStyle(token.ctx, token.extra)}>
+            {token.text}
+          </Text>
+        ))}
       </Text>
     )
   })
+  return (
+    <View key={keyPrefix} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: ALIGN_TO_MAIN[align], flexWrap: 'wrap' }}>
+      {children}
+    </View>
+  )
+}
+
+/**
+ * Renders a flattened inline run. Text-only runs render exactly as before —
+ * one `<Text>` with `\n` for hard breaks. Runs containing trusted images
+ * render as a container of per-line rows: `<Text>` segments and sibling
+ * `<Image>` elements, with the node-derived dimensions and the inherited
+ * text-align mapped to row alignment.
+ */
+function renderInlineTokens(
+  tokens: InlineToken[],
+  keyPrefix: string,
+  textStyle: Style[],
+  align: 'left' | 'center' | 'right',
+  containerStyle: Style[] = [],
+  outerKey?: string
+): React.ReactElement | null {
+  if (!tokens.some((token) => token.kind === 'image')) {
+    const normalized = normalizeTokens(tokens)
+    if (!normalized.length) return null
+    return (
+      <Text key={outerKey} style={[...textStyle, { textAlign: align }]}>
+        {normalized.map((token, index) => {
+          // Text-only runs never contain images; anything that is not text is a break.
+          if (token.kind !== 'text') return '\n'
+          return (
+            <Text key={`${keyPrefix}-${index}`} style={tokenStyle(token.ctx, token.extra)}>
+              {token.text}
+            </Text>
+          )
+        })}
+      </Text>
+    )
+  }
+
+  const segmentStyle = textStyle.map(withoutBlockMargins)
+  const lines = splitInlineLines(tokens)
+  const rendered: React.ReactNode[] = []
+  lines.forEach((line, index) => {
+    const lineNode = renderImageLine(line, `${keyPrefix}-line-${index}`, segmentStyle, align)
+    if (lineNode !== null) rendered.push(lineNode)
+  })
+  if (!rendered.length) return null
+  return (
+    <View key={outerKey} style={containerStyle}>
+      {rendered}
+    </View>
+  )
 }
 
 /** Renders a run of inline content as one paragraph; null when it is empty after normalization. */
@@ -287,14 +510,10 @@ function renderParagraph(
   key: string,
   inList: boolean,
   blockCtx: BlockContext
-): React.ReactNode {
-  const inline = renderInlineNodes(nodes, `${key}-inline`)
-  if (inline == null) return null
-  return (
-    <Text key={key} style={[inList ? styles.listParagraph : styles.paragraph, { textAlign: blockCtx.textAlign }]}>
-      {inline}
-    </Text>
-  )
+): React.ReactElement | null {
+  const paragraphStyle = inList ? styles.listParagraph : styles.paragraph
+  const tokens = flattenInline(nodes ?? [], { bold: false, italic: false })
+  return renderInlineTokens(tokens, `${key}-inline`, [paragraphStyle], blockCtx.textAlign, [paragraphStyle], key)
 }
 
 /**
@@ -306,9 +525,9 @@ function renderBlockChildren(
   keyPrefix: string,
   inList: boolean,
   blockCtx: BlockContext
-): React.ReactNode[] {
+): React.ReactElement[] {
   if (!Array.isArray(nodes)) return []
-  const views: React.ReactNode[] = []
+  const views: React.ReactElement[] = []
   let inlineRun: AnyNode[] = []
   const flush = () => {
     if (!inlineRun.length) return
@@ -333,11 +552,8 @@ function renderTableCell(cell: Element, key: string, isHeader: boolean, align: '
     ? [styles.tableCellText, styles.tableHeaderText]
     : [styles.tableCellText]
 
-  return (
-    <Text style={[...style, { textAlign: align }]}>
-      {renderInlineNodes(cell.children, `${key}-inline`, { bold: isHeader, italic: false })}
-    </Text>
-  )
+  const tokens = flattenInline(cell.children ?? [], { bold: isHeader, italic: false })
+  return renderInlineTokens(tokens, `${key}-inline`, style, align)
 }
 
 /**
@@ -422,15 +638,16 @@ function renderBlocks(
   keyPrefix: string,
   inList = false,
   blockCtx: BlockContext = { textAlign: 'left' }
-): React.ReactNode[] {
+): React.ReactElement[] {
   if (!Array.isArray(nodes)) return []
 
-  return nodes.flatMap((node, index) => {
+  return nodes.flatMap((node, index): React.ReactElement[] => {
     const key = `${keyPrefix}-${index}`
 
     if (isText(node)) {
       if (!node.data.trim()) return []
-      return [renderParagraph([node], key, inList, blockCtx)]
+      const rendered = renderParagraph([node], key, inList, blockCtx)
+      return rendered ? [rendered] : []
     }
 
     if (!isElement(node)) return []
@@ -439,11 +656,9 @@ function renderBlocks(
 
     if (node.name === 'h1' || node.name === 'h2' || node.name === 'h3') {
       const headingStyle = node.name === 'h1' ? styles.heading1 : node.name === 'h2' ? styles.heading2 : styles.heading3
-      return [(
-        <Text key={key} style={[headingStyle, { textAlign: align }]}>
-          {renderInlineNodes(node.children, `${key}-inline`, { bold: true, italic: false })}
-        </Text>
-      )]
+      const tokens = flattenInline(node.children ?? [], { bold: true, italic: false })
+      const content = renderInlineTokens(tokens, `${key}-inline`, [headingStyle], align, [headingStyle], key)
+      return content ? [content] : []
     }
 
     if (node.name === 'p') {

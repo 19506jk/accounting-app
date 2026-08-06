@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSettings, useUpdateSettings } from '../api/useSettings';
 import { useTaxRates, useUpdateTaxRate, useToggleTaxRate } from '../api/useTaxRates';
 import { useFiscalPeriods, useReopenFiscalPeriod } from '../api/useFiscalPeriods';
@@ -16,6 +16,123 @@ import { getErrorMessage } from '../utils/errors';
 import type React from 'react';
 import type { FiscalPeriod, SettingsValues, TaxRateSummary } from '@shared/contracts';
 import type { TableColumn } from '../components/ui/types';
+
+const MAX_SIGNATURE_BYTES = 250 * 1024;
+const ACCEPTED_IMAGE_TYPES = 'image/png,image/jpeg';
+
+/** True when a settings value is a usable image data URI. */
+function isImageDataUri(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith('data:image/');
+}
+
+interface SignatureSectionProps {
+  role: string;
+  nameKey: string;
+  signatureKey: string;
+  form: SettingsValues;
+  setForm: React.Dispatch<React.SetStateAction<SettingsValues>>;
+  addToast: (message: string, type?: 'success' | 'error') => void;
+}
+
+/**
+ * One receipt signer's settings: name input plus upload, preview, replace,
+ * and remove controls for the signature image. Files are read to data URIs
+ * client-side and validated again by the server on save. A legacy (non-data)
+ * stored value is surfaced as unconfigured until replaced or removed.
+ */
+function SignatureSection({ role, nameKey, signatureKey, form, setForm, addToast }: SignatureSectionProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const signature = form[signatureKey] ?? undefined;
+  const hasImage = isImageDataUri(signature);
+  const isLegacy = signature !== undefined && !hasImage;
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      addToast(`${role} signature must be a PNG or JPEG image.`, 'error');
+      return;
+    }
+    if (file.size > MAX_SIGNATURE_BYTES) {
+      addToast(`${role} signature must be 250 KB or smaller.`, 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? '');
+      if (result.startsWith('data:image/')) {
+        setForm((current) => ({ ...current, [signatureKey]: result }));
+      } else {
+        addToast(`Failed to read ${role} signature file.`, 'error');
+      }
+    };
+    reader.onerror = () => addToast(`Failed to read ${role} signature file.`, 'error');
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <Card style={{ marginBottom: '1.25rem' }}>
+      <h2 style={{ fontSize: '0.9rem', fontWeight: 600, color: '#374151', marginBottom: '1.25rem', marginTop: 0 }}>
+        {role}
+      </h2>
+      <div style={{ display: 'grid', gap: '1rem' }}>
+        <Input
+          label={`${role} Name`}
+          value={form[nameKey] || ''}
+          onChange={(event) => setForm((current) => ({ ...current, [nameKey]: event.target.value }))}
+        />
+        <div>
+          <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '0.35rem' }}>
+            Signature Image
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {hasImage ? (
+              <img
+                src={signature}
+                alt={`${role} signature preview`}
+                width={180}
+                height={70}
+                style={{ objectFit: 'contain', border: '1px solid #e5e7eb', borderRadius: '4px', background: '#fff' }}
+              />
+            ) : isLegacy ? (
+              <div style={{ fontSize: '0.78rem', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '0.5rem 0.7rem' }}>
+                A legacy image URL is stored but is not used on receipts. Replace or remove it to finish setting up the {role.toLowerCase()} signature.
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.78rem', color: '#9ca3af' }}>
+                No signature configured. Shown on donation receipts when set.
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_IMAGE_TYPES}
+              onChange={handleFileChange}
+              aria-label={`Upload ${role} signature`}
+              style={{ display: 'none' }}
+            />
+            <Button size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()}>
+              {hasImage || isLegacy ? 'Replace' : 'Upload'}
+            </Button>
+            {signature !== undefined && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setForm((current) => ({ ...current, [signatureKey]: null }))}
+              >
+                Remove
+              </Button>
+            )}
+          </div>
+          <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.5rem 0 0' }}>
+            PNG or JPEG, up to 250 KB and 1600×800 pixels.
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 const PROVINCES = [
   'AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT',
@@ -129,8 +246,8 @@ export default function Settings() {
     try {
       await update.mutateAsync(form);
       addToast('Settings saved successfully.', 'success');
-    } catch {
-      addToast('Failed to save settings. Please try again.', 'error');
+    } catch (err) {
+      addToast(getErrorMessage(err, 'Failed to save settings. Please try again.'), 'error');
     }
   }
 
@@ -315,6 +432,23 @@ export default function Settings() {
           When set, e-transfer deposit rows are pre-filled with this offset account during CSV import.
         </p>
       </Card>
+
+      <SignatureSection
+        role="Branch Accountant"
+        nameKey="branch_accountant_name"
+        signatureKey="church_signature_url"
+        form={form}
+        setForm={setForm}
+        addToast={addToast}
+      />
+      <SignatureSection
+        role="Treasurer"
+        nameKey="treasurer_name"
+        signatureKey="treasurer_signature_url"
+        form={form}
+        setForm={setForm}
+        addToast={addToast}
+      />
 
       <Card style={{ marginBottom: '1.75rem' }}>
         <h2 style={{ fontSize: '0.9rem', fontWeight: 600, color: '#374151',
