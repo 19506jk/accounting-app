@@ -359,7 +359,8 @@ export default function Reconciliation() {
   const COLUMNS: TableColumn<ReconciliationSummary>[] = [
     { key: 'account_name', label: 'Account',
       render: (r) => `${r.account_code} — ${r.account_name}` },
-    { key: 'statement_date', label: 'Statement Date' },
+    { key: 'statement_date', label: 'Statement Date',
+      render: (r) => formatDateOnlyForDisplay(r.statement_date) },
     { key: 'statement_balance', label: 'Statement Balance', align: 'right',
       render: (r) => fmt(r.statement_balance) },
     { key: 'status', label: 'Status',
