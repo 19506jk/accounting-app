@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useBudget, useUpdateBudget } from '../api/useBudget'
 import { useSettings } from '../api/useSettings'
-import { getCurrentFiscalYear } from '../utils/fiscalYear'
+import { useToast } from '../components/ui/Toast'
+import { getErrorMessage } from '../utils/errors'
+import { getCurrentFiscalYear, getFiscalYearRange } from '../utils/fiscalYear'
+import Button from '../components/ui/Button'
+import { exportBudget } from './reports/reportExports'
+import type { BudgetExportPeriod } from './reports/reportExports'
 import type { AccountBudgetRow } from '@shared/contracts'
 
 const fmt = (n: number | string | null | undefined) =>
@@ -250,8 +255,14 @@ const GROUP_HEADER_STYLE: React.CSSProperties = {
   background: '#f1f5f9',
 }
 
-export default function Budget() {
+interface BudgetProps {
+  budgetExporter?: (rows: AccountBudgetRow[], period: BudgetExportPeriod) => Promise<void>
+}
+
+export default function Budget({ budgetExporter = exportBudget }: BudgetProps = {}) {
   const { data: settings } = useSettings()
+  const { addToast } = useToast()
+  const [exporting, setExporting] = useState(false)
   const fiscalStartMonth = Math.max(1, Math.min(12, parseInt(settings?.fiscal_year_start || '1', 10) || 1))
   // Stay at 0 until settings has loaded — avoids locking in the January fallback
   // on the first render and then missing the real start month when it arrives.
@@ -285,8 +296,25 @@ export default function Budget() {
     }
   }
 
-  const { data: rows = [], isLoading } = useBudget(selectedYear, selectedYear > 0)
+  const { data: rows = [], isLoading, isFetching } = useBudget(selectedYear, selectedYear > 0)
   const updateBudget = useUpdateBudget()
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      await budgetExporter(rows, {
+        fiscalYear: selectedYear,
+        ...getFiscalYearRange(selectedYear, fiscalStartMonth),
+      })
+    } catch (err) {
+      const msg = (err instanceof Error && err.message.includes('Failed to fetch dynamically imported module'))
+        ? 'Failed to load Excel export tools.'
+        : getErrorMessage(err, 'Failed to export budget.')
+      addToast(msg, 'error')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const incomeRows = rows.filter((r) => r.account_type === 'INCOME')
   const expenseRows = rows.filter((r) => r.account_type === 'EXPENSE')
@@ -339,6 +367,15 @@ export default function Budget() {
             background: 'white',
           }}
         />
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={handleExport}
+          isLoading={exporting}
+          disabled={rows.length === 0 || isFetching || updateBudget.isPending}
+        >
+          Export Excel
+        </Button>
       </div>
 
       {isLoading ? (

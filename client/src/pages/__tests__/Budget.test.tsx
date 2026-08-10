@@ -193,3 +193,119 @@ describe('Budget fiscal year picker', () => {
     await expect.element(screen.getByRole('combobox')).toHaveValue('2019')
   })
 })
+
+describe('Budget export', () => {
+  it('exports the selected FY with displayed rows and settings-derived range', async () => {
+    const serverRows = [
+      budgetRow({
+        account_id: 1, account_name: 'Donations', account_type: 'INCOME',
+        budget_amount: 1000, actual_amount: 800,
+        prior_budget_amount: 900, prior_actual_amount: 850,
+      }),
+      budgetRow({
+        account_id: 2, account_name: 'Rent', account_type: 'EXPENSE',
+        budget_amount: 600, actual_amount: 500,
+        prior_budget_amount: 550, prior_actual_amount: 520,
+      }),
+    ]
+    const exporter = vi.fn(async (rows: AccountBudgetRow[], period: { fiscalYear: number; from: string; to: string }) => {})
+    worker.use(
+      http.get('/api/settings', () =>
+        HttpResponse.json({ values: { fiscal_year_start: '1' } }),
+      ),
+      http.get('/api/budgets', () => HttpResponse.json({ rows: serverRows })),
+    )
+
+    const screen = await renderWithProviders(<Budget budgetExporter={exporter} />)
+    const btn = screen.getByRole('button', { name: 'Export Excel' })
+    await expect.poll(() => (btn.element() as HTMLButtonElement).disabled).toBe(false)
+
+    // Jump to a non-default FY.
+    const jump = screen.getByLabelText('Jump to fiscal year')
+    await userEvent.fill(jump, '2020')
+    await userEvent.keyboard('{Enter}')
+    await expect.poll(() => (screen.getByRole('combobox').element() as HTMLSelectElement).value).toBe('2020')
+
+    // Wait out the 2020 refetch before clicking.
+    await expect.poll(() => (btn.element() as HTMLButtonElement).disabled).toBe(false)
+
+    await userEvent.click(btn)
+    expect(exporter).toHaveBeenCalledTimes(1)
+    const [exportedRows, exportedPeriod] = exporter.mock.calls[0]!
+    expect(exportedRows).toEqual(serverRows)
+    expect(exportedPeriod).toEqual({ fiscalYear: 2020, from: '2020-01-01', to: '2020-12-31' })
+  })
+
+  it('keeps export disabled through the post-save refetch and exports refreshed rows', async () => {
+    const exporter = vi.fn(async (rows: AccountBudgetRow[], period: { fiscalYear: number; from: string; to: string }) => {})
+    let releaseRefetch: () => void = () => {}
+    const refetchHeld = new Promise<void>((r) => { releaseRefetch = r })
+    let refetchStartedResolve: () => void = () => {}
+    const refetchStarted = new Promise<void>((r) => { refetchStartedResolve = r })
+
+    let call = 0
+    worker.use(
+      http.get('/api/settings', () =>
+        HttpResponse.json({ values: { fiscal_year_start: '1' } }),
+      ),
+      http.put('/api/budgets/:id', () => HttpResponse.json({})),
+      http.get('/api/budgets', () => {
+        call += 1
+        if (call === 1) {
+          return HttpResponse.json({ rows: [budgetRow({ account_id: 1, account_name: 'Donations', budget_amount: 1000 })] })
+        }
+        // Post-save refetch — hold it open until the test releases it.
+        refetchStartedResolve()
+        return refetchHeld.then(() =>
+          HttpResponse.json({ rows: [budgetRow({ account_id: 1, account_name: 'Donations', budget_amount: 1500 })] }),
+        )
+      }),
+    )
+
+    const screen = await renderWithProviders(<Budget budgetExporter={exporter} />)
+    const btn = screen.getByRole('button', { name: 'Export Excel' })
+    await expect.poll(() => (btn.element() as HTMLButtonElement).disabled).toBe(false)
+
+    // Edit the budget and blur → save triggers the invalidation refetch.
+    // (The jump box is also a number input, so scope to the Donations row.)
+    const row = screen.getByText('Donations').element().closest('tr')!
+    const budgetInput = row.querySelector('input[type="number"]') as HTMLInputElement
+    await userEvent.fill(budgetInput, '1500')
+    await userEvent.click(screen.getByText('Budget Planning'))
+
+    await refetchStarted
+    // Refetch in flight: button stays disabled even though the mutation settled.
+    await expect.poll(() => (btn.element() as HTMLButtonElement).disabled).toBe(true)
+
+    // Release the refetch: fresh rows arrive, button re-enables.
+    releaseRefetch()
+    await expect.poll(() => (btn.element() as HTMLButtonElement).disabled).toBe(false)
+
+    await userEvent.click(btn)
+    expect(exporter).toHaveBeenCalledTimes(1)
+    const [exportedRows] = exporter.mock.calls[0]!
+    expect(exportedRows).toEqual([
+      budgetRow({ account_id: 1, account_name: 'Donations', budget_amount: 1500 }),
+    ])
+  })
+
+  it('shows an error toast and restores the button when export fails', async () => {
+    const exporter = vi.fn(async () => { throw new Error('export exploded') })
+    worker.use(
+      http.get('/api/settings', () =>
+        HttpResponse.json({ values: { fiscal_year_start: '1' } }),
+      ),
+      http.get('/api/budgets', () =>
+        HttpResponse.json({ rows: [budgetRow({ account_name: 'Donations' })] }),
+      ),
+    )
+
+    const screen = await renderWithProviders(<Budget budgetExporter={exporter} />)
+    const btn = screen.getByRole('button', { name: 'Export Excel' })
+    await expect.poll(() => (btn.element() as HTMLButtonElement).disabled).toBe(false)
+
+    await userEvent.click(btn)
+    await expect.element(screen.getByText('Failed to export budget.')).toBeVisible()
+    await expect.poll(() => (btn.element() as HTMLButtonElement).disabled).toBe(false)
+  })
+})

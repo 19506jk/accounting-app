@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 
 import {
   exportBalanceSheet,
+  exportBudget,
   exportContacts,
   exportDonorDetail,
   exportDonorSummary,
@@ -16,6 +17,7 @@ import type { ReportExportDependencies } from '../reportExports';
 import { REPORT_META, getReportMeta, getReportTypeOptions } from '../reportMetadata';
 
 import type {
+  AccountBudgetRow,
   BalanceSheetReportData,
   BalanceSheetReportFilters,
   ContactSummary,
@@ -263,6 +265,88 @@ describe('reportExports styled', () => {
     const totalsCell = ws.getCell(8, 1);
     expect(totalsCell.font?.bold).toBe(true);
     expect(totalsCell.border?.top?.style).toBe('thin');
+  }, 30_000);
+
+  it('exports budget workbook with fiscal summaries and account sections', async () => {
+    const rows: AccountBudgetRow[] = [
+      {
+        account_id: 1, account_code: '4000', account_name: 'Donations',
+        account_type: 'INCOME', budget_amount: 1000, actual_amount: 800,
+        prior_budget_amount: 900, prior_actual_amount: 850,
+      },
+      {
+        account_id: 2, account_code: '4200', account_name: 'Misc Income',
+        account_type: 'INCOME', budget_amount: 0, actual_amount: 0,
+        prior_budget_amount: 100, prior_actual_amount: 120,
+      },
+      {
+        account_id: 3, account_code: '5000', account_name: 'Rent',
+        account_type: 'EXPENSE', budget_amount: 600, actual_amount: 500,
+        prior_budget_amount: 550, prior_actual_amount: 520,
+      },
+    ];
+
+    await exportBudget(rows, { fiscalYear: 2026, from: '2026-01-01', to: '2026-12-31' }, fakeDeps);
+
+    expect(capturedFilename).toBe('budget_FY2026.xlsx');
+    expect(capturedWorkbook.worksheets.map((s: any) => s.name)).toEqual(['FY2026 Budget']);
+
+    const out = await sheetRows(capturedWorkbook, 'FY2026 Budget');
+
+    // Title + fiscal period metadata
+    expect(out[0]).toEqual(['FY2026 Budget', '', '', '', '', '']);
+    expect(out[1]).toEqual(['Period: 2026-01-01 to 2026-12-31', '', '', '', '', '']);
+
+    // Selected-FY summary — Budget / Actual / Difference / % (income: 800 − 1000),
+    // values in the AMT columns 3-6
+    expect(out).toContainEqual(['Total Income', '', 1000, 800, -200, '-20.0%']);
+    expect(out).toContainEqual(['Total Expenses', '', 600, 500, -100, '-16.7%']);
+    expect(out).toContainEqual(['Net', '', 400, 300, -100, '-25.0%']);
+
+    // Prior-FY summary — Budget / Actual / Difference only (income: 970 − 1000)
+    expect(out).toContainEqual(['Total Income', '', 1000, 970, -30, '']);
+    expect(out).toContainEqual(['Total Expenses', '', 550, 520, -30, '']);
+
+    // Account sections — code, name, prior actual, prior budget, prior diff, budget
+    expect(out).toContainEqual(['4000', 'Donations', 850, 900, -50, 1000]);
+    expect(out).toContainEqual(['4200', 'Misc Income', 120, 100, 20, 0]);
+    expect(out).toContainEqual(['5000', 'Rent', 520, 550, -30, 600]);
+
+    // Section totals — prior diff and selected-FY budget (page column order)
+    expect(out).toContainEqual(['Total Income', '', '', '', -30, 1000]);
+    expect(out).toContainEqual(['Total Expenses', '', '', '', -30, 600]);
+
+    const ws = capturedWorkbook.getWorksheet('FY2026 Budget');
+    const titleCell = ws.getCell(1, 1);
+    expect(titleCell.font?.name).toBe('Arial');
+    expect(titleCell.font?.size).toBe(14);
+    expect(titleCell.font?.bold).toBe(true);
+
+    const amountCell = ws.getCell(6, 3); // summary Total Income budget
+    expect(amountCell.numFmt).toBe('#,##0.00;(#,##0.00)');
+    expect(amountCell.alignment?.horizontal).toBe('right');
+
+    const netCell = ws.getCell(8, 1);
+    expect(netCell.font?.bold).toBe(true);
+    expect(netCell.border?.top?.style).toBe('medium');
+
+    expect(ws.getColumn(1).width).toBe(12);
+    expect(ws.getColumn(2).width).toBe(30);
+  }, 30_000);
+
+  it('shows an em dash for summary percentage when budget is zero', async () => {
+    const rows: AccountBudgetRow[] = [
+      {
+        account_id: 1, account_code: '4000', account_name: 'Donations',
+        account_type: 'INCOME', budget_amount: 0, actual_amount: 50,
+        prior_budget_amount: 0, prior_actual_amount: 0,
+      },
+    ];
+
+    await exportBudget(rows, { fiscalYear: 2026, from: '2026-01-01', to: '2026-12-31' }, fakeDeps);
+
+    const out = await sheetRows(capturedWorkbook, 'FY2026 Budget');
+    expect(out).toContainEqual(['Total Income', '', 0, 50, 50, '—']);
   }, 30_000);
 
   it('exports styled donor summary and donor detail with totals', async () => {

@@ -10,6 +10,7 @@ import {
   type XlsxValue,
 } from './excelExportHelper';
 import type {
+  AccountBudgetRow,
   BalanceSheetReportData,
   BalanceSheetReportFilters,
   ContactSummary,
@@ -248,6 +249,127 @@ export async function exportTrialBalance(
 
   const wb = await createWorkbook();
   addSheetToWorkbook(wb, meta.tabName, 4, cols, (b) => buildTrialBalanceSheet(b, data, filters), colWidths);
+
+  await deps.downloadWorkbook(wb, filename);
+}
+
+// ---------------------------------------------------------------------------
+// Budget Planning
+// ---------------------------------------------------------------------------
+
+export interface BudgetExportPeriod {
+  fiscalYear: number;
+  from: string;
+  to: string;
+}
+
+const BUDGET_COLUMN_WIDTHS = [12, 30, 14, 14, 14, 14];
+
+// Same signed-percentage string the Budget page renders; '—' when the budget
+// is zero (no meaningful percentage).
+const fmtBudgetPct = (budget: Decimal, actual: Decimal) => {
+  if (budget.isZero()) return '—';
+  const pct = actual.minus(budget).dividedBy(budget.abs()).times(100);
+  return `${pct.isPositive() ? '+' : pct.isNegative() ? '-' : ''}${pct.abs().toFixed(1)}%`;
+};
+
+type BudgetAmountCol = 'budget_amount' | 'actual_amount' | 'prior_budget_amount' | 'prior_actual_amount';
+
+// Monetary aggregation in Decimal; only final cell values are converted to
+// numbers, so sums and differences stay free of IEEE-754 artifacts.
+const sumBudgetCol = (rows: AccountBudgetRow[], col: BudgetAmountCol): Decimal =>
+  rows.reduce((sum, r) => sum.plus(dec(r[col])), new Decimal(0));
+
+function buildBudgetSheet(b: ReportSheetBuilder, rows: AccountBudgetRow[], period: BudgetExportPeriod): void {
+  const priorYear = period.fiscalYear - 1;
+  const income = rows.filter((r) => r.account_type === 'INCOME');
+  const expenses = rows.filter((r) => r.account_type === 'EXPENSE');
+
+  const incBudget = sumBudgetCol(income, 'budget_amount');
+  const incActual = sumBudgetCol(income, 'actual_amount');
+  const expBudget = sumBudgetCol(expenses, 'budget_amount');
+  const expActual = sumBudgetCol(expenses, 'actual_amount');
+  const incPriorBudget = sumBudgetCol(income, 'prior_budget_amount');
+  const incPriorActual = sumBudgetCol(income, 'prior_actual_amount');
+  const expPriorBudget = sumBudgetCol(expenses, 'prior_budget_amount');
+  const expPriorActual = sumBudgetCol(expenses, 'prior_actual_amount');
+  const netBudget = incBudget.minus(expBudget);
+  const netActual = incActual.minus(expActual);
+
+  b.title(`FY${period.fiscalYear} Budget`);
+  b.metadata(`Period: ${period.from} to ${period.to}`);
+  b.blankRow();
+
+  // Selected-FY summary — Budget / Actual / Difference / % in the AMT columns
+  // (3-6) so values get accounting format and right alignment.
+  b.headerRow(['', '', 'Budget', 'Actual', 'Difference', '%']);
+  b.sectionHeader(`FY${period.fiscalYear} Summary`);
+  b.dataRow(['Total Income', '', incBudget.toNumber(), incActual.toNumber(), incActual.minus(incBudget).toNumber(), fmtBudgetPct(incBudget, incActual)]);
+  b.dataRow(['Total Expenses', '', expBudget.toNumber(), expActual.toNumber(), expActual.minus(expBudget).toNumber(), fmtBudgetPct(expBudget, expActual)]);
+  b.totalRow(
+    [
+      'Net',
+      '',
+      netBudget.toNumber(),
+      netActual.toNumber(),
+      netActual.minus(netBudget).toNumber(),
+      fmtBudgetPct(netBudget, netActual),
+    ],
+    { grandTotal: true },
+  );
+
+  // Prior-FY summary — Budget / Actual / Difference only (no Net, no %)
+  b.blankRow();
+  b.sectionHeader(`FY${priorYear} (Prior Year)`);
+  b.headerRow(['', '', 'Budget', 'Actual', 'Difference']);
+  b.dataRow(['Total Income', '', incPriorBudget.toNumber(), incPriorActual.toNumber(), incPriorActual.minus(incPriorBudget).toNumber()]);
+  b.dataRow(['Total Expenses', '', expPriorBudget.toNumber(), expPriorActual.toNumber(), expPriorActual.minus(expPriorBudget).toNumber()]);
+
+  // Account sections — same columns as the page table
+  b.blankRow();
+  b.headerRow([
+    'Code', 'Account Name',
+    `FY${priorYear} Actual`, `FY${priorYear} Budget`, `FY${priorYear} Difference`,
+    `FY${period.fiscalYear} Budget`,
+  ]);
+
+  if (income.length > 0) {
+    b.sectionHeader('Income');
+    income.forEach((r) =>
+      b.dataRow([
+        r.account_code, r.account_name,
+        r.prior_actual_amount, r.prior_budget_amount,
+        dec(r.prior_actual_amount).minus(r.prior_budget_amount).toNumber(),
+        r.budget_amount,
+      ]),
+    );
+    b.totalRow(['Total Income', '', '', '', incPriorActual.minus(incPriorBudget).toNumber(), incBudget.toNumber()]);
+  }
+
+  if (expenses.length > 0) {
+    b.sectionHeader('Expenses');
+    expenses.forEach((r) =>
+      b.dataRow([
+        r.account_code, r.account_name,
+        r.prior_actual_amount, r.prior_budget_amount,
+        dec(r.prior_actual_amount).minus(r.prior_budget_amount).toNumber(),
+        r.budget_amount,
+      ]),
+    );
+    b.totalRow(['Total Expenses', '', '', '', expPriorActual.minus(expPriorBudget).toNumber(), expBudget.toNumber()]);
+  }
+}
+
+export async function exportBudget(
+  rows: AccountBudgetRow[],
+  period: BudgetExportPeriod,
+  deps: ReportExportDependencies = { downloadWorkbook },
+): Promise<void> {
+  const cols: (ColumnConfig | null)[] = [TXT, TXT, AMT, AMT, AMT, AMT];
+  const filename = `budget_FY${period.fiscalYear}.xlsx`;
+
+  const wb = await createWorkbook();
+  addSheetToWorkbook(wb, `FY${period.fiscalYear} Budget`, 6, cols, (b) => buildBudgetSheet(b, rows, period), BUDGET_COLUMN_WIDTHS);
 
   await deps.downloadWorkbook(wb, filename);
 }

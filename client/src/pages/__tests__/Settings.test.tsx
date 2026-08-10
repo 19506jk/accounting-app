@@ -21,7 +21,7 @@ const PNG_BASE64 =
 const PNG_DATA_URI = `data:image/png;base64,${PNG_BASE64}`
 const LEGACY_URL = 'https://old.example.com/signature.png'
 
-function pngBytes(): Uint8Array {
+function pngBytes(): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(PNG_BASE64), (char) => char.charCodeAt(0))
 }
 
