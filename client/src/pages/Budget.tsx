@@ -51,6 +51,9 @@ function BudgetRow({
       <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontSize: '0.875rem', fontFamily: 'monospace', color: varianceColor(row.account_type, row.prior_budget_amount, row.prior_actual_amount) }}>
         {fmtDiff(row.prior_budget_amount, row.prior_actual_amount)}
       </td>
+      <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontSize: '0.875rem', fontFamily: 'monospace', color: varianceColor(row.account_type, row.prior_budget_amount, row.prior_actual_amount) }}>
+        {fmtPct(row.prior_budget_amount, row.prior_actual_amount)}
+      </td>
       <td style={{ padding: '0.4rem 0.75rem', textAlign: 'right' }}>
         <input
           type="number"
@@ -85,6 +88,9 @@ function TotalsRow({ label, rows, col }: { label: string; rows: AccountBudgetRow
       <td />
       <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontSize: '0.875rem', fontFamily: 'monospace', color: varianceColor(type, priorBudget, priorActual) }}>
         {fmtDiff(priorBudget, priorActual)}
+      </td>
+      <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontSize: '0.875rem', fontFamily: 'monospace', color: varianceColor(type, priorBudget, priorActual) }}>
+        {fmtPct(priorBudget, priorActual)}
       </td>
       <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontSize: '0.875rem', fontFamily: 'monospace' }}>
         {fmt(total)}
@@ -395,6 +401,7 @@ export default function Budget({ budgetExporter = exportBudget }: BudgetProps = 
                 <th style={{ ...TH_STYLE, textAlign: 'right' }}>FY{priorYear} Actual</th>
                 <th style={{ ...TH_STYLE, textAlign: 'right' }}>FY{priorYear} Budget</th>
                 <th style={{ ...TH_STYLE, textAlign: 'right' }}>FY{priorYear} Difference</th>
+                <th style={{ ...TH_STYLE, textAlign: 'right' }}>FY{priorYear} Difference %</th>
                 <th style={{ ...TH_STYLE, textAlign: 'right' }}>FY{selectedYear} Budget</th>
               </tr>
             </thead>
@@ -402,7 +409,7 @@ export default function Budget({ budgetExporter = exportBudget }: BudgetProps = 
               {incomeRows.length > 0 && (
                 <>
                   <tr>
-                    <td colSpan={6} style={GROUP_HEADER_STYLE}>Income</td>
+                    <td colSpan={7} style={GROUP_HEADER_STYLE}>Income</td>
                   </tr>
                   {incomeRows.map((row) => (
                     <BudgetRow key={row.account_id} row={row} fiscalYear={selectedYear} onSave={handleSave} />
@@ -413,7 +420,7 @@ export default function Budget({ budgetExporter = exportBudget }: BudgetProps = 
               {expenseRows.length > 0 && (
                 <>
                   <tr>
-                    <td colSpan={6} style={GROUP_HEADER_STYLE}>Expenses</td>
+                    <td colSpan={7} style={GROUP_HEADER_STYLE}>Expenses</td>
                   </tr>
                   {expenseRows.map((row) => (
                     <BudgetRow key={row.account_id} row={row} fiscalYear={selectedYear} onSave={handleSave} />

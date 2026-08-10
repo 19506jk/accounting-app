@@ -100,6 +100,8 @@ describe('Budget fiscal year picker', () => {
               prior_budget_amount: 550,
               prior_actual_amount: 520,
             }),
+            // Zero prior budget — adds nothing to the totals and its % cell renders '—'.
+            budgetRow({ account_id: 3, account_name: 'Misc', account_type: 'INCOME' }),
           ],
         }),
       ),
@@ -128,7 +130,8 @@ describe('Budget fiscal year picker', () => {
     await expect.element(screen.getByText('$520.00').first()).toBeVisible() // prior expense actual
 
     // Prior-FY difference column header.
-    await expect.element(screen.getByText(`FY${fy - 1} Difference`)).toBeVisible()
+    await expect.element(screen.getByText(`FY${fy - 1} Difference`, { exact: true })).toBeVisible()
+    await expect.element(screen.getByText(`FY${fy - 1} Difference %`, { exact: true })).toBeVisible()
 
     // Prior-summary rows, scoped below the 'FY{p} (Prior Year)' group header —
     // .first()/text-matching alone couldn't tell the summary cells apart from
@@ -153,9 +156,16 @@ describe('Budget fiscal year picker', () => {
     expect(screen.getByText('Donations').element().closest('tr')!.textContent).toContain('-$50.00')
     expect(screen.getByText('Rent').element().closest('tr')!.textContent).toContain('-$30.00')
 
+    // Account-level prior-FY percentages (zero prior budget renders an em dash).
+    expect(screen.getByText('Donations').element().closest('tr')!.textContent).toContain('-5.6%')
+    expect(screen.getByText('Rent').element().closest('tr')!.textContent).toContain('-5.5%')
+    expect(screen.getByText('Misc').element().closest('tr')!.textContent).toContain('—')
+
     // Group totals (the summary panel renders its 'Total Income' label first → .last()).
     expect(screen.getByText('Total Income').last().element().closest('tr')!.textContent).toContain('-$50.00')
     expect(screen.getByText('Total Expenses').last().element().closest('tr')!.textContent).toContain('-$30.00')
+    expect(screen.getByText('Total Income').last().element().closest('tr')!.textContent).toContain('-5.6%')
+    expect(screen.getByText('Total Expenses').last().element().closest('tr')!.textContent).toContain('-5.5%')
   })
 
   it('keeps a manually-jumped year in the dropdown and refetches it', async () => {
