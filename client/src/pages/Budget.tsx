@@ -224,8 +224,9 @@ function SummaryPanel({
           <tr>
             <td colSpan={5} style={{ ...SUM_GROUP, borderTop: '2px solid #e2e8f0' }}>FY{priorYear} (Prior Year)</td>
           </tr>
-          <SummaryRow label="Total Income" type="INCOME" budget={incPriorBudget} actual={incPriorActual} showDiff showPct={false} />
-          <SummaryRow label="Total Expenses" type="EXPENSE" budget={expPriorBudget} actual={expPriorActual} showDiff showPct={false} />
+          <SummaryRow label="Total Income" type="INCOME" budget={incPriorBudget} actual={incPriorActual} showDiff showPct />
+          <SummaryRow label="Total Expenses" type="EXPENSE" budget={expPriorBudget} actual={expPriorActual} showDiff showPct />
+          <SummaryRow label="Net" type="NET" budget={incPriorBudget - expPriorBudget} actual={incPriorActual - expPriorActual} showDiff showPct bold />
         </tbody>
       </table>
     </div>

@@ -140,9 +140,14 @@ describe('Budget fiscal year picker', () => {
     )
     // Each SummaryRow renders [label, budget, actual, difference, %] cells.
     expect(priorSection[0]!.children[3]!.textContent).toBe('-$50.00') // prior income diff: 850 − 900
-    expect(priorSection[0]!.children[4]!.textContent).toBe('—')       // prior income %
+    expect(priorSection[0]!.children[4]!.textContent).toBe('-5.6%')   // prior income %: (850−900)/900
     expect(priorSection[1]!.children[3]!.textContent).toBe('-$30.00') // prior expense diff: 520 − 550
-    expect(priorSection[1]!.children[4]!.textContent).toBe('—')       // prior expense %
+    expect(priorSection[1]!.children[4]!.textContent).toBe('-5.5%')   // prior expense %: (520−550)/550
+    // Prior-year Net row: income − expenses for both budget and actual.
+    expect(priorSection[2]!.children[1]!.textContent).toBe('$350.00') // net budget: 900 − 550
+    expect(priorSection[2]!.children[2]!.textContent).toBe('$330.00') // net actual: 850 − 520
+    expect(priorSection[2]!.children[3]!.textContent).toBe('-$20.00') // net diff: 330 − 350
+    expect(priorSection[2]!.children[4]!.textContent).toBe('-5.7%')   // net %: (330−350)/350
 
     // Account-level differences, scoped to their rows via unique account names.
     expect(screen.getByText('Donations').element().closest('tr')!.textContent).toContain('-$50.00')
