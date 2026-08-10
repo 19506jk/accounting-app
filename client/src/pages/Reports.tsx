@@ -14,7 +14,6 @@ import Card    from '../components/ui/Card';
 import Button  from '../components/ui/Button';
 import Select  from '../components/ui/Select';
 import Combobox from '../components/ui/Combobox';
-import MultiSelectCombobox from '../components/ui/MultiSelectCombobox';
 import DateRangePicker from '../components/ui/DateRangePicker';
 import HardCloseWizard from './HardClose';
 import { currentMonthRange, getChurchToday } from '../utils/date';
@@ -48,7 +47,6 @@ import type {
   ReportType,
   TrialBalanceReportFilters,
 } from '@shared/contracts';
-import type { OptionValue } from '../components/ui/types';
 import { getReportMeta, getReportTypeOptions } from './reports/reportMetadata';
 
 const REPORT_TYPES = getReportTypeOptions();
@@ -66,7 +64,7 @@ export default function Reports({
   const [fundId,  setFundId]  = useState('');
   const [acctId,  setAcctId]  = useState('');
   const [ctcId,   setCtcId]   = useState('');
-  const [donorAcctIds, setDonorAcctIds] = useState<OptionValue[]>([]);
+  const [donorAcctIds, setDonorAcctIds] = useState<number[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [hardCloseOpen, setHardCloseOpen] = useState(false);
   const [exportingType, setExportingType] = useState<'single' | 'financial' | null>(null);
@@ -82,7 +80,7 @@ export default function Reports({
   const accountOptions = [{ value: '', label: 'All Accounts' }, ...(accounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))];
   const incomeAccountOptions = (incomeAccounts || []).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
   const contactOptions = [{ value: '', label: 'All Donors' }, ...(contacts || []).map((c) => ({ value: c.id, label: c.name }))];
-  const sortedAcctIds = [...donorAcctIds].sort((a, b) => Number(a) - Number(b));
+  const sortedAcctIds = [...donorAcctIds].sort((a, b) => a - b);
   const acctIdsParam = sortedAcctIds.length ? sortedAcctIds.join(',') : undefined;
 
   const plFilters: PLReportFilters = { from: range.from, to: range.to, fund_id: fundId || undefined };
@@ -257,12 +255,16 @@ export default function Reports({
               onChange={(e) => { setFundId(e.target.value); setEnabled(false); }}
               options={fundOptions} style={{ minWidth: '180px' }} />
             {(type === 'donors-summary' || type === 'donors-detail') && (
-              <MultiSelectCombobox
+              <Select
+                multiple
+                size={6}
                 label="Income Accounts"
                 options={incomeAccountOptions}
-                value={donorAcctIds}
-                onChange={(ids) => { setDonorAcctIds(ids); setEnabled(false); }}
-                placeholder="All Accounts"
+                value={donorAcctIds.map(String)}
+                onChange={(event) => {
+                  setDonorAcctIds(Array.from(event.currentTarget.selectedOptions, (option) => Number(option.value)))
+                  setEnabled(false)
+                }}
                 style={{ minWidth: '240px' }}
               />
             )}

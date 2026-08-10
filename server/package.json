@@ -59,7 +59,6 @@
     "@types/node": "^24.5.2",
     "@types/react": "^18.3.28",
     "@vitest/coverage-v8": "catalog:",
-    "nodemon": "^3.1.4",
     "tsx": "^4.20.5",
     "typescript": "catalog:",
     "vitest": "catalog:"

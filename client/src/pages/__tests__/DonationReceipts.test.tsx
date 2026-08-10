@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
+import { userEvent } from 'vitest/browser'
 import { http, HttpResponse } from 'msw'
 
 import { worker } from '../../test/msw/browser'
@@ -37,8 +38,7 @@ function seedDefaults() {
 }
 
 async function selectDonationsAccount(screen: Awaited<ReturnType<typeof renderWithProviders>>) {
-  await screen.getByText('Select income accounts').click()
-  await screen.getByText('4100 — Donations ($40.00)').click()
+  await userEvent.selectOptions(screen.getByLabelText('Income Accounts'), '3')
 }
 
 describe('DonationReceipts', () => {

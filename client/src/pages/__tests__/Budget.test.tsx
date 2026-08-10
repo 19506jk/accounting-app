@@ -84,6 +84,7 @@ describe('Budget fiscal year picker', () => {
           rows: [
             budgetRow({
               account_id: 1,
+              account_name: 'Donations',
               account_type: 'INCOME',
               budget_amount: 1000,
               actual_amount: 800,
@@ -92,6 +93,7 @@ describe('Budget fiscal year picker', () => {
             }),
             budgetRow({
               account_id: 2,
+              account_name: 'Rent',
               account_type: 'EXPENSE',
               budget_amount: 600,
               actual_amount: 500,
@@ -124,6 +126,31 @@ describe('Budget fiscal year picker', () => {
     await expect.element(screen.getByText('$850.00').first()).toBeVisible() // prior income actual
     await expect.element(screen.getByText('$550.00').first()).toBeVisible() // prior expense budget
     await expect.element(screen.getByText('$520.00').first()).toBeVisible() // prior expense actual
+
+    // Prior-FY difference column header.
+    await expect.element(screen.getByText(`FY${fy - 1} Difference`)).toBeVisible()
+
+    // Prior-summary rows, scoped below the 'FY{p} (Prior Year)' group header —
+    // .first()/text-matching alone couldn't tell the summary cells apart from
+    // the identical values in the account and totals rows.
+    const priorTable = screen.getByText(`FY${fy - 1} (Prior Year)`).element().closest('table')!
+    const tbodyRows = Array.from(priorTable.querySelectorAll('tbody tr'))
+    const priorSection = tbodyRows.slice(
+      tbodyRows.indexOf(screen.getByText(`FY${fy - 1} (Prior Year)`).element().closest('tr')!) + 1,
+    )
+    // Each SummaryRow renders [label, budget, actual, difference, %] cells.
+    expect(priorSection[0]!.children[3]!.textContent).toBe('-$50.00') // prior income diff: 850 − 900
+    expect(priorSection[0]!.children[4]!.textContent).toBe('—')       // prior income %
+    expect(priorSection[1]!.children[3]!.textContent).toBe('-$30.00') // prior expense diff: 520 − 550
+    expect(priorSection[1]!.children[4]!.textContent).toBe('—')       // prior expense %
+
+    // Account-level differences, scoped to their rows via unique account names.
+    expect(screen.getByText('Donations').element().closest('tr')!.textContent).toContain('-$50.00')
+    expect(screen.getByText('Rent').element().closest('tr')!.textContent).toContain('-$30.00')
+
+    // Group totals (the summary panel renders its 'Total Income' label first → .last()).
+    expect(screen.getByText('Total Income').last().element().closest('tr')!.textContent).toContain('-$50.00')
+    expect(screen.getByText('Total Expenses').last().element().closest('tr')!.textContent).toContain('-$30.00')
   })
 
   it('keeps a manually-jumped year in the dropdown and refetches it', async () => {

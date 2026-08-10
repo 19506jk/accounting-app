@@ -10,10 +10,8 @@ import { useSettings } from '../api/useSettings'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Select from '../components/ui/Select'
-import MultiSelectCombobox from '../components/ui/MultiSelectCombobox'
 import { getErrorMessage } from '../utils/errors'
 import { getCurrentFiscalYear } from '../utils/fiscalYear'
-import type { OptionValue } from '../components/ui/types'
 
 type ReceiptStatusType = 'success' | 'warning' | 'error' | null
 
@@ -135,7 +133,7 @@ export default function DonationReceipts() {
   const currentFiscalYear = getCurrentFiscalYear(fiscalStartMonth)
 
   const [fiscalYear, setFiscalYear] = useState(currentFiscalYear)
-  const [accountIds, setAccountIds] = useState<OptionValue[]>([])
+  const [accountIds, setAccountIds] = useState<number[]>([])
   const [htmlBody, setHtmlBody] = useState('')
   const [status, setStatus] = useState<{ message: string; type: ReceiptStatusType }>({ message: '', type: null })
 
@@ -161,10 +159,7 @@ export default function DonationReceipts() {
 
   const accounts = accountsQuery.data?.accounts || []
   const selectedAccounts = new Set(accountIds)
-  const numericAccountIds = useMemo(
-    () => accountIds.filter((id): id is number => typeof id === 'number'),
-    [accountIds]
-  )
+  const numericAccountIds = accountIds
   const accountOptions = accounts.map((account) => ({
     value: account.id,
     label: `${account.code} — ${account.name} (${fmt(account.total)})`,
@@ -255,15 +250,16 @@ export default function DonationReceipts() {
 
       <Card style={{ marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'end', marginBottom: '0.75rem' }}>
-          <MultiSelectCombobox
+          <Select
+            multiple
+            size={6}
             label="Income Accounts"
             options={accountOptions}
-            value={accountIds}
-            onChange={(ids) => {
-              setAccountIds(ids)
+            value={accountIds.map(String)}
+            onChange={(event) => {
+              setAccountIds(Array.from(event.currentTarget.selectedOptions, (option) => Number(option.value)))
               previewReceipt.reset()
             }}
-            placeholder="Select income accounts"
             disabled={accountsQuery.isLoading}
             style={{ flex: 1 }}
           />

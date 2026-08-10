@@ -43,6 +43,9 @@ function BudgetRow({
       <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontSize: '0.875rem', color: '#374151' }}>
         {fmt(row.prior_budget_amount)}
       </td>
+      <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontSize: '0.875rem', fontFamily: 'monospace', color: varianceColor(row.account_type, row.prior_budget_amount, row.prior_actual_amount) }}>
+        {fmtDiff(row.prior_budget_amount, row.prior_actual_amount)}
+      </td>
       <td style={{ padding: '0.4rem 0.75rem', textAlign: 'right' }}>
         <input
           type="number"
@@ -67,11 +70,17 @@ function BudgetRow({
 
 function TotalsRow({ label, rows, col }: { label: string; rows: AccountBudgetRow[]; col: keyof AccountBudgetRow }) {
   const total = rows.reduce((sum, r) => sum + (r[col] as number), 0)
+  const priorBudget = sumCol(rows, 'prior_budget_amount')
+  const priorActual = sumCol(rows, 'prior_actual_amount')
+  const type = rows[0]?.account_type ?? 'EXPENSE'
   return (
     <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc', fontWeight: 600 }}>
       <td colSpan={2} style={{ padding: '0.6rem 0.75rem', fontSize: '0.875rem' }}>{label}</td>
       <td />
       <td />
+      <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontSize: '0.875rem', fontFamily: 'monospace', color: varianceColor(type, priorBudget, priorActual) }}>
+        {fmtDiff(priorBudget, priorActual)}
+      </td>
       <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontSize: '0.875rem', fontFamily: 'monospace' }}>
         {fmt(total)}
       </td>
@@ -137,14 +146,16 @@ function SummaryRow({
   type,
   budget,
   actual,
-  showVariance,
+  showDiff,
+  showPct,
   bold,
 }: {
   label: string
   type: 'INCOME' | 'EXPENSE' | 'NET'
   budget: number
   actual: number
-  showVariance: boolean
+  showDiff: boolean
+  showPct: boolean
   bold?: boolean
 }) {
   const weight = bold ? 700 : 400
@@ -154,11 +165,11 @@ function SummaryRow({
       <td style={{ padding: '0.45rem 0.75rem', fontSize: '0.82rem', fontWeight: bold ? 700 : 600, color: '#0f172a' }}>{label}</td>
       <td style={{ ...SUM_TD, fontWeight: weight }}>{fmt(budget)}</td>
       <td style={{ ...SUM_TD, fontWeight: weight }}>{fmt(actual)}</td>
-      <td style={{ ...SUM_TD, fontWeight: weight, color: showVariance ? color : '#9ca3af' }}>
-        {showVariance ? fmtDiff(budget, actual) : '—'}
+      <td style={{ ...SUM_TD, fontWeight: weight, color: showDiff ? color : '#9ca3af' }}>
+        {showDiff ? fmtDiff(budget, actual) : '—'}
       </td>
-      <td style={{ ...SUM_TD, fontWeight: weight, color: showVariance ? color : '#9ca3af' }}>
-        {showVariance ? fmtPct(budget, actual) : '—'}
+      <td style={{ ...SUM_TD, fontWeight: weight, color: showPct ? color : '#9ca3af' }}>
+        {showPct ? fmtPct(budget, actual) : '—'}
       </td>
     </tr>
   )
@@ -201,15 +212,15 @@ function SummaryPanel({
           <tr>
             <td colSpan={5} style={SUM_GROUP}>FY{selectedYear} Summary</td>
           </tr>
-          <SummaryRow label="Total Income" type="INCOME" budget={incBudget} actual={incActual} showVariance />
-          <SummaryRow label="Total Expenses" type="EXPENSE" budget={expBudget} actual={expActual} showVariance />
-          <SummaryRow label="Net" type="NET" budget={incBudget - expBudget} actual={incActual - expActual} showVariance bold />
+          <SummaryRow label="Total Income" type="INCOME" budget={incBudget} actual={incActual} showDiff showPct />
+          <SummaryRow label="Total Expenses" type="EXPENSE" budget={expBudget} actual={expActual} showDiff showPct />
+          <SummaryRow label="Net" type="NET" budget={incBudget - expBudget} actual={incActual - expActual} showDiff showPct bold />
 
           <tr>
             <td colSpan={5} style={{ ...SUM_GROUP, borderTop: '2px solid #e2e8f0' }}>FY{priorYear} (Prior Year)</td>
           </tr>
-          <SummaryRow label="Total Income" type="INCOME" budget={incPriorBudget} actual={incPriorActual} showVariance={false} />
-          <SummaryRow label="Total Expenses" type="EXPENSE" budget={expPriorBudget} actual={expPriorActual} showVariance={false} />
+          <SummaryRow label="Total Income" type="INCOME" budget={incPriorBudget} actual={incPriorActual} showDiff showPct={false} />
+          <SummaryRow label="Total Expenses" type="EXPENSE" budget={expPriorBudget} actual={expPriorActual} showDiff showPct={false} />
         </tbody>
       </table>
     </div>
@@ -345,6 +356,7 @@ export default function Budget() {
                 <th style={TH_STYLE}>Account Name</th>
                 <th style={{ ...TH_STYLE, textAlign: 'right' }}>FY{priorYear} Actual</th>
                 <th style={{ ...TH_STYLE, textAlign: 'right' }}>FY{priorYear} Budget</th>
+                <th style={{ ...TH_STYLE, textAlign: 'right' }}>FY{priorYear} Difference</th>
                 <th style={{ ...TH_STYLE, textAlign: 'right' }}>FY{selectedYear} Budget</th>
               </tr>
             </thead>
@@ -352,7 +364,7 @@ export default function Budget() {
               {incomeRows.length > 0 && (
                 <>
                   <tr>
-                    <td colSpan={5} style={GROUP_HEADER_STYLE}>Income</td>
+                    <td colSpan={6} style={GROUP_HEADER_STYLE}>Income</td>
                   </tr>
                   {incomeRows.map((row) => (
                     <BudgetRow key={row.account_id} row={row} fiscalYear={selectedYear} onSave={handleSave} />
@@ -363,7 +375,7 @@ export default function Budget() {
               {expenseRows.length > 0 && (
                 <>
                   <tr>
-                    <td colSpan={5} style={GROUP_HEADER_STYLE}>Expenses</td>
+                    <td colSpan={6} style={GROUP_HEADER_STYLE}>Expenses</td>
                   </tr>
                   {expenseRows.map((row) => (
                     <BudgetRow key={row.account_id} row={row} fiscalYear={selectedYear} onSave={handleSave} />
