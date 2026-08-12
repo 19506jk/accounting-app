@@ -20,9 +20,11 @@ import {
 } from '../services/donationReceipts.js';
 
 const auth = require('../middleware/auth.js');
+const requireRole = require('../middleware/roles.js');
 
 const router = express.Router();
 router.use(auth);
+router.use(requireRole('admin'));
 
 interface AccountsQuery {
   fiscal_year?: string;

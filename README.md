@@ -159,6 +159,9 @@ Use the `.env.example` files as the source of truth. Do not commit `.env` files 
 
 See [docs/testing.md](docs/testing.md) for the project testing notes.
 
+For end-user instructions in Simplified Chinese, see
+[Church Accounting 新用户指南](docs/user-guide.zh-CN.md).
+
 Server checks run from `server/`:
 
 ```bash

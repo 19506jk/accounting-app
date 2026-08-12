@@ -99,7 +99,7 @@ beforeAll(async () => {
       mountPath: '/api/donation-receipts',
       probePath: '/preview',
       method: 'POST',
-      role: 'editor',
+      role: 'admin',
       body: { fiscal_year: 'bad-year', account_ids: [1] },
       expectedStatus: 400,
       expectedBody: { error: 'fiscal_year must be a valid year' },

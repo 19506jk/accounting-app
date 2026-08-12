@@ -53,7 +53,7 @@ afterEach(async () => {
 async function requestRoute({
   probePath,
   method,
-  role = 'viewer',
+  role = 'admin',
   body,
 }: {
   probePath: string;
@@ -250,7 +250,6 @@ describe('direct DB donation-receipts integration smoke checks', () => {
     const preview = await requestRoute({
       probePath: '/preview',
       method: 'POST',
-      role: 'editor',
       body: {
         fiscal_year: fixture.fiscalYear,
         account_ids: [fixture.incomeAccount.id],
@@ -273,7 +272,6 @@ describe('direct DB donation-receipts integration smoke checks', () => {
     const rejected = await requestRoute({
       probePath: '/preview',
       method: 'POST',
-      role: 'editor',
       body: {
         fiscal_year: Number(todayDateOnly().slice(0, 4)),
         account_ids: [999999999],

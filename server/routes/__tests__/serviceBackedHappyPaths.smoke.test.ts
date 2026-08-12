@@ -236,7 +236,7 @@ describe('service-backed happy path smoke checks', () => {
       probePath: '/template',
       method: 'GET',
       router: donationReceiptsRouter,
-      role: 'viewer',
+      role: 'admin',
     });
 
     expect(res.status).toBe(200);
@@ -254,12 +254,26 @@ describe('service-backed happy path smoke checks', () => {
       probePath: '/preview',
       method: 'POST',
       router: donationReceiptsRouter,
-      role: 'editor',
+      role: 'admin',
       body: payload,
     });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(preview);
     expect(donationReceiptServiceMocks.previewReceipt).toHaveBeenCalledWith(2025, [1, 2], '<p>preview body</p>');
+  });
+
+  it('rejects editor access to donation receipts', async () => {
+    const res = await requestRoute({
+      mountPath: '/api/donation-receipts',
+      probePath: '/template',
+      method: 'GET',
+      router: donationReceiptsRouter,
+      role: 'editor',
+    });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Access denied — requires role: admin' });
+    expect(donationReceiptServiceMocks.getReceiptTemplate).not.toHaveBeenCalled();
   });
 });
